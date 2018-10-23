@@ -6,6 +6,7 @@ authors = ["Peter Jin <peterhaijin@gmail.com>"]
 [lib]
 name = "hebb"
 path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
 
 [features]
 default = []

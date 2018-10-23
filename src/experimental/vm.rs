@@ -1,9 +1,15 @@
+use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap};
 use std::rc::{Rc};
 
 #[derive(Clone, Default)]
 pub struct MStack {
   pub vals: Vec<MValue>,
+}
+
+#[derive(Clone, Default)]
+pub struct MTmpStack {
+  pub vals: Vec<MUnboxedValue>,
 }
 
 #[derive(Clone)]
@@ -34,12 +40,49 @@ pub struct MProgram {
 }
 
 #[derive(Clone)]
+pub enum MBoxedValue {
+  Closure(MClosureRef),
+  Thunk(MThunkRef),
+}
+
+impl MBoxedValue {
+  pub fn into_unboxed(self) -> MUnboxedValue {
+    match self {
+      MBoxedValue::Closure(closure) => MUnboxedValue::Closure(closure),
+      MBoxedValue::Thunk(thunk) => MUnboxedValue::Thunk(thunk),
+    }
+  }
+}
+
+#[derive(Clone)]
+pub enum MUnboxedValue {
+  Addr(MProgramAddr),
+  Data(MData),
+  IndexEnv(MIndexEnv),
+  Closure(MClosureRef),
+  //RClosure(MRClosure),
+  Thunk(MThunkRef),
+}
+
+impl MUnboxedValue {
+  pub fn into_boxed(self) -> MBoxedValue {
+    match self {
+      MUnboxedValue::Closure(closure) => MBoxedValue::Closure(closure),
+      MUnboxedValue::Thunk(thunk) => MBoxedValue::Thunk(thunk),
+      _ => panic!("cannot box this unboxed value"),
+    }
+  }
+}
+
+#[derive(Clone)]
 pub enum MValue {
   Data(MData),
   Thunk(MThunk),
   Env(MEnv),
   Index(usize),
   Closure(MClosure),
+  ClosureRef(MClosureRef),
+  ThunkRef(MThunkRef),
   IndexEnv(MIndexEnv),
   CodeAddr(MProgramAddr),
 }
@@ -102,6 +145,91 @@ pub struct MClosure {
 }
 
 #[derive(Clone)]
+pub struct MClosureRef {
+  pub code: MClosureCode,
+  pub env:  MIndexEnv,
+}
+
+//#[derive(Clone, Copy)]
+pub enum MThunkStatus {
+  Empty,
+  BlackHole,
+  Unbox,
+}
+
+pub enum MThunkPayload {
+  Empty,
+  BlackHole,
+  Unbox(MUnboxedValue),
+}
+
+#[derive(Clone)]
+pub struct MThunkRef {
+  pub code: MClosureCode,
+  pub env:  MIndexEnv,
+  pub ret:  Rc<RefCell<MThunkPayload>>,
+}
+
+impl MThunkRef {
+  pub fn status(&self) -> MThunkStatus {
+    match &*self.ret.borrow() {
+      &MThunkPayload::Empty => MThunkStatus::Empty,
+      &MThunkPayload::BlackHole => MThunkStatus::BlackHole,
+      &MThunkPayload::Unbox(_) => MThunkStatus::Unbox,
+    }
+  }
+
+  pub fn force_reset(&self) {
+    RefMut::map(self.ret.borrow_mut(), |payload| {
+      match payload {
+        &mut MThunkPayload::Empty => {}
+        &mut MThunkPayload::BlackHole => {
+          panic!();
+        }
+        &mut MThunkPayload::Unbox(_) => {
+          *payload = MThunkPayload::Empty;
+        }
+      }
+      payload
+    });
+  }
+
+  pub fn force_blackhole(&self) {
+    RefMut::map(self.ret.borrow_mut(), |payload| {
+      match payload {
+        &mut MThunkPayload::Empty => {
+          *payload = MThunkPayload::BlackHole;
+        }
+        &mut MThunkPayload::BlackHole => {
+          panic!("thunk already in blackhole state");
+        }
+        &mut MThunkPayload::Unbox(_) => {
+          panic!();
+        }
+      }
+      payload
+    });
+  }
+
+  pub fn force_update(&self, new_value: MUnboxedValue) {
+    RefMut::map(self.ret.borrow_mut(), |payload| {
+      match payload {
+        &mut MThunkPayload::Empty => {
+          panic!("attempting to force update an empty thunk");
+        }
+        &mut MThunkPayload::BlackHole => {
+          *payload = MThunkPayload::Unbox(new_value);
+        }
+        &mut MThunkPayload::Unbox(_) => {
+          panic!("attempting to force update a full thunk");
+        }
+      }
+      payload
+    });
+  }
+}
+
+#[derive(Clone)]
 pub struct MThunk {
   // TODO
   pub closure:  MClosure,
@@ -121,7 +249,7 @@ pub struct MEnv {
 
 #[derive(Clone, Default)]
 pub struct MIndexEnv {
-  pub vals: Vec<MValue>,
+  pub vals: Vec<MBoxedValue>,
 }
 
 #[derive(Clone)]
@@ -137,15 +265,17 @@ pub enum MInst {
   Put(MIdent),
   Push,
   Swap,
-  Fetch(usize),
+  Lookup(usize),
   Bind,
   Unbind,
   Quote(f32),
   Close(MProgramAddr),
   CloseOp(MOpDef),
-  //EvalThunk(usize),
-  //RetcThunk,
-  //UpdateThunk,
+  Closure(MProgramAddr),
+  RClosure(MProgramAddr),
+  Thunk(MProgramAddr),
+  Update0,
+  Eval0,
   Apply0,
   Apply1,
   Apply2,
@@ -164,19 +294,33 @@ pub struct MStepFlags {
 
 pub struct Machine {
   pub register: MValue,
-  pub env:      MIndexEnv,
+  pub env:      MEnv,
+  pub ienv:     MIndexEnv,
   pub stack:    MStack,
+  pub tmpstack: MTmpStack,
   pub program:  MProgram,
   pub pc:       MProgramAddr,
   pub done:     bool,
+}
+
+#[no_mangle]
+pub extern "C" fn hebb_machine_new() -> *mut Machine {
+  Box::into_raw(Box::new(Machine::new()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hebb_machine_drop(mach: *mut Machine) {
+  let _mach = Box::from_raw(mach);
 }
 
 impl Machine {
   pub fn new() -> Machine {
     Machine{
       register: MValue::Env(MEnv::default()),
-      env:      MIndexEnv::default(),
+      env:      MEnv::default(),
+      ienv:     MIndexEnv::default(),
       stack:    MStack::default(),
+      tmpstack: MTmpStack::default(),
       program:  MProgram::default(),
       pc:       MProgramAddr{seg: 0, pos: 0},
       done:     false,
@@ -257,107 +401,184 @@ impl Machine {
   pub fn step_v2(&mut self) -> MStepFlags {
     let mut flags = MStepFlags::default();
     match self.program.insts[self.pc.pos].clone() {
-      MInst::Fetch(idx) => {
-        let envlen = self.env.vals.len();
-        let val = self.env.vals[envlen - idx].clone();
-        self.stack.vals.push(val);
+      MInst::Lookup(idx) => {
+        let envlen = self.ienv.vals.len();
+        let val = self.ienv.vals[envlen - idx].clone();
+        self.tmpstack.vals.push(val.into_unboxed());
         self.pc.inc();
       }
       MInst::Bind => {
-        let val = self.stack.vals.pop().unwrap();
-        self.env.vals.push(val);
+        let val = self.tmpstack.vals.pop().unwrap();
+        self.ienv.vals.push(val.into_boxed());
         self.pc.inc();
       }
       MInst::Unbind => {
-        let _val = self.env.vals.pop().unwrap();
+        let _val = self.ienv.vals.pop().unwrap();
         self.pc.inc();
       }
       MInst::Quote(rawdata) => {
         // TODO
       }
-      MInst::Close(addr) => {
-        let close_env = self.env.clone();
+      /*MInst::Close(addr) => {
+        let close_env = self.ienv.clone();
         let closure_v = MValue::Closure(MClosure{
           code: MClosureCode::Addr(addr),
           env:  MEnv::default(),
           ienv: close_env,
         });
-        self.stack.vals.push(closure_v);
+        self.tmpstack.vals.push(closure_v);
+        self.pc.inc();
+      }*/
+      MInst::Closure(addr) => {
+        // TODO
+        let close_env = self.ienv.clone();
+        let closure_v = MUnboxedValue::Closure(MClosureRef{
+          code: MClosureCode::Addr(addr),
+          env:  close_env,
+        });
+        self.tmpstack.vals.push(closure_v);
         self.pc.inc();
       }
-      /*MInst::EvalThunk(idx) => {
+      /*MInst::RClosure(addr) => {
         // TODO
-        self.stack.vals.push(MValue::Index(idx));
       }*/
-      MInst::Apply0 => {
-        let closure_v = self.stack.vals.pop().unwrap();
-        let (jmp_addr, close_env) = match closure_v {
-          MValue::Closure(ref closure) => {
+      MInst::Thunk(addr) => {
+        // TODO
+        let close_env = self.ienv.clone();
+        let thunk_v = MUnboxedValue::Thunk(MThunkRef{
+          code: MClosureCode::Addr(addr),
+          env:  close_env,
+          ret:  Rc::new(RefCell::new(MThunkPayload::Empty)),
+        });
+        self.tmpstack.vals.push(thunk_v);
+        self.pc.inc();
+      }
+      MInst::Update0 => {
+        // TODO
+        let ret_v = self.tmpstack.vals.pop().unwrap();
+        let thunk_v = self.tmpstack.vals.pop().unwrap();
+        match thunk_v {
+          MUnboxedValue::Thunk(ref thunk) => {
+            thunk.force_update(ret_v);
+          }
+          _ => panic!(),
+        }
+      }
+      MInst::Eval0 => {
+        let closurelike_v = self.tmpstack.vals.pop().unwrap();
+        match closurelike_v {
+          MUnboxedValue::Closure(ref closure) => {
             let addr = match closure.code {
               MClosureCode::Addr(ref addr) => addr.clone(),
               MClosureCode::OpDef(ref opdef) => unimplemented!(),
             };
-            (addr, closure.ienv.clone())
+            let (jmp_addr, close_env) = (addr, closure.env.clone());
+            let ret_addr_v = MUnboxedValue::Addr(self.pc.next());
+            let ret_env_v = MUnboxedValue::IndexEnv(self.ienv.clone());
+            self.tmpstack.vals.push(ret_env_v);
+            self.tmpstack.vals.push(ret_addr_v);
+            self.ienv = close_env;
+            self.pc = jmp_addr;
+          }
+          /*MUnboxedValue::RClosure(ref closure) => {
+            // TODO
+            unimplemented!();
+          }*/
+          MUnboxedValue::Thunk(ref thunk) => {
+            match thunk.status() {
+              MThunkStatus::Empty => {
+                // TODO
+                let addr = match thunk.code {
+                  MClosureCode::Addr(ref addr) => addr.clone(),
+                  MClosureCode::OpDef(ref opdef) => unimplemented!(),
+                };
+                let (jmp_addr, close_env) = (addr, thunk.env.clone());
+                thunk.force_blackhole();
+                let ret_addr_v = MUnboxedValue::Addr(self.pc.next());
+                let ret_env_v = MUnboxedValue::IndexEnv(self.ienv.clone());
+                self.tmpstack.vals.push(ret_env_v);
+                self.tmpstack.vals.push(ret_addr_v);
+                self.ienv = close_env;
+                self.pc = jmp_addr;
+              }
+              MThunkStatus::BlackHole => {
+                panic!();
+              }
+              MThunkStatus::Unbox => {
+                // TODO
+                self.pc.inc();
+              }
+            }
+          }
+          _ => panic!(),
+        }
+      }
+      MInst::Apply0 => {
+        let closure_v = self.tmpstack.vals.pop().unwrap();
+        let (jmp_addr, close_env) = match closure_v {
+          MUnboxedValue::Closure(ref closure) => {
+            let addr = match closure.code {
+              MClosureCode::Addr(ref addr) => addr.clone(),
+              MClosureCode::OpDef(ref opdef) => unimplemented!(),
+            };
+            (addr, closure.env.clone())
           }
           _ => panic!(),
         };
-        let ret_addr_v = MValue::CodeAddr(self.pc.next());
-        let ret_env_v = MValue::IndexEnv(self.env.clone());
-        self.stack.vals.push(ret_env_v);
-        self.stack.vals.push(ret_addr_v);
-        self.env = close_env;
+        let ret_addr_v = MUnboxedValue::Addr(self.pc.next());
+        let ret_env_v = MUnboxedValue::IndexEnv(self.ienv.clone());
+        self.tmpstack.vals.push(ret_env_v);
+        self.tmpstack.vals.push(ret_addr_v);
+        self.ienv = close_env;
         self.pc = jmp_addr;
       }
       MInst::Apply1 => {
-        let arg1_v = self.stack.vals.pop().unwrap();
-        let closure_v = self.stack.vals.pop().unwrap();
+        let arg1_v = self.tmpstack.vals.pop().unwrap();
+        let closure_v = self.tmpstack.vals.pop().unwrap();
         let (jmp_addr, close_env) = match closure_v {
-          MValue::Closure(ref closure) => {
+          MUnboxedValue::Closure(ref closure) => {
             let addr = match closure.code {
               MClosureCode::Addr(ref addr) => addr.clone(),
               MClosureCode::OpDef(ref opdef) => unimplemented!(),
             };
-            (addr, closure.ienv.clone())
+            (addr, closure.env.clone())
           }
           _ => panic!(),
         };
-        let ret_addr_v = MValue::CodeAddr(self.pc.next());
-        let ret_env_v = MValue::IndexEnv(self.env.clone());
-        self.stack.vals.push(ret_env_v);
-        self.stack.vals.push(ret_addr_v);
-        self.env = close_env;
-        self.env.vals.push(arg1_v);
+        let ret_addr_v = MUnboxedValue::Addr(self.pc.next());
+        let ret_env_v = MUnboxedValue::IndexEnv(self.ienv.clone());
+        self.tmpstack.vals.push(ret_env_v);
+        self.tmpstack.vals.push(ret_addr_v);
+        self.ienv = close_env;
+        self.ienv.vals.push(arg1_v.into_boxed());
         self.pc = jmp_addr;
       }
       MInst::Apply2 => {
         // TODO
-        let arg2_v = self.stack.vals.pop().unwrap();
-        let arg1_v = self.stack.vals.pop().unwrap();
-        let closure_v = self.stack.vals.pop().unwrap();
+        let arg2_v = self.tmpstack.vals.pop().unwrap();
+        let arg1_v = self.tmpstack.vals.pop().unwrap();
+        let closure_v = self.tmpstack.vals.pop().unwrap();
       }
       MInst::ApplyBuiltin(opdef) => {
         let (op_arity, op_addr) = self._builtin_opdef_info(opdef);
-        let mut arg_vs = Vec::with_capacity(op_arity);
         for _ in 0 .. op_arity {
-          arg_vs.push(self.stack.vals.pop().unwrap());
+          let arg_v = self.tmpstack.vals.pop().unwrap();
+          self.ienv.vals.push(arg_v.into_boxed());
         }
-        let ret_addr_v = MValue::CodeAddr(self.pc.next());
-        self.stack.vals.push(ret_addr_v);
-        for _ in 0 .. op_arity {
-          self.env.vals.push(arg_vs.pop().unwrap());
-        }
+        let ret_addr_v = MUnboxedValue::Addr(self.pc.next());
+        self.tmpstack.vals.push(ret_addr_v);
         self.pc = op_addr;
       }
       MInst::Return => {
-        let retval_v = self.stack.vals.pop().unwrap();
-        let ret_addr_v = self.stack.vals.pop().unwrap();
-        let ret_env_v = self.stack.vals.pop().unwrap();
-        self.env = match ret_env_v {
-          MValue::IndexEnv(env) => env,
+        let retval_v = self.tmpstack.vals.pop().unwrap();
+        let ret_addr_v = self.tmpstack.vals.pop().unwrap();
+        let ret_env_v = self.tmpstack.vals.pop().unwrap();
+        self.ienv = match ret_env_v {
+          MUnboxedValue::IndexEnv(env) => env,
           _ => panic!(),
         };
         self.pc = match ret_addr_v {
-          MValue::CodeAddr(addr) => addr,
+          MUnboxedValue::Addr(addr) => addr,
           _ => panic!(),
         };
       }
