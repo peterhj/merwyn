@@ -42,6 +42,7 @@ pub struct MProgram {
 #[derive(Clone)]
 pub enum MBoxedValue {
   Closure(MClosureRef),
+  //RClosure(MClosureRef),
   Thunk(MThunkRef),
 }
 
@@ -49,7 +50,7 @@ impl MBoxedValue {
   pub fn into_unboxed(self) -> MUnboxedValue {
     match self {
       MBoxedValue::Closure(closure) => MUnboxedValue::Closure(closure),
-      MBoxedValue::Thunk(thunk) => MUnboxedValue::Thunk(thunk),
+      MBoxedValue::Thunk(thunk) => MUnboxedValue::IndirectThunk(thunk),
     }
   }
 }
@@ -60,15 +61,16 @@ pub enum MUnboxedValue {
   Data(MData),
   IndexEnv(MIndexEnv),
   Closure(MClosureRef),
-  //RClosure(MRClosure),
-  Thunk(MThunkRef),
+  //RClosure(MClosureRef),
+  DirectThunk(MThunkRef),
+  IndirectThunk(MThunkRef),
 }
 
 impl MUnboxedValue {
   pub fn into_boxed(self) -> MBoxedValue {
     match self {
       MUnboxedValue::Closure(closure) => MBoxedValue::Closure(closure),
-      MUnboxedValue::Thunk(thunk) => MBoxedValue::Thunk(thunk),
+      MUnboxedValue::IndirectThunk(thunk) => MBoxedValue::Thunk(thunk),
       _ => panic!("cannot box this unboxed value"),
     }
   }
@@ -150,17 +152,28 @@ pub struct MClosureRef {
   pub env:  MIndexEnv,
 }
 
+impl MClosureRef {
+  pub fn new(code: MClosureCode, env: MIndexEnv) -> MClosureRef {
+    MClosureRef{
+      code,
+      env,
+    }
+  }
+}
+
 //#[derive(Clone, Copy)]
 pub enum MThunkStatus {
   Empty,
   BlackHole,
-  Unbox,
+  Direct,
+  Indirect,
 }
 
 pub enum MThunkPayload {
   Empty,
   BlackHole,
-  Unbox(MUnboxedValue),
+  Direct(MUnboxedValue),
+  Indirect(MThunkRef),
 }
 
 #[derive(Clone)]
@@ -171,11 +184,37 @@ pub struct MThunkRef {
 }
 
 impl MThunkRef {
+  pub fn new(code: MClosureCode, env: MIndexEnv) -> MThunkRef {
+    MThunkRef{
+      code,
+      env,
+      ret:  Rc::new(RefCell::new(MThunkPayload::Empty)),
+    }
+  }
+
   pub fn status(&self) -> MThunkStatus {
     match &*self.ret.borrow() {
       &MThunkPayload::Empty => MThunkStatus::Empty,
       &MThunkPayload::BlackHole => MThunkStatus::BlackHole,
-      &MThunkPayload::Unbox(_) => MThunkStatus::Unbox,
+      &MThunkPayload::Direct(_) => MThunkStatus::Direct,
+      &MThunkPayload::Indirect(_) => MThunkStatus::Indirect,
+    }
+  }
+
+  pub fn unpack(&self) -> MUnboxedValue {
+    match &*self.ret.borrow() {
+      &MThunkPayload::Empty => {
+        panic!();
+      }
+      &MThunkPayload::BlackHole => {
+        panic!();
+      }
+      &MThunkPayload::Direct(ref v) => {
+        v.clone()
+      }
+      &MThunkPayload::Indirect(ref thunk) => {
+        thunk.unpack()
+      }
     }
   }
 
@@ -186,7 +225,10 @@ impl MThunkRef {
         &mut MThunkPayload::BlackHole => {
           panic!();
         }
-        &mut MThunkPayload::Unbox(_) => {
+        &mut MThunkPayload::Direct(_) => {
+          *payload = MThunkPayload::Empty;
+        }
+        &mut MThunkPayload::Indirect(_) => {
           *payload = MThunkPayload::Empty;
         }
       }
@@ -203,7 +245,10 @@ impl MThunkRef {
         &mut MThunkPayload::BlackHole => {
           panic!("thunk already in blackhole state");
         }
-        &mut MThunkPayload::Unbox(_) => {
+        &mut MThunkPayload::Direct(_) => {
+          panic!();
+        }
+        &mut MThunkPayload::Indirect(_) => {
           panic!();
         }
       }
@@ -211,17 +256,27 @@ impl MThunkRef {
     });
   }
 
-  pub fn force_update(&self, new_value: MUnboxedValue) {
+  pub fn force_update(&self, ret_value: MUnboxedValue) {
     RefMut::map(self.ret.borrow_mut(), |payload| {
       match payload {
         &mut MThunkPayload::Empty => {
           panic!("attempting to force update an empty thunk");
         }
         &mut MThunkPayload::BlackHole => {
-          *payload = MThunkPayload::Unbox(new_value);
+          match ret_value {
+            MUnboxedValue::IndirectThunk(thunk) => {
+              *payload = MThunkPayload::Indirect(thunk);
+            }
+            v => {
+              *payload = MThunkPayload::Direct(v);
+            }
+          }
         }
-        &mut MThunkPayload::Unbox(_) => {
-          panic!("attempting to force update a full thunk");
+        &mut MThunkPayload::Direct(_) => {
+          panic!();
+        }
+        &mut MThunkPayload::Indirect(_) => {
+          panic!();
         }
       }
       payload
@@ -419,23 +474,10 @@ impl Machine {
       MInst::Quote(rawdata) => {
         // TODO
       }
-      /*MInst::Close(addr) => {
-        let close_env = self.ienv.clone();
-        let closure_v = MValue::Closure(MClosure{
-          code: MClosureCode::Addr(addr),
-          env:  MEnv::default(),
-          ienv: close_env,
-        });
-        self.tmpstack.vals.push(closure_v);
-        self.pc.inc();
-      }*/
       MInst::Closure(addr) => {
         // TODO
         let close_env = self.ienv.clone();
-        let closure_v = MUnboxedValue::Closure(MClosureRef{
-          code: MClosureCode::Addr(addr),
-          env:  close_env,
-        });
+        let closure_v = MUnboxedValue::Closure(MClosureRef::new(MClosureCode::Addr(addr), close_env));
         self.tmpstack.vals.push(closure_v);
         self.pc.inc();
       }
@@ -445,24 +487,21 @@ impl Machine {
       MInst::Thunk(addr) => {
         // TODO
         let close_env = self.ienv.clone();
-        let thunk_v = MUnboxedValue::Thunk(MThunkRef{
-          code: MClosureCode::Addr(addr),
-          env:  close_env,
-          ret:  Rc::new(RefCell::new(MThunkPayload::Empty)),
-        });
+        let thunk_v = MUnboxedValue::IndirectThunk(MThunkRef::new(MClosureCode::Addr(addr), close_env));
         self.tmpstack.vals.push(thunk_v);
         self.pc.inc();
       }
       MInst::Update0 => {
-        // TODO
         let ret_v = self.tmpstack.vals.pop().unwrap();
         let thunk_v = self.tmpstack.vals.pop().unwrap();
         match thunk_v {
-          MUnboxedValue::Thunk(ref thunk) => {
+          MUnboxedValue::IndirectThunk(ref thunk) => {
             thunk.force_update(ret_v);
           }
           _ => panic!(),
         }
+        self.tmpstack.vals.push(thunk_v);
+        self.pc.inc();
       }
       MInst::Eval0 => {
         let closurelike_v = self.tmpstack.vals.pop().unwrap();
@@ -484,7 +523,7 @@ impl Machine {
             // TODO
             unimplemented!();
           }*/
-          MUnboxedValue::Thunk(ref thunk) => {
+          MUnboxedValue::IndirectThunk(ref thunk) => {
             match thunk.status() {
               MThunkStatus::Empty => {
                 // TODO
@@ -496,15 +535,20 @@ impl Machine {
                 thunk.force_blackhole();
                 let ret_addr_v = MUnboxedValue::Addr(self.pc.next());
                 let ret_env_v = MUnboxedValue::IndexEnv(self.ienv.clone());
+                let thunkcopy_v = MUnboxedValue::IndirectThunk(thunk.clone());
                 self.tmpstack.vals.push(ret_env_v);
                 self.tmpstack.vals.push(ret_addr_v);
+                self.tmpstack.vals.push(thunkcopy_v);
                 self.ienv = close_env;
                 self.pc = jmp_addr;
               }
               MThunkStatus::BlackHole => {
                 panic!();
               }
-              MThunkStatus::Unbox => {
+              MThunkStatus::Direct => {
+                self.pc.inc();
+              }
+              MThunkStatus::Indirect => {
                 // TODO
                 self.pc.inc();
               }
@@ -562,6 +606,7 @@ impl Machine {
       MInst::ApplyBuiltin(opdef) => {
         let (op_arity, op_addr) = self._builtin_opdef_info(opdef);
         for _ in 0 .. op_arity {
+          // TODO: probably need to reverse the order.
           let arg_v = self.tmpstack.vals.pop().unwrap();
           self.ienv.vals.push(arg_v.into_boxed());
         }
