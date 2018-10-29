@@ -13,11 +13,16 @@ default = []
 #gpu = []
 
 #[build-dependencies]
+#lalrpop = "^0.16"
 
 #[dev-dependencies]
 
-#[dependencies]
+[dependencies]
+#lalrpop-util = "^0.16"
 #lazy_static = "*"
 #num-traits = "^0.2"
 #parking_lot = { version = "^0.5", features = ["nightly"] }
 #rand = "^0.5"
+regex = "*"
+#plex = "*"
+plex = { path = "../plex", default-features = false, features = ["lexer"] }
