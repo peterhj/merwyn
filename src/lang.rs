@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 use plex::{lexer};
 
 use std::rc::{Rc};
@@ -11,25 +15,29 @@ lexer! {
 
   r#"lambda"#       => HLToken::Lambda,
   r#"λ"#            => HLToken::Lambda,
+  r#"extern"#       => HLToken::Extern,
+  r#"pub"#          => HLToken::Pub,
   r#"let"#          => HLToken::Let,
   r#"letrec"#       => HLToken::LetRec,
   r#"in"#           => HLToken::In,
+  r#":="#           => HLToken::Assigns,
   r#"="#            => HLToken::Equals,
+  r#"\\"#           => HLToken::Backslash,
+  r#"\."#           => HLToken::Dot,
+  r#","#            => HLToken::Comma,
   r#";"#            => HLToken::Semi,
 
   r#"\+"#           => HLToken::Plus,
   r#"-"#            => HLToken::Minus,
   r#"\*"#           => HLToken::Star,
   r#"/"#            => HLToken::Slash,
-  r#"\\"#           => HLToken::Backslash,
   r#"\("#           => HLToken::LParen,
   r#"\)"#           => HLToken::RParen,
   r#"\["#           => HLToken::LBrack,
   r#"\]"#           => HLToken::RBrack,
-  r#","#            => HLToken::Comma,
 
   r#"[0-9]+"#       => HLToken::IntLit(text.parse().unwrap()),
-  r#"[0-9]+\.[0-9]*"#   => HLToken::FloatLit(text.parse().unwrap()),
+  r#"[0-9]+\.[0-9]*"#           => HLToken::FloatLit(text.parse().unwrap()),
 
   r#"[a-zA-Z_][a-zA-Z0-9_]*"#   => HLToken::Ident(text.to_owned()),
 
@@ -42,21 +50,25 @@ pub enum HLToken {
   LineComment,
   BlockComment,
   Lambda,
+  Extern,
+  Pub,
   Let,
   LetRec,
   In,
+  Assigns,
   Equals,
+  Backslash,
+  Dot,
+  Comma,
   Semi,
   Plus,
   Minus,
   Star,
   Slash,
-  Backslash,
   LParen,
   RParen,
   LBrack,
   RBrack,
-  Comma,
   IntLit(i64),
   FloatLit(f64),
   Ident(String),
@@ -119,6 +131,7 @@ pub enum HExpr {
   Apply1(Rc<HExpr>, Rc<HExpr>),
   ApplyN(Rc<HExpr>, Vec<Rc<HExpr>>),
   Group(Rc<HExpr>),
+  Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
   Let(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetRec(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   Add(Rc<HExpr>, Rc<HExpr>),
@@ -128,6 +141,7 @@ pub enum HExpr {
   Neg(Rc<HExpr>),
   IntLit(i64),
   FloatLit(f64),
+  Ident(String),
 }
 
 impl HExpr {
@@ -195,10 +209,12 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
   fn lbp(&self, tok: &HLToken) -> i32 {
     // TODO
     match tok {
+      &HLToken::Extern |
       &HLToken::Let |
       &HLToken::LetRec |
       &HLToken::In |
       &HLToken::Equals |
+      &HLToken::Comma |
       &HLToken::Semi => 0,
       &HLToken::Plus |
       &HLToken::Minus => 500,
@@ -218,6 +234,10 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
   fn nud(&mut self, tok: HLToken) -> Result<HExpr, ()> {
     // TODO
     match tok {
+      HLToken::Extern => {
+        // TODO
+        unimplemented!();
+      }
       HLToken::Let => {
         let e1_lhs = self.expression(0, -1)?;
         self.advance();
@@ -264,7 +284,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
           _ => panic!(),
         }
         self.advance();
-        Ok(HExpr::Group(Rc::new(right)))
+        //Ok(HExpr::Group(Rc::new(right)))
+        Ok(right)
       }
       HLToken::IntLit(x) => {
         Ok(HExpr::IntLit(x))
@@ -273,7 +294,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         Ok(HExpr::FloatLit(x))
       }
       HLToken::Ident(name) => {
-        unimplemented!();
+        Ok(HExpr::Ident(name))
       }
       _ => {
         Err(())
@@ -306,6 +327,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
             self.advance();
             return Ok(HExpr::Apply0(Rc::new(left)));
           }
+          HLToken::Comma => panic!(),
           _ => {}
         }
         let right = self.expression(0, -1)?;
@@ -315,8 +337,21 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
             return Ok(HExpr::Apply1(Rc::new(left), Rc::new(right)));
           }
           HLToken::Comma => {
-            // TODO
-            unimplemented!();
+            let mut args = vec![Rc::new(right)];
+            loop {
+              self.advance();
+              let right = self.expression(0, -1)?;
+              args.push(Rc::new(right));
+              match self.current_token() {
+                HLToken::RBrack => {
+                  self.advance();
+                  assert!(args.len() >= 2);
+                  return Ok(HExpr::ApplyN(Rc::new(left), args));
+                }
+                HLToken::Comma => {}
+                _ => panic!(),
+              }
+            }
           }
           _ => panic!(),
         }

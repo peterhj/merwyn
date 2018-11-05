@@ -12,16 +12,12 @@ crate-type = ["rlib", "cdylib"]
 default = []
 #gpu = []
 
-#[build-dependencies]
-#lalrpop = "^0.16"
-
 #[dev-dependencies]
 
 [dependencies]
-#lalrpop-util = "^0.16"
 #lazy_static = "*"
 #num-traits = "^0.2"
-#parking_lot = { version = "^0.5", features = ["nightly"] }
+#parking_lot = { version = "*", features = ["nightly"] }
 #rand = "^0.5"
 regex = "*"
 #plex = "*"

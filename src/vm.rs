@@ -1,6 +1,20 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap};
 use std::rc::{Rc};
+
+#[derive(Clone)]
+pub struct Bytecode {
+}
+
+impl Bytecode {
+  pub fn compile(text: &str) -> Bytecode {
+    unimplemented!();
+  }
+}
 
 #[derive(Clone, Default)]
 pub struct MStack {
@@ -201,7 +215,7 @@ impl MThunkRef {
     }
   }
 
-  pub fn unpack(&self) -> MUnboxedValue {
+  pub fn unbox(&self) -> MUnboxedValue {
     match &*self.ret.borrow() {
       &MThunkPayload::Empty => {
         panic!();
@@ -213,7 +227,7 @@ impl MThunkRef {
         v.clone()
       }
       &MThunkPayload::Indirect(ref thunk) => {
-        thunk.unpack()
+        thunk.unbox()
       }
     }
   }
@@ -347,7 +361,11 @@ pub struct MStepFlags {
   pub breakpt:  bool,
 }
 
-pub struct Machine {
+pub struct SharedVM {
+  inner:    RefCell<VM>,
+}
+
+pub struct VM {
   pub register: MValue,
   pub env:      MEnv,
   pub ienv:     MIndexEnv,
@@ -359,18 +377,35 @@ pub struct Machine {
 }
 
 #[no_mangle]
-pub extern "C" fn hebb_machine_new() -> *mut Machine {
-  Box::into_raw(Box::new(Machine::new()))
+pub extern "C" fn hebb_vm_new() -> *const SharedVM {
+  let vm = Rc::new(SharedVM::new());
+  let vm_ptr = Rc::into_raw(vm);
+  vm_ptr
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn hebb_machine_drop(mach: *mut Machine) {
-  let _mach = Box::from_raw(mach);
+pub unsafe extern "C" fn hebb_vm_release(vm_ptr: *const SharedVM) {
+  let _vm = Rc::from_raw(vm_ptr);
 }
 
-impl Machine {
-  pub fn new() -> Machine {
-    Machine{
+#[no_mangle]
+pub unsafe extern "C" fn hebb_vm_retain(vm_ptr: *const SharedVM) -> *const SharedVM {
+  let vm = Rc::from_raw(vm_ptr);
+  let vmcopy = vm.clone();
+  let _vm_ptr = Rc::into_raw(vm);
+  let vmcopy_ptr = Rc::into_raw(vmcopy);
+  vmcopy_ptr
+}
+
+impl SharedVM {
+  pub fn new() -> SharedVM {
+    SharedVM{inner: RefCell::new(VM::new())}
+  }
+}
+
+impl VM {
+  pub fn new() -> VM {
+    VM{
       register: MValue::Env(MEnv::default()),
       env:      MEnv::default(),
       ienv:     MIndexEnv::default(),
@@ -410,27 +445,27 @@ impl Machine {
   pub fn inspect_reg(&self) {
     match self.register {
       MValue::Data(ref data) => {
-        println!("DEBUG: Machine: inspect_reg: data: {:?}", data.inner);
+        println!("DEBUG: VM: inspect_reg: data: {:?}", data.inner);
       }
       MValue::Thunk(ref thunk) => {
         match thunk.retval {
           Some(ref val) => {
             match (**val).clone() {
               MValue::Data(ref data) => {
-                println!("DEBUG: Machine: inspect_reg: thunk: retval: {:?}", data.inner);
+                println!("DEBUG: VM: inspect_reg: thunk: retval: {:?}", data.inner);
               }
               _ => {
-                println!("DEBUG: Machine: inspect_reg: thunk: retval: (some)");
+                println!("DEBUG: VM: inspect_reg: thunk: retval: (some)");
               }
             }
           }
           None => {
-            println!("DEBUG: Machine: inspect_reg: thunk: retval: (none)");
+            println!("DEBUG: VM: inspect_reg: thunk: retval: (none)");
           }
         }
       }
       _ => {
-        println!("DEBUG: Machine: inspect_reg: other");
+        println!("DEBUG: VM: inspect_reg: other");
       }
     }
   }
