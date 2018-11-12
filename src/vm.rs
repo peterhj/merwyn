@@ -2,6 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use crate::ir::{LEnv, LExpr};
+
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap};
 use std::rc::{Rc};
@@ -12,6 +14,10 @@ pub struct Bytecode {
 
 impl Bytecode {
   pub fn compile(text: &str) -> Bytecode {
+    unimplemented!();
+  }
+
+  pub fn compile_ir(expr: LExpr) -> Bytecode {
     unimplemented!();
   }
 }

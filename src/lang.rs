@@ -9,7 +9,7 @@ use std::rc::{Rc};
 lexer! {
   fn next_token(text: 'a) -> HLToken;
 
-  r#"[ \t\r\n]"#    => HLToken::Whitespace,
+  r#"[ \t\r\n]+"#   => HLToken::Whitespace,
   r#"#[^\n]*"#      => HLToken::LineComment,
   r#"\([*](~(.*[*]\).*))[*]\)"# => HLToken::BlockComment,
 
@@ -18,17 +18,23 @@ lexer! {
   r#"extern"#       => HLToken::Extern,
   r#"pub"#          => HLToken::Pub,
   r#"let"#          => HLToken::Let,
-  r#"letrec"#       => HLToken::LetRec,
+  r#"alt"#          => HLToken::Alt,
+  r#"rec"#          => HLToken::Rec,
   r#"in"#           => HLToken::In,
   r#":="#           => HLToken::Assigns,
   r#"="#            => HLToken::Equals,
   r#"\\"#           => HLToken::Backslash,
+  r#"\.\.\."#       => HLToken::Ellipsis,
+  r#"\.\."#         => HLToken::DotDot,
   r#"\."#           => HLToken::Dot,
   r#","#            => HLToken::Comma,
   r#";"#            => HLToken::Semi,
-
+  r#"::"#           => HLToken::ColonColon,
+  r#":"#            => HLToken::Colon,
+  r#"\+\+"#         => HLToken::PlusPlus,
   r#"\+"#           => HLToken::Plus,
-  r#"-"#            => HLToken::Minus,
+  r#"->"#           => HLToken::RArrow,
+  r#"-"#            => HLToken::Dash,
   r#"\*"#           => HLToken::Star,
   r#"/"#            => HLToken::Slash,
   r#"\("#           => HLToken::LParen,
@@ -40,6 +46,8 @@ lexer! {
   r#"[0-9]+\.[0-9]*"#           => HLToken::FloatLit(text.parse().unwrap()),
 
   r#"[a-zA-Z_][a-zA-Z0-9_]*"#   => HLToken::Ident(text.to_owned()),
+  // TODO: names in infix position should be lexically identifiable.
+  //r#"\^[a-zA-Z_][a-zA-Z0-9_]*"# => HLToken::InfixIdent(text.to_owned()),
 
   r#"."#            => unreachable!(),
 }
@@ -53,16 +61,23 @@ pub enum HLToken {
   Extern,
   Pub,
   Let,
-  LetRec,
+  Alt,
+  Rec,
   In,
   Assigns,
   Equals,
   Backslash,
+  Ellipsis,
+  DotDot,
   Dot,
   Comma,
   Semi,
+  Colon,
+  ColonColon,
   Plus,
-  Minus,
+  PlusPlus,
+  Dash,
+  RArrow,
   Star,
   Slash,
   LParen,
@@ -127,9 +142,15 @@ impl<'src> Iterator for HLexer<'src> {
 
 #[derive(Clone, Debug)]
 pub enum HExpr {
+  Lambda0(Rc<HExpr>),
+  Lambda1(Rc<HExpr>, Rc<HExpr>),
+  LambdaN(Vec<Rc<HExpr>>, Rc<HExpr>),
   Apply0(Rc<HExpr>),
   Apply1(Rc<HExpr>, Rc<HExpr>),
   ApplyN(Rc<HExpr>, Vec<Rc<HExpr>>),
+  Tuple0,
+  Tuple1(Rc<HExpr>),
+  TupleN(Vec<Rc<HExpr>>),
   Group(Rc<HExpr>),
   Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
   Let(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
@@ -178,18 +199,18 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     self.curr = saved.curr;
   }
 
-  fn lookahead(&self) -> HParser<Toks> {
+  /*fn lookahead(&self) -> HParser<Toks> {
     HParser{
       toks: self.toks.clone(),
       curr: None,
     }
-  }
+  }*/
 
   fn advance(&mut self) {
     self.curr = self.toks.next();
   }
 
-  fn expect(&mut self, tok: &HLToken) {
+  /*fn expect(&mut self, tok: &HLToken) {
     self.advance();
     match self.curr {
       Some(ref curr_tok) => {
@@ -197,7 +218,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       }
       None => panic!(),
     }
-  }
+  }*/
 
   fn current_token(&mut self) -> HLToken {
     match self.curr {
@@ -210,14 +231,16 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     // TODO
     match tok {
       &HLToken::Extern |
+      &HLToken::Pub |
       &HLToken::Let |
-      &HLToken::LetRec |
+      &HLToken::Alt |
+      &HLToken::Rec |
       &HLToken::In |
       &HLToken::Equals |
       &HLToken::Comma |
       &HLToken::Semi => 0,
       &HLToken::Plus |
-      &HLToken::Minus => 500,
+      &HLToken::Dash => 500,
       &HLToken::Star |
       &HLToken::Slash => 600,
       &HLToken::RParen => 0,
@@ -254,7 +277,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         let e2 = self.expression(0, -1)?;
         Ok(HExpr::Let(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
       }
-      HLToken::LetRec => {
+      /*HLToken::LetRec => {
         let e1_lhs = self.expression(0, -1)?;
         match self.current_token() {
           HLToken::Equals => {}
@@ -269,11 +292,11 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         self.advance();
         let e2 = self.expression(0, -1)?;
         Ok(HExpr::LetRec(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
-      }
+      }*/
       //HLToken::In |
       //HLToken::Equals |
       //HLToken::Semi => 0,
-      HLToken::Minus => {
+      HLToken::Dash => {
         let right = self.expression(700, -1)?;
         Ok(HExpr::Neg(Rc::new(right)))
       }
@@ -309,7 +332,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         let right = self.expression(500, -1)?;
         Ok(HExpr::Add(Rc::new(left), Rc::new(right)))
       }
-      HLToken::Minus => {
+      HLToken::Dash => {
         let right = self.expression(500, -1)?;
         Ok(HExpr::Sub(Rc::new(left), Rc::new(right)))
       }

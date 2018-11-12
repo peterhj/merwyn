@@ -5,6 +5,7 @@
 //extern crate parking_lot;
 extern crate plex;
 
+pub mod ir;
 pub mod lang;
 //pub mod repl;
 pub mod vm;

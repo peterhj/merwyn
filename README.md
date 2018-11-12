@@ -1,3 +1,3 @@
-# HEBB: a virtual machine
+# HEBB: an embeddable virtual machine
 
 WIP
