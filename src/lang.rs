@@ -21,8 +21,19 @@ lexer! {
   r#"alt"#          => HLToken::Alt,
   r#"rec"#          => HLToken::Rec,
   r#"in"#           => HLToken::In,
+  r#"letmemo"#      => HLToken::LetMemo,
+  r#"where"#        => HLToken::Where,
+  r#"for"#          => HLToken::For,
+  r#":-"#           => HLToken::If,
   r#":="#           => HLToken::Assigns,
+  r#"<="#           => HLToken::LtEquals,
+  r#"<"#            => HLToken::Lt,
+  r#">="#           => HLToken::GtEquals,
+  r#">"#            => HLToken::Gt,
+  r#"/="#           => HLToken::NotEquals,
+  r#"=="#           => HLToken::EqEquals,
   r#"="#            => HLToken::Equals,
+  r#"\~"#           => HLToken::Samples,
   r#"\\"#           => HLToken::Backslash,
   r#"\.\.\."#       => HLToken::Ellipsis,
   r#"\.\."#         => HLToken::DotDot,
@@ -31,8 +42,13 @@ lexer! {
   r#";"#            => HLToken::Semi,
   r#"::"#           => HLToken::ColonColon,
   r#":"#            => HLToken::Colon,
+  r#"\|\|"#         => HLToken::BarBar,
+  r#"\|"#           => HLToken::Bar,
+  r#"^^"#           => HLToken::HatHat,
+  r#"^"#            => HLToken::Hat,
   r#"\+\+"#         => HLToken::PlusPlus,
   r#"\+"#           => HLToken::Plus,
+  r#"-:"#           => HLToken::Then,
   r#"->"#           => HLToken::RArrow,
   r#"-"#            => HLToken::Dash,
   r#"\*"#           => HLToken::Star,
@@ -42,12 +58,20 @@ lexer! {
   r#"\["#           => HLToken::LBrack,
   r#"\]"#           => HLToken::RBrack,
 
+  r#"_"#            => HLToken::WildPat,
+
+  r#"noret"#        => HLToken::NoRet,
+  r#"unit"#         => HLToken::UnitLit,
+  r#"bot"#          => HLToken::BotLit,
+  r#"⊥"#            => HLToken::BotLit,
+  r#"tee"#          => HLToken::TeeLit,
+  r#"⊤"#            => HLToken::TeeLit,
+
   r#"[0-9]+"#       => HLToken::IntLit(text.parse().unwrap()),
   r#"[0-9]+\.[0-9]*"#           => HLToken::FloatLit(text.parse().unwrap()),
 
-  r#"[a-zA-Z_][a-zA-Z0-9_]*"#   => HLToken::Ident(text.to_owned()),
-  // TODO: names in infix position should be lexically identifiable.
-  //r#"\^[a-zA-Z_][a-zA-Z0-9_]*"# => HLToken::InfixIdent(text.to_owned()),
+  r#"[a-zA-Z_][a-zA-Z0-9_]*[']*"#   => HLToken::Ident(text.to_owned()),
+  r#"`[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::InfixIdent(text.to_owned()),
 
   r#"."#            => unreachable!(),
 }
@@ -64,19 +88,35 @@ pub enum HLToken {
   Alt,
   Rec,
   In,
+  LetMemo,
+  Where,
+  For,
+  If,
   Assigns,
   Equals,
+  EqEquals,
+  NotEquals,
+  Gt,
+  GtEquals,
+  Lt,
+  LtEquals,
+  Samples,
   Backslash,
-  Ellipsis,
-  DotDot,
   Dot,
+  DotDot,
+  Ellipsis,
   Comma,
   Semi,
   Colon,
   ColonColon,
+  Bar,
+  BarBar,
+  Hat,
+  HatHat,
   Plus,
   PlusPlus,
   Dash,
+  Then,
   RArrow,
   Star,
   Slash,
@@ -84,9 +124,15 @@ pub enum HLToken {
   RParen,
   LBrack,
   RBrack,
+  WildPat,
+  NoRet,
+  UnitLit,
+  BotLit,
+  TeeLit,
   IntLit(i64),
   FloatLit(f64),
   Ident(String),
+  InfixIdent(String),
   Eof,
 }
 
@@ -151,15 +197,35 @@ pub enum HExpr {
   Tuple0,
   Tuple1(Rc<HExpr>),
   TupleN(Vec<Rc<HExpr>>),
-  Group(Rc<HExpr>),
-  Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
+  //Group(Rc<HExpr>),
+  //Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
   Let(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
-  LetRec(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
+  LetEmpty(Rc<HExpr>, Rc<HExpr>),
+  //LetRec(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
+  LetWhere(Rc<HExpr>, Vec<Rc<HExpr>>, Rc<HExpr>, Rc<HExpr>),
+  LetIf(Rc<HExpr>, Vec<Rc<HExpr>>, Rc<HExpr>),
+  LetForIf(Rc<HExpr>, Vec<Rc<HExpr>>, Vec<Rc<HExpr>>, Rc<HExpr>),
+  WhereLet(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
+  ShortOr(Rc<HExpr>, Rc<HExpr>),
+  ShortAnd(Rc<HExpr>, Rc<HExpr>),
+  Eq(Rc<HExpr>, Rc<HExpr>),
+  NotEq(Rc<HExpr>, Rc<HExpr>),
+  Gt(Rc<HExpr>, Rc<HExpr>),
+  GtEq(Rc<HExpr>, Rc<HExpr>),
+  Lt(Rc<HExpr>, Rc<HExpr>),
+  LtEq(Rc<HExpr>, Rc<HExpr>),
+  Or(Rc<HExpr>, Rc<HExpr>),
+  And(Rc<HExpr>, Rc<HExpr>),
   Add(Rc<HExpr>, Rc<HExpr>),
   Sub(Rc<HExpr>, Rc<HExpr>),
   Mul(Rc<HExpr>, Rc<HExpr>),
   Div(Rc<HExpr>, Rc<HExpr>),
+  Infix(String, Rc<HExpr>, Rc<HExpr>),
   Neg(Rc<HExpr>),
+  NoRet,
+  UnitLit,
+  BotLit,
+  TeeLit,
   IntLit(i64),
   FloatLit(f64),
   Ident(String),
@@ -172,11 +238,35 @@ impl HExpr {
       _ => true,
     }
   }*/
+
+  pub fn pre_walk<F: FnMut(&HExpr)>(&self, f: &mut F) {
+    f(self);
+    match self {
+      // TODO
+      HExpr::Lambda0(ref body) => {
+        body.pre_walk(f);
+      }
+      HExpr::Lambda1(ref arg, ref body) => {
+        arg.pre_walk(f);
+        body.pre_walk(f);
+      }
+      HExpr::LambdaN(ref args, ref body) => {
+        for arg in args.iter() {
+          arg.pre_walk(f);
+        }
+        body.pre_walk(f);
+      }
+      HExpr::Tuple0 => {}
+      _ => unimplemented!(),
+    }
+  }
 }
 
 pub struct HParser<Toks: Iterator<Item=HLToken>> {
   toks: Toks,
   curr: Option<HLToken>,
+  prev: Option<HLToken>,
+  bt:   bool,
 }
 
 impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
@@ -184,6 +274,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     HParser{
       toks: toks,
       curr: None,
+      prev: None,
+      bt:   false,
     }
   }
 
@@ -191,12 +283,16 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     HParser{
       toks: self.toks.clone(),
       curr: self.curr.clone(),
+      prev: self.prev.clone(),
+      bt:   self.bt,
     }
   }
 
   fn restore(&mut self, saved: HParser<Toks>) {
     self.toks = saved.toks;
     self.curr = saved.curr;
+    self.prev = saved.prev;
+    self.bt = saved.bt;
   }
 
   /*fn lookahead(&self) -> HParser<Toks> {
@@ -206,8 +302,18 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     }
   }*/
 
+  fn backtrack(&mut self) {
+    assert!(!self.bt);
+    self.bt = true;
+  }
+
   fn advance(&mut self) {
-    self.curr = self.toks.next();
+    if self.bt {
+      self.bt = false;
+    } else {
+      self.prev = self.curr.take();
+      self.curr = self.toks.next();
+    }
   }
 
   /*fn expect(&mut self, tok: &HLToken) {
@@ -221,9 +327,16 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
   }*/
 
   fn current_token(&mut self) -> HLToken {
-    match self.curr {
-      Some(ref tok) => tok.clone(),
-      None => panic!(),
+    if self.bt {
+      match self.prev {
+        Some(ref tok) => tok.clone(),
+        None => panic!(),
+      }
+    } else {
+      match self.curr {
+        Some(ref tok) => tok.clone(),
+        None => panic!(),
+      }
     }
   }
 
@@ -236,16 +349,34 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::Alt |
       &HLToken::Rec |
       &HLToken::In |
+      &HLToken::Where |
+      &HLToken::If |
+      &HLToken::For |
       &HLToken::Equals |
       &HLToken::Comma |
       &HLToken::Semi => 0,
+      &HLToken::BarBar => 300,
+      &HLToken::HatHat => 320,
+      &HLToken::EqEquals |
+      &HLToken::NotEquals |
+      &HLToken::Gt |
+      &HLToken::GtEquals |
+      &HLToken::Lt |
+      &HLToken::LtEquals => 400,
+      &HLToken::Bar => 460,
+      &HLToken::Hat => 480,
       &HLToken::Plus |
       &HLToken::Dash => 500,
       &HLToken::Star |
-      &HLToken::Slash => 600,
+      &HLToken::Slash => 520,
+      &HLToken::InfixIdent(_) => 600,
+      &HLToken::Dot => 800,
       &HLToken::RParen => 0,
       &HLToken::LBrack => 800,
       &HLToken::RBrack => 0,
+      &HLToken::UnitLit |
+      &HLToken::BotLit |
+      &HLToken::TeeLit |
       &HLToken::IntLit(_) |
       &HLToken::FloatLit(_) |
       &HLToken::Ident(_) => 0,
@@ -263,21 +394,119 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       }
       HLToken::Let => {
         let e1_lhs = self.expression(0, -1)?;
-        self.advance();
         match self.current_token() {
-          HLToken::Equals => {}
+          HLToken::If => {
+            let mut e1_rhs = vec![];
+            loop {
+              self.advance();
+              let e1_rhs0 = self.expression(0, -1)?;
+              e1_rhs.push(Rc::new(e1_rhs0));
+              match self.current_token() {
+                HLToken::Comma => {
+                  continue;
+                }
+                HLToken::In | HLToken::Semi => {
+                  break;
+                }
+                _ => panic!(),
+              }
+            }
+            self.advance();
+            let e2 = self.expression(0, -1)?;
+            Ok(HExpr::LetIf(Rc::new(e1_lhs), e1_rhs, Rc::new(e2)))
+          }
+          HLToken::For => {
+            // TODO
+            let mut e1_unknowns = vec![];
+            loop {
+              self.advance();
+              let e1_unk0 = self.expression(0, -1)?;
+              e1_unknowns.push(Rc::new(e1_unk0));
+              match self.current_token() {
+                HLToken::Comma => {
+                  continue;
+                }
+                HLToken::If => {
+                  break;
+                }
+                _ => panic!(),
+              }
+            }
+            let mut e1_rhs = vec![];
+            loop {
+              self.advance();
+              let e1_rhs0 = self.expression(0, -1)?;
+              e1_rhs.push(Rc::new(e1_rhs0));
+              match self.current_token() {
+                HLToken::Comma => {
+                  continue;
+                }
+                HLToken::In | HLToken::Semi => {
+                  break;
+                }
+                _ => panic!(),
+              }
+            }
+            self.advance();
+            let e2 = self.expression(0, -1)?;
+            Ok(HExpr::LetForIf(Rc::new(e1_lhs), e1_unknowns, e1_rhs, Rc::new(e2)))
+          }
+          HLToken::In | HLToken::Semi => {
+            self.advance();
+            let e2 = self.expression(0, -1)?;
+            Ok(HExpr::LetEmpty(Rc::new(e1_lhs), Rc::new(e2)))
+          }
+          HLToken::Equals => {
+            self.advance();
+            let e1_rhs = self.expression(0, -1)?;
+            match self.current_token() {
+              HLToken::In | HLToken::Semi => {}
+              _ => panic!(),
+            }
+            self.advance();
+            let e2 = self.expression(0, -1)?;
+            Ok(HExpr::Let(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
+          }
+          HLToken::Where => {
+            let mut e1_clauses = vec![];
+            loop {
+              self.advance();
+              let e1_clause0 = self.expression(0, -1)?;
+              e1_clauses.push(Rc::new(e1_clause0));
+              match self.current_token() {
+                HLToken::Comma => {
+                  continue;
+                }
+                HLToken::Equals => {
+                  break;
+                }
+                _ => panic!(),
+              }
+            }
+            /*self.advance();
+            match self.current_token() {
+              HLToken::Equals => {}
+              _ => panic!(),
+            }*/
+            self.advance();
+            let e1_rhs = self.expression(0, -1)?;
+            match self.current_token() {
+              HLToken::In | HLToken::Semi => {}
+              _ => panic!(),
+            }
+            self.advance();
+            let e2 = self.expression(0, -1)?;
+            Ok(HExpr::LetWhere(Rc::new(e1_lhs), e1_clauses, Rc::new(e1_rhs), Rc::new(e2)))
+          }
           _ => panic!(),
         }
-        let e1_rhs = self.expression(0, -1)?;
-        self.advance();
-        match self.current_token() {
-          HLToken::In | HLToken::Semi => {}
-          _ => panic!(),
-        }
-        let e2 = self.expression(0, -1)?;
-        Ok(HExpr::Let(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
       }
-      /*HLToken::LetRec => {
+      HLToken::Where => {
+        match self.current_token() {
+          HLToken::Let => {}
+          _ => panic!(),
+        }
+        self.advance();
         let e1_lhs = self.expression(0, -1)?;
         match self.current_token() {
           HLToken::Equals => {}
@@ -291,24 +520,36 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         }
         self.advance();
         let e2 = self.expression(0, -1)?;
-        Ok(HExpr::LetRec(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
-      }*/
-      //HLToken::In |
-      //HLToken::Equals |
-      //HLToken::Semi => 0,
+        Ok(HExpr::WhereLet(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
+      }
       HLToken::Dash => {
         let right = self.expression(700, -1)?;
         Ok(HExpr::Neg(Rc::new(right)))
       }
       HLToken::LParen => {
-        let right = self.expression(0, -1)?;
-        match self.current_token() {
-          HLToken::RParen => {}
-          _ => panic!(),
-        }
         self.advance();
-        //Ok(HExpr::Group(Rc::new(right)))
-        Ok(right)
+        match self.current_token() {
+          HLToken::RParen => {
+            self.advance();
+            Ok(HExpr::UnitLit)
+          }
+          _ => {
+            self.backtrack();
+            let right = self.expression(0, -1)?;
+            match self.current_token() {
+              HLToken::RParen => {}
+              _ => panic!(),
+            }
+            self.advance();
+            Ok(right)
+          }
+        }
+      }
+      HLToken::BotLit => {
+        Ok(HExpr::BotLit)
+      }
+      HLToken::TeeLit => {
+        Ok(HExpr::TeeLit)
       }
       HLToken::IntLit(x) => {
         Ok(HExpr::IntLit(x))
@@ -328,21 +569,67 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
   fn led(&mut self, tok: HLToken, left: HExpr) -> Result<HExpr, ()> {
     // TODO
     match tok {
+      HLToken::BarBar => {
+        let right = self.expression(self.lbp(&tok) - 1, -1)?;
+        Ok(HExpr::ShortOr(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::HatHat => {
+        let right = self.expression(self.lbp(&tok) - 1, -1)?;
+        Ok(HExpr::ShortAnd(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::EqEquals => {
+        let right = self.expression(self.lbp(&tok), -1)?;
+        Ok(HExpr::Eq(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::NotEquals => {
+        let right = self.expression(self.lbp(&tok), -1)?;
+        Ok(HExpr::NotEq(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::Gt => {
+        let right = self.expression(self.lbp(&tok), -1)?;
+        Ok(HExpr::Gt(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::GtEquals => {
+        let right = self.expression(self.lbp(&tok), -1)?;
+        Ok(HExpr::GtEq(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::Lt => {
+        let right = self.expression(self.lbp(&tok), -1)?;
+        Ok(HExpr::Lt(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::LtEquals => {
+        let right = self.expression(self.lbp(&tok), -1)?;
+        Ok(HExpr::LtEq(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::Bar => {
+        let right = self.expression(self.lbp(&tok), -1)?;
+        Ok(HExpr::Or(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::Hat => {
+        let right = self.expression(self.lbp(&tok), -1)?;
+        Ok(HExpr::And(Rc::new(left), Rc::new(right)))
+      }
       HLToken::Plus => {
-        let right = self.expression(500, -1)?;
+        let right = self.expression(self.lbp(&tok), -1)?;
         Ok(HExpr::Add(Rc::new(left), Rc::new(right)))
       }
       HLToken::Dash => {
-        let right = self.expression(500, -1)?;
+        let right = self.expression(self.lbp(&tok), -1)?;
         Ok(HExpr::Sub(Rc::new(left), Rc::new(right)))
       }
       HLToken::Star => {
-        let right = self.expression(600, -1)?;
+        let right = self.expression(self.lbp(&tok), -1)?;
         Ok(HExpr::Mul(Rc::new(left), Rc::new(right)))
       }
       HLToken::Slash => {
-        let right = self.expression(600, -1)?;
+        let right = self.expression(self.lbp(&tok), -1)?;
         Ok(HExpr::Div(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::InfixIdent(ref infix_name) => {
+        let mut name = infix_name.clone();
+        name.replace_range(.. 1, "");
+        let right = self.expression(self.lbp(&tok), -1)?;
+        Ok(HExpr::Infix(name, Rc::new(left), Rc::new(right)))
       }
       HLToken::LBrack => {
         match self.current_token() {
@@ -431,7 +718,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     self._try_expression(rbp, depth)
   }
 
-  pub fn parse(&mut self) -> HExpr {
+  pub fn parse(mut self) -> HExpr {
     self.advance();
     match self.expression(0, -1) {
       Ok(e) => e,

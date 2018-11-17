@@ -19,7 +19,8 @@ default = []
 #lazy_static = "*"
 #num-traits = "^0.2"
 #parking_lot = { version = "*", features = ["nightly"] }
-#rand = "^0.5"
+rand = { version = "^0.5", features = ["i128_support"] }
+#rand = "^0.6"   # TODO: currently "0.6.0-pre1".
 regex = "*"
 #plex = "*"
 plex = { path = "../plex", default-features = false, features = ["lexer"] }

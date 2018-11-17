@@ -4,6 +4,9 @@
 
 use crate::ir::{LEnv, LExpr};
 
+use rand::prelude::*;
+use rand::prng::chacha::{ChaChaRng};
+
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap};
 use std::rc::{Rc};
@@ -200,14 +203,16 @@ pub enum MThunkPayload {
 pub struct MThunkRef {
   pub code: MClosureCode,
   pub env:  MIndexEnv,
+  pub save: MSaveState,
   pub ret:  Rc<RefCell<MThunkPayload>>,
 }
 
 impl MThunkRef {
-  pub fn new(code: MClosureCode, env: MIndexEnv) -> MThunkRef {
+  pub fn new(code: MClosureCode, env: MIndexEnv, save: MSaveState) -> MThunkRef {
     MThunkRef{
       code,
       env,
+      save,
       ret:  Rc::new(RefCell::new(MThunkPayload::Empty)),
     }
   }
@@ -327,6 +332,74 @@ pub struct MIndexEnv {
   pub vals: Vec<MBoxedValue>,
 }
 
+pub struct MState {
+  // TODO
+  pub rng:      ChaChaRng,
+}
+
+#[derive(Clone)]
+pub struct MRngSaveState {
+  pub seed:     [u8; 32],
+  pub wpos:     u128,
+  pub seqnr:    u64,
+}
+
+impl Default for MRngSaveState {
+  fn default() -> Self {
+    MRngSaveState{
+      seed:     thread_rng().gen(),
+      wpos:     0,
+      seqnr:    0,
+    }
+  }
+}
+
+impl MRngSaveState {
+  pub fn seek(&self, seqnr: u64) -> MRngSaveState {
+    MRngSaveState{
+      seed:     self.seed.clone(),
+      wpos:     0,
+      seqnr,
+    }
+  }
+}
+
+#[derive(Clone, Default)]
+pub struct MSaveState {
+  // TODO
+  pub rngsave:  MRngSaveState,
+}
+
+impl MSaveState {
+  pub fn seek(&self, seqnr: u64) -> MSaveState {
+    MSaveState{
+      rngsave:  self.rngsave.seek(seqnr),
+    }
+  }
+
+  pub fn restore(&self) -> MState {
+    let mut rng: ChaChaRng = ChaChaRng::from_seed(self.rngsave.seed);
+    rng.set_word_pos(self.rngsave.wpos);
+    rng.set_stream(self.rngsave.seqnr);
+    MState{
+      rng,
+    }
+  }
+}
+
+#[derive(Default)]
+pub struct MCounters {
+  pub thunk_seqnr:  u64,
+}
+
+impl MCounters {
+  pub fn next_thunk_seqnr(&mut self) -> u64 {
+    self.thunk_seqnr += 1;
+    assert!(self.thunk_seqnr != 0);
+    self.thunk_seqnr
+  }
+}
+
 #[derive(Clone)]
 pub enum MOpDef {
   Add,
@@ -371,17 +444,6 @@ pub struct SharedVM {
   inner:    RefCell<VM>,
 }
 
-pub struct VM {
-  pub register: MValue,
-  pub env:      MEnv,
-  pub ienv:     MIndexEnv,
-  pub stack:    MStack,
-  pub tmpstack: MTmpStack,
-  pub program:  MProgram,
-  pub pc:       MProgramAddr,
-  pub done:     bool,
-}
-
 #[no_mangle]
 pub extern "C" fn hebb_vm_new() -> *const SharedVM {
   let vm = Rc::new(SharedVM::new());
@@ -409,9 +471,24 @@ impl SharedVM {
   }
 }
 
+pub struct VM {
+  pub initsave: MSaveState,
+  pub counters: MCounters,
+  pub register: MValue,
+  pub env:      MEnv,
+  pub ienv:     MIndexEnv,
+  pub stack:    MStack,
+  pub tmpstack: MTmpStack,
+  pub program:  MProgram,
+  pub pc:       MProgramAddr,
+  pub done:     bool,
+}
+
 impl VM {
   pub fn new() -> VM {
     VM{
+      initsave: MSaveState::default(),
+      counters: MCounters::default(),
       register: MValue::Env(MEnv::default()),
       env:      MEnv::default(),
       ienv:     MIndexEnv::default(),
@@ -528,7 +605,9 @@ impl VM {
       MInst::Thunk(addr) => {
         // TODO
         let close_env = self.ienv.clone();
-        let thunk_v = MUnboxedValue::IndirectThunk(MThunkRef::new(MClosureCode::Addr(addr), close_env));
+        let thunk_seqnr = self.counters.next_thunk_seqnr();
+        let save = self.initsave.seek(thunk_seqnr);
+        let thunk_v = MUnboxedValue::IndirectThunk(MThunkRef::new(MClosureCode::Addr(addr), close_env, save));
         self.tmpstack.vals.push(thunk_v);
         self.pc.inc();
       }
