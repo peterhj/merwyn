@@ -33,7 +33,7 @@ lexer! {
   r#"/="#           => HLToken::NotEquals,
   r#"=="#           => HLToken::EqEquals,
   r#"="#            => HLToken::Equals,
-  r#"\~"#           => HLToken::Samples,
+  r#"\~"#           => HLToken::Tilde,
   r#"\\"#           => HLToken::Backslash,
   r#"\.\.\."#       => HLToken::Ellipsis,
   r#"\.\."#         => HLToken::DotDot,
@@ -100,7 +100,7 @@ pub enum HLToken {
   GtEquals,
   Lt,
   LtEquals,
-  Samples,
+  Tilde,
   Backslash,
   Dot,
   DotDot,
@@ -200,6 +200,7 @@ pub enum HExpr {
   //Group(Rc<HExpr>),
   //Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
   Let(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
+  LetRand(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetEmpty(Rc<HExpr>, Rc<HExpr>),
   //LetRec(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetWhere(Rc<HExpr>, Vec<Rc<HExpr>>, Rc<HExpr>, Rc<HExpr>),
@@ -353,6 +354,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::If |
       &HLToken::For |
       &HLToken::Equals |
+      &HLToken::Tilde |
       &HLToken::Comma |
       &HLToken::Semi => 0,
       &HLToken::BarBar => 300,
@@ -466,6 +468,17 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
             self.advance();
             let e2 = self.expression(0, -1)?;
             Ok(HExpr::Let(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
+          }
+          HLToken::Tilde => {
+            self.advance();
+            let e1_rhs = self.expression(0, -1)?;
+            match self.current_token() {
+              HLToken::In | HLToken::Semi => {}
+              _ => panic!(),
+            }
+            self.advance();
+            let e2 = self.expression(0, -1)?;
+            Ok(HExpr::LetRand(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
           }
           HLToken::Where => {
             let mut e1_clauses = vec![];
@@ -718,10 +731,10 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     self._try_expression(rbp, depth)
   }
 
-  pub fn parse(mut self) -> HExpr {
+  pub fn parse(mut self) -> Rc<HExpr> {
     self.advance();
     match self.expression(0, -1) {
-      Ok(e) => e,
+      Ok(expr) => Rc::new(expr),
       Err(_) => panic!(),
     }
   }

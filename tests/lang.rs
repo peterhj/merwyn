@@ -100,6 +100,14 @@ fn test_lang_let() {
 }
 
 #[test]
+fn test_lang_let_samples() {
+  let lexer = HLexer::new("let z ~ standard_normal; 0");
+  let parser = HParser::new(lexer);
+  let ast = parser.parse();
+  println!("{:?}", ast);
+}
+
+#[test]
 fn test_lang_let_empty() {
   let lexer = HLexer::new("let asdf[x]; 0");
   let parser = HParser::new(lexer);

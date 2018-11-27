@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use crate::ir::{LEnv, LExpr};
+use crate::ir::{LExpr, LSym, LTerm};
 
 use rand::prelude::*;
 use rand::prng::chacha::{ChaChaRng};
@@ -866,6 +866,350 @@ impl VM {
         }
         _ => unimplemented!(),
       }
+    }
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VMAddr {
+  pub raw:  u64,
+}
+
+pub struct VMBox {
+  // TODO
+}
+
+pub struct VMLam {
+  pub bind: Vec<LSym>,
+  pub code: LExpr,
+}
+
+pub struct VMClosure {
+  pub lam:  VMLam,
+  pub env:  VMEnvRef,
+}
+
+pub struct VMThunk {
+  // TODO: saved retval.
+  pub lam:  VMLam,
+  pub env:  VMEnvRef,
+}
+
+pub type VMValRef = Rc<VMVal>;
+
+//#[derive(Debug)]
+pub enum VMVal {
+  //Code(LExpr),
+  Clo(VMClosure),
+  Box(VMBox),
+  Bit(bool),
+  Int(i64),
+  Flo(f64),
+  Tup,
+  Thk,
+}
+
+#[derive(Clone)]
+pub enum VMReg {
+  Uninit,
+  Code(LExpr),
+  MVal(VMValRef),
+}
+
+#[derive(Clone, Default)]
+pub struct VMEnvRef {
+  // TODO
+  mval_map: HashMap<LSym, VMValRef>,
+  //addr_map: HashMap<LSym, VMAddr>,
+}
+
+impl VMEnvRef {
+  pub fn lookup(&self, name: LSym) -> VMValRef {
+    match self.mval_map.get(&name) {
+      None => panic!(),
+      Some(mval) => mval.clone(),
+    }
+  }
+
+  pub fn insert(&self, name: LSym, mval: VMValRef) -> VMEnvRef {
+    // TODO
+    let mut new_env = self.clone();
+    new_env.mval_map.insert(name, mval);
+    new_env
+  }
+}
+
+pub struct VMStore {
+  // TODO
+}
+
+pub type VMKontRef = Rc<VMKont>;
+
+pub enum VMKont {
+  Stop,
+  Next(VMKontRef),
+  App0(VMEnvRef, VMKontRef),
+  //App1(VMClosure, VMKontRef),
+  App1(VMLam, VMEnvRef, VMKontRef),
+  // TODO: like "arg" and "fun" konts but w/ arity.
+  App(usize, Vec<LExpr>, Option<VMLam>, Vec<VMValRef>, VMEnvRef, VMKontRef),
+  Swh(LExpr, LExpr, VMEnvRef, VMKontRef),
+  // TODO: "ret" kont may be unnecessary.
+  //Ret(VMValRef, VMKontRef),
+}
+
+impl Default for VMKont {
+  fn default() -> VMKont {
+    VMKont::Stop
+  }
+}
+
+/*impl VMKont {
+  pub fn is_terminal(&self) -> bool {
+    // TODO: version below assumes a "ret" kont.
+    match self {
+      &VMKont::Ret(_, ref next) => {
+        match &**next {
+          &VMKont::Stop => true,
+          _ => false,
+        }
+      }
+      _ => false,
+    }
+  }
+}*/
+
+pub struct NewVM {
+  pub initsave: MSaveState,
+  pub counters: MCounters,
+  //pub ctrl:     Option<LExpr>,
+  pub ctrl:     VMReg,
+  //pub env:      Option<VMEnvRef>,
+  pub env:      VMEnvRef,
+  pub store:    VMStore,
+  pub kont:     VMKontRef,
+}
+
+impl NewVM {
+  pub fn new() -> NewVM {
+    NewVM{
+      initsave: MSaveState::default(),
+      counters: MCounters::default(),
+      //ctrl:     None,
+      ctrl:     VMReg::Uninit,
+      //env:      None,
+      env:      VMEnvRef::default(),
+      store:    VMStore{},
+      kont:     VMKontRef::default(),
+    }
+  }
+
+  pub fn _debug_dump_ctrl(&self) {
+    match &self.ctrl {
+      &VMReg::Uninit => println!("DEBUG: vm: ctrl: uninit"),
+      &VMReg::Code(_) => println!("DEBUG: vm: ctrl: code"),
+      &VMReg::MVal(ref mval) => {
+        match &**mval {
+          VMVal::Int(x) => println!("DEBUG: vm: ctrl: mval: int: {:?}", x),
+          _ => println!("DEBUG: vm: ctrl: mval: other"),
+        }
+      }
+    }
+  }
+
+  pub fn _lookup(&self, sym: LSym) -> VMValRef {
+    // TODO
+    //unimplemented!();
+    self.env.lookup(sym)
+  }
+
+  pub fn _reset(&mut self, ltree: LExpr) {
+    // TODO
+    //self.ctrl = Some(ltree);
+    self.ctrl = VMReg::Code(ltree);
+    //self.env = None;
+    self.env = VMEnvRef::default();
+    //self.kont = VMKont::Stop;
+    self.kont = VMKontRef::default();
+  }
+
+  pub fn _is_terminal(&self) -> bool {
+    // TODO: as written this is for the version w/ "ret" konts.
+    /*self.ctrl.is_none() &&
+        self.env.is_none() &&
+        self.kont.is_terminal()*/
+    match (&self.ctrl, &*self.kont) {
+      (&VMReg::MVal(_), &VMKont::Stop) => true,
+      _ => false,
+    }
+  }
+
+  pub fn _step(&mut self) {
+    // TODO
+    println!("TRACE: vm: step");
+    let ctrl = self.ctrl.clone();
+    let env = self.env.clone();
+    let kont = self.kont.clone();
+    let (next_ctrl, next_env, next_kont) = match ctrl {
+      VMReg::Uninit => {
+        /*match &*kont {
+          &VMKont::App(0, ref arg_codes, ref maybe_mlam, ref args, ref env, ref kont) => {
+            assert_eq!(arg_codes.len(), 0);
+            let mlam = match maybe_mlam {
+              &Some(ref mlam) => mlam.clone(),
+              &None => panic!(),
+            };
+            let mut next_env = env.clone();
+            for (bvar, arg) in mlam.bind.iter().zip(args.iter()) {
+              next_env = next_env.insert(bvar.clone(), arg.clone());
+            }
+            let next_ctrl = VMReg::Code(mlam.code.clone());
+            let next_kont = kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          _ => unreachable!(),
+        }*/
+        unreachable!();
+      }
+      VMReg::Code(ltree) => {
+        match (&*ltree.val, &*kont) {
+          (&LTerm::Let(ref name, ref body, ref rest), _) => {
+            let mlam = VMLam{
+              bind: vec![name.clone()],
+              code: rest.clone(),
+            };
+            /*let mclosure = VMClosure{
+              lam:  mlam,
+              env:  env.clone(),
+            };*/
+            let next_kont = VMKontRef::new(VMKont::App1(mlam, env.clone(), kont));
+            let next_ctrl = VMReg::Code(body.clone());
+            let next_env = env;
+            (next_ctrl, next_env, next_kont)
+          }
+          (&LTerm::Fix(ref name, ref expr), _) => {
+            // TODO
+            unimplemented!();
+            /*let fix_code = ltree.clone();
+            let fix_mlam = VMLam{
+              bind: vec![],
+              code: fix_code,
+            };
+            let fix_mclosure = VMClosure{
+              lam:  fix_mlam,
+              env:  env.clone(),
+            };
+            let next_env = env.insert(name, fix_mclosure);
+            let next_ctrl = VMReg::Code(body.clone());
+            let next_kont = kont.clone();
+            (next_ctrl, next_env, next_kont)*/
+          }
+          (&LTerm::BitLit(x), _) => {
+            let mval = VMValRef::new(VMVal::Bit(x));
+            let next_ctrl = VMReg::MVal(mval);
+            let next_env = env;
+            let next_kont = kont;
+            (next_ctrl, next_env, next_kont)
+          }
+          (&LTerm::IntLit(x), _) => {
+            let mval = VMValRef::new(VMVal::Int(x));
+            let next_ctrl = VMReg::MVal(mval);
+            let next_env = env;
+            let next_kont = kont;
+            (next_ctrl, next_env, next_kont)
+          }
+          (&LTerm::Lookup, _) => {
+            let mval = self._lookup(ltree.sym.clone());
+            /*let next_kont = VMKont::Ret(mval, Rc::new(kont));
+            (None, None, next_kont)*/
+            let next_env = match &*mval {
+              &VMVal::Clo(ref mclosure) => mclosure.env.clone(),
+              _ => env,
+            };
+            let next_ctrl = VMReg::MVal(mval);
+            let next_kont = kont;
+            (next_ctrl, next_env, next_kont)
+          }
+          _ => unimplemented!(),
+        }
+      }
+      VMReg::MVal(mval) => {
+        match (&*mval, &*kont) {
+          /*(&VMVal::Lam(ref mlam), &VMKont::App0(ref env, ref kont)) => {
+            // TODO
+            let next_ctrl = VMReg::Code(mlam.code.clone());
+            let next_env = env.clone();
+            let next_kont = kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }*/
+          (_, &VMKont::App0(ref env, ref kont)) => {
+            // TODO: runtime panic if the reg is not a lambda.
+            panic!();
+          }
+          (_, &VMKont::App1(ref mlam, ref env, ref kont)) => {
+            let bvar = mlam.bind[0].clone();
+            let next_env = env.insert(bvar, mval);
+            let next_ctrl = VMReg::Code(mlam.code.clone());
+            let next_kont = kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          (_, &VMKont::App(rem, ref arg_codes, ref maybe_mlam, ref args, ref next_env, ref next_kont)) => {
+            // TODO
+            assert_eq!(rem, arg_codes.len());
+            let mut arg_codes = arg_codes.clone();
+            let _ = arg_codes.pop();
+            let mut args = args.clone();
+            args.push(mval.clone());
+            match rem {
+              0 => {
+                let mlam = match maybe_mlam {
+                  &Some(ref mlam) => mlam.clone(),
+                  &None => panic!(),
+                };
+                let mut next_env = next_env.clone();
+                for (bvar, arg) in mlam.bind.iter().zip(args.iter()) {
+                  next_env = next_env.insert(bvar.clone(), arg.clone());
+                }
+                let next_ctrl = VMReg::Code(mlam.code.clone());
+                let next_kont = next_kont.clone();
+                (next_ctrl, next_env, next_kont)
+              }
+              _ => {
+                // TODO
+                unimplemented!();
+                //let next_kont = VMKontRef::new(VMKont::App(rem - 1, arg_codes, maybe_mlam.clone(), args, next_env.clone(), next_kont.clone()));
+                //let next_env = env.clone();
+                //(next_ctrl, next_env, next_kont)
+              }
+            }
+          }
+          (&VMVal::Bit(x), &VMKont::Swh(ref on_code, ref off_code, ref env, ref kont)) => {
+            let next_ctrl = VMReg::Code(match x {
+              true  => on_code.clone(),
+              false => off_code.clone(),
+            });
+            let next_env = env.clone();
+            let next_kont = kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          (_, &VMKont::Swh(..)) => {
+            // TODO: runtime panic if the reg is not a bit.
+            panic!();
+          }
+          _ => unimplemented!(),
+        }
+      }
+    };
+    self.ctrl = next_ctrl;
+    self.env = next_env;
+    self.kont = next_kont;
+  }
+
+  pub fn eval(&mut self, ltree: LExpr) {
+    // TODO
+    self._reset(ltree);
+    while !self._is_terminal() {
+      self._step()
     }
   }
 }
