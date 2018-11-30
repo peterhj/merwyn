@@ -5,10 +5,14 @@
 use crate::lang::{HExpr};
 
 use std::collections::{HashMap};
+//use std::collections::hash_map::{Entry};
 use std::rc::{Rc};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct LSym(pub u64);
+
+#[derive(Clone, Debug)]
+pub struct LLabel(pub u64);
 
 /*#[derive(Clone, Debug)]
 pub struct LIdent {
@@ -25,6 +29,8 @@ pub enum LLambdaTerm {
 #[derive(Debug)]
 pub enum LTerm<E> {
   Apply(E, Vec<E>),
+  Env,
+  DynEnv(LEnv),
   Lambda(Vec<LSym>, E),
   Let(LSym, E, E),
   Fix(LSym, E),
@@ -32,38 +38,30 @@ pub enum LTerm<E> {
   BitLit(bool),
   IntLit(i64),
   FloatLit(f64),
-  Lookup,
+  Lookup(LSym),
+  EnvLookup(E, LSym),
+  DynEnvLookup(E, String),
+  Adj(E),
+  AdjDyn(E),
+}
+
+#[derive(Clone, Default, Debug)]
+pub struct LExprInfo {
+  pub env:  Option<LEnv>,
 }
 
 #[derive(Clone, Debug)]
 pub struct LExpr {
-  pub sym:  LSym,
-  pub val:  Rc<LTerm<LExpr>>,
+  pub label:    LLabel,
+  pub term:     Rc<LTerm<LExpr>>,
+  pub info:     LExprInfo,
 }
-
-#[derive(Clone, Debug)]
-pub struct LEnvExpr {
-  pub env:  LEnv,
-  pub sym:  LSym,
-  pub val:  Rc<LTerm<LEnvExpr>>,
-}
-
-/*#[derive(Clone, Debug)]
-pub enum LEnvExpr {
-  Lambda(Vec<LIdent>, Rc<LEnvExpr>),
-  Apply(Rc<LEnvExpr>, Vec<Rc<LEnvExpr>>),
-  Let(LIdent, Rc<LEnvExpr>, Rc<LEnvExpr>),
-  //LetRec(LIdent, Rc<LEnvExpr>, Rc<LEnvExpr>),
-  IntLit(i64),
-  FloatLit(f64),
-  Ident(LIdent),
-}*/
 
 #[derive(Clone, Debug)]
 pub enum LEnvVal {
-  Name(LEnvExpr),
-  Func(Vec<LSym>, LEnvExpr),
-  //Memo(Vec<LSym>, Rc<LExpr>),
+  Name(LExpr),
+  //Func(Vec<LSym>, LExpr),
+  //Memo(Vec<LSym>, LExpr),
 }
 
 #[derive(Clone, Default, Debug)]
@@ -71,100 +69,188 @@ pub struct LEnv {
   //pub bindings: HashMap<LSym, (usize, Rc<LExpr>)>,
   //pub syms:     Vec<(LSym, usize)>,
   pub bindings: HashMap<LSym, (usize, LEnvVal)>,
+  pub names:    HashMap<String, LSym>,
+  //pub envs:     HashMap<LSym, LEnv>,
   pub syms:     Vec<LSym>,
 }
 
 impl LEnv {
-  pub fn _bind_name(&mut self, name: LSym, body: LEnvExpr) {
+  pub fn _bind(&mut self, sym: LSym, code: LExpr) {
     let left_idx = self.syms.len();
-    self.bindings.insert(name.clone(), (left_idx, LEnvVal::Name(body)));
-    self.syms.push(name);
+    self.bindings.insert(sym.clone(), (left_idx, LEnvVal::Name(code)));
+    self.syms.push(sym);
   }
 
-  pub fn _bind_func(&mut self, name: LSym, args: Vec<LSym>, body: LEnvExpr) {
+  pub fn _bind_named(&mut self, name: String, sym: LSym, body: LExpr) {
+    let left_idx = self.syms.len();
+    self.bindings.insert(sym.clone(), (left_idx, LEnvVal::Name(body)));
+    self.names.insert(name, sym.clone());
+    self.syms.push(sym);
+  }
+
+  pub fn _lookup_name(&self, name: String) -> (LSym, LExpr) {
+    match self.names.get(&name) {
+      Some(sym) => {
+        match self.bindings.get(sym) {
+          Some(&(_, LEnvVal::Name(ref code))) => {
+            (sym.clone(), code.clone())
+          }
+          None => panic!(),
+        }
+      }
+      None => panic!(),
+    }
+  }
+
+  /*pub fn _bind_func(&mut self, name: LSym, args: Vec<LSym>, body: LExpr) {
     let left_idx = self.syms.len();
     self.bindings.insert(name.clone(), (left_idx, LEnvVal::Func(args, body)));
     self.syms.push(name);
-  }
+  }*/
 
-  pub fn fork_let(&self, name: LSym, body: LEnvExpr) -> LEnv {
+  pub fn fork(&self, name: LSym, body: LExpr) -> LEnv {
     // TODO
     let mut new_env = self.clone();
-    new_env._bind_name(name, body);
+    new_env._bind(name, body);
     new_env
   }
 
-  pub fn fork_let_func(&self, name: LSym, args: Vec<LSym>, body: LEnvExpr) -> LEnv {
+  /*pub fn fork_func(&self, name: LSym, args: Vec<LSym>, body: LExpr) -> LEnv {
     // TODO
     let mut new_env = self.clone();
     new_env._bind_func(name, args, body);
     new_env
-  }
+  }*/
 }
 
-pub enum LSymKey {
+/*pub enum LSymKey {
   Fresh,
   Name(String),
   IntLit(i64),
   FloatLit(f64),
+}*/
+
+#[derive(Debug)]
+pub enum LVar {
+  Fresh,
+  Name(String),
+  //IntLit(i64),
+  //FloatLit(f64),
 }
 
 #[derive(Default)]
-struct LSymMap {
-  s_to_id:  HashMap<String, LSym>,
-  id_to_s:  HashMap<LSym, Option<String>>,
+struct LSymMapper {
+  n_to_id:  HashMap<String, LSym>,
+  id_to_v:  HashMap<LSym, LVar>,
   id_ctr:   u64,
 }
 
-impl LSymMap {
+impl LSymMapper {
   pub fn _debug_dump_syms(&self) {
-    println!("DEBUG: symbols: {:?}", self.id_to_s);
+    println!("DEBUG: symbols: {:?}", self.id_to_v);
   }
 
-  pub fn insert(&mut self, name: String) {
-    let _ = self.lookup(name);
+  pub fn lookup_rev(&mut self, sym: LSym) -> String {
+    let &mut LSymMapper{
+      ref mut n_to_id,
+      ref mut id_to_v,
+      ref mut id_ctr} = self;
+    match id_to_v.get(&sym) {
+      Some(LVar::Name(ref name)) => {
+        name.clone()
+      }
+      Some(_) => panic!(),
+      None => panic!(),
+    }
   }
 
   pub fn lookup(&mut self, name: String) -> LSym {
-    let &mut LSymMap{
-      ref mut s_to_id,
-      ref mut id_to_s,
+    let &mut LSymMapper{
+      ref mut n_to_id,
+      ref mut id_to_v,
       ref mut id_ctr} = self;
-    s_to_id.entry(name.clone()).or_insert_with(|| {
+    n_to_id.entry(name.clone()).or_insert_with(|| {
       *id_ctr += 1;
       let id = *id_ctr;
       assert!(id != 0);
       let new_sym = LSym(id);
-      id_to_s.insert(new_sym.clone(), Some(name));
+      id_to_v.insert(new_sym.clone(), LVar::Name(name));
       new_sym
     }).clone()
   }
 
-  pub fn fresh(&mut self) -> LSym {
+  pub fn insert(&mut self, name: String) {
+    let _ = self.bind(name);
+  }
+
+  pub fn bind(&mut self, name: String) -> (String, LSym, Option<LSym>) {
+    let &mut LSymMapper{
+      ref mut n_to_id,
+      ref mut id_to_v,
+      ref mut id_ctr} = self;
+    *id_ctr += 1;
+    let id = *id_ctr;
+    assert!(id != 0);
+    let new_sym = LSym(id);
+    let old_sym = n_to_id.insert(name.clone(), new_sym.clone());
+    id_to_v.insert(new_sym.clone(), LVar::Name(name.clone()));
+    (name, new_sym, old_sym)
+  }
+
+  pub fn unbind(&mut self, name: String, new_sym: LSym, old_sym: Option<LSym>) {
+    let pop_sym = if let Some(old_sym) = old_sym {
+      self.n_to_id.insert(name, old_sym)
+    } else {
+      self.n_to_id.remove(&name)
+    };
+    match pop_sym {
+      Some(pop_sym) => assert_eq!(pop_sym, new_sym),
+      None => panic!(),
+    }
+  }
+
+  /*pub fn fresh(&mut self) -> LSym {
     self.id_ctr += 1;
     let id = self.id_ctr;
     assert!(id != 0);
     let new_sym = LSym(id);
-    self.id_to_s.insert(new_sym.clone(), None);
+    self.id_to_v.insert(new_sym.clone(), LVar::Fresh);
     new_sym
+  }*/
+}
+
+#[derive(Default)]
+struct LLabelCtr {
+  id_ctr:   u64,
+}
+
+impl LLabelCtr {
+  pub fn fresh(&mut self) -> LLabel {
+    self.id_ctr += 1;
+    let id = self.id_ctr;
+    assert!(id != 0);
+    LLabel(id)
   }
 }
 
 pub struct LBuilder {
-  symbols:  LSymMap,
+  symbols:  LSymMapper,
+  labels:   LLabelCtr,
 }
 
 impl LBuilder {
   pub fn new() -> LBuilder {
-    let mut symbols = LSymMap::default();
+    let mut symbols = LSymMapper::default();
     // TODO: put builtins and "standard library" into the namespace.
     symbols.insert("add".to_string());
     symbols.insert("sub".to_string());
     symbols.insert("mul".to_string());
     symbols.insert("div".to_string());
+    let labels = LLabelCtr::default();
     // TODO: initial envionrment.
     LBuilder{
       symbols,
+      labels,
     }
   }
 
@@ -176,90 +262,102 @@ impl LBuilder {
     // TODO
     match &*htree {
       &HExpr::Apply0(ref lhs) => {
-        let sym = self.symbols.fresh();
         let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
-        LExpr{sym, val: Rc::new(LTerm::Apply(lhs, vec![]))}
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Apply(lhs, vec![])), info: LExprInfo::default()}
       }
       &HExpr::Apply1(ref lhs, ref arg0) => {
-        let sym = self.symbols.fresh();
         let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
         let arg0 = self._htree_to_ltree_lower_pass(arg0.clone());
-        LExpr{sym, val: Rc::new(LTerm::Apply(lhs, vec![arg0]))}
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Apply(lhs, vec![arg0])), info: LExprInfo::default()}
       }
       &HExpr::ApplyN(ref lhs, ref args) => {
-        let sym = self.symbols.fresh();
         let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
         let args: Vec<_> = args.iter().map(|arg| {
           self._htree_to_ltree_lower_pass(arg.clone())
         }).collect();
-        LExpr{sym, val: Rc::new(LTerm::Apply(lhs, args))}
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Apply(lhs, args)), info: LExprInfo::default()}
       }
-      &HExpr::Let(ref lhs, ref body, ref rest) => {
+      &HExpr::Adj(ref body) => {
+        // TODO
+        let body = self._htree_to_ltree_lower_pass(body.clone());
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Adj(body)), info: LExprInfo::default()}
+      }
+      &HExpr::AdjDyn(ref body) => {
+        // TODO
+        let body = self._htree_to_ltree_lower_pass(body.clone());
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::AdjDyn(body)), info: LExprInfo::default()}
+      }
+      &HExpr::Let(ref lhs, ref body, ref rest, ref attrs) => {
         match &**lhs {
           &HExpr::Ident(ref name) => {
-            let sym = self.symbols.fresh();
-            let name = self.symbols.lookup(name.to_string());
+            let (name, name_sym, name_oldsym) = self.symbols.bind(name.to_string());
             let body = self._htree_to_ltree_lower_pass(body.clone());
             let rest = self._htree_to_ltree_lower_pass(rest.clone());
-            LExpr{sym, val: Rc::new(LTerm::Let(name, body, rest))}
+            self.symbols.unbind(name, name_sym.clone(), name_oldsym);
+            LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(name_sym, body, rest)), info: LExprInfo::default()}
           }
           &HExpr::Apply0(ref lhs) => {
-            let sym = self.symbols.fresh();
-            let name = match &**lhs {
+            let (name, name_sym, name_oldsym) = match &**lhs {
               &HExpr::Ident(ref name) => {
-                self.symbols.lookup(name.to_string())
+                self.symbols.bind(name.to_string())
               }
               _ => panic!(),
             };
             let body = self._htree_to_ltree_lower_pass(body.clone());
-            let lam_sym = self.symbols.fresh();
-            let lam = LExpr{sym: lam_sym, val: Rc::new(LTerm::Lambda(vec![], body))};
+            let lam = LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Lambda(vec![], body)), info: LExprInfo::default()};
             let rest = self._htree_to_ltree_lower_pass(rest.clone());
-            LExpr{sym, val: Rc::new(LTerm::Let(name, lam, rest))}
+            self.symbols.unbind(name, name_sym.clone(), name_oldsym);
+            LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(name_sym, lam, rest)), info: LExprInfo::default()}
           }
           &HExpr::Apply1(ref lhs, ref arg0) => {
-            let sym = self.symbols.fresh();
-            let name = match &**lhs {
+            let (name, name_sym, name_oldsym) = match &**lhs {
               &HExpr::Ident(ref name) => {
-                self.symbols.lookup(name.to_string())
+                self.symbols.bind(name.to_string())
               }
               _ => panic!(),
             };
-            let arg0 = match &**arg0 {
+            let (arg0_, arg0_sym, arg0_oldsym) = match &**arg0 {
               &HExpr::Ident(ref name) => {
-                self.symbols.lookup(name.to_string())
+                self.symbols.bind(name.to_string())
               }
               _ => panic!(),
             };
             let body = self._htree_to_ltree_lower_pass(body.clone());
-            let lam_sym = self.symbols.fresh();
-            let lam = LExpr{sym: lam_sym, val: Rc::new(LTerm::Lambda(vec![arg0], body))};
+            self.symbols.unbind(arg0_, arg0_sym.clone(), arg0_oldsym);
+            let lam = LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Lambda(vec![arg0_sym], body)), info: LExprInfo::default()};
             let rest = self._htree_to_ltree_lower_pass(rest.clone());
-            LExpr{sym, val: Rc::new(LTerm::Let(name, lam, rest))}
+            self.symbols.unbind(name, name_sym.clone(), name_oldsym);
+            LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(name_sym, lam, rest)), info: LExprInfo::default()}
           }
           &HExpr::ApplyN(ref lhs, ref args) => {
-            let sym = self.symbols.fresh();
-            let name = match &**lhs {
+            let (name, name_sym, name_oldsym) = match &**lhs {
               &HExpr::Ident(ref name) => {
-                self.symbols.lookup(name.to_string())
+                self.symbols.bind(name.to_string())
               }
               _ => panic!(),
             };
             let mut args_ = vec![];
+            let mut args_syms = vec![];
+            let mut args_oldsyms = vec![];
             for arg in args.iter() {
-              let arg = match &**arg {
+              let (arg_, arg_sym, arg_oldsym) = match &**arg {
                 &HExpr::Ident(ref name) => {
-                  self.symbols.lookup(name.to_string())
+                  self.symbols.bind(name.to_string())
                 }
                 _ => panic!(),
               };
-              args_.push(arg);
+              args_.push(arg_);
+              args_syms.push(arg_sym);
+              args_oldsyms.push(arg_oldsym);
             }
             let body = self._htree_to_ltree_lower_pass(body.clone());
-            let lam_sym = self.symbols.fresh();
-            let lam = LExpr{sym: lam_sym, val: Rc::new(LTerm::Lambda(args_, body))};
+            for ((arg_, arg_sym), arg_oldsym) in args_.iter().zip(args_syms.iter()).zip(args_oldsyms.iter()).rev() {
+              self.symbols.unbind(arg_.clone(), arg_sym.clone(), arg_oldsym.clone());
+            }
+            let lam = LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Lambda(args_syms, body)), info: LExprInfo::default()};
             let rest = self._htree_to_ltree_lower_pass(rest.clone());
-            LExpr{sym, val: Rc::new(LTerm::Let(name, lam, rest))}
+            self.symbols.unbind(name, name_sym.clone(), name_oldsym);
+            LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(name_sym, lam, rest)), info: LExprInfo::default()}
           }
           _ => {
             panic!();
@@ -267,34 +365,41 @@ impl LBuilder {
         }
       }
       &HExpr::Add(ref lhs, ref rhs) => {
-        let sym = self.symbols.fresh();
         let op_name = "add".to_string();
         let op_sym = self.symbols.lookup(op_name);
-        //let op = LExpr{sym: op_sym.clone(), val: Rc::new(LTerm::Ident(op_sym, op_name))};
-        let op = LExpr{sym: op_sym, val: Rc::new(LTerm::Lookup)};
+        //let op = LExpr{sym: op_sym.clone(), term: Rc::new(LTerm::Ident(op_sym, op_name))};
+        let op = LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Lookup(op_sym)), info: LExprInfo::default()};
         let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
         let rhs = self._htree_to_ltree_lower_pass(rhs.clone());
-        LExpr{sym, val: Rc::new(LTerm::Apply(op, vec![lhs, rhs]))}
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Apply(op, vec![lhs, rhs])), info: LExprInfo::default()}
       }
       &HExpr::BotLit => {
         // TODO: special symbol key for literal constants.
-        let sym = self.symbols.fresh();
-        LExpr{sym, val: Rc::new(LTerm::BitLit(false))}
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::BitLit(false)), info: LExprInfo::default()}
       }
       &HExpr::TeeLit => {
         // TODO: special symbol key for literal constants.
-        let sym = self.symbols.fresh();
-        LExpr{sym, val: Rc::new(LTerm::BitLit(true))}
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::BitLit(true)), info: LExprInfo::default()}
       }
       &HExpr::IntLit(x) => {
         // TODO: special symbol key for literal constants.
-        let sym = self.symbols.fresh();
         //let sym = self.symbols.int_lit(x);
-        LExpr{sym, val: Rc::new(LTerm::IntLit(x))}
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::IntLit(x)), info: LExprInfo::default()}
       }
       &HExpr::Ident(ref name) => {
-        let sym = self.symbols.lookup(name.to_string());
-        LExpr{sym: sym.clone(), val: Rc::new(LTerm::Lookup)}
+        let name_sym = self.symbols.lookup(name.to_string());
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Lookup(name_sym)), info: LExprInfo::default()}
+      }
+      &HExpr::EnvLookup(ref lhs, ref name) => {
+        /*let (name, name_sym, name_oldsym) = self.symbols.bind(name.to_string());
+        //let body = self._htree_to_ltree_lower_pass(body.clone());
+        let env = LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Env), info: LExprInfo::default()};
+        //let rest = self._htree_to_ltree_lower_pass(rest.clone());
+        self.symbols.unbind(name, name_sym.clone(), name_oldsym);
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(name_sym, body, rest)), info: LExprInfo::default()}*/
+        // TODO
+        let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::DynEnvLookup(lhs, name.clone())), info: LExprInfo::default()}
       }
       _ => {
         // TODO
@@ -303,78 +408,238 @@ impl LBuilder {
     }
   }
 
+  pub fn lower(&mut self, htree: Rc<HExpr>) -> LExpr {
+    self._htree_to_ltree_lower_pass(htree)
+  }
+/*}
+
+pub struct LTransformer {
+}
+
+impl LTransformer {
+  pub fn new() -> LTransformer {
+    LTransformer{}
+  }*/
+
   pub fn _ltree_normalize_pass(&mut self, ltree: LExpr) -> LExpr {
     // TODO
     unimplemented!();
   }
 
-  pub fn _ltree_constant_fold_pass(&mut self, ltree: LExpr) -> LExpr {
-    // TODO
-    unimplemented!();
+  pub fn normalize(&mut self, ltree: LExpr) -> LExpr {
+    self._ltree_normalize_pass(ltree)
   }
 
-  pub fn _ltree_unify_pass(&mut self, ltree: LExpr) -> LExpr {
+  pub fn _ltree_env_info_pass_rec(&mut self, env: LEnv, ltree: LExpr) -> LExpr {
     // TODO
-    unimplemented!();
-  }
-
-  pub fn _ltree_env_pass_rec(&mut self, env: LEnv, ltree: LExpr) -> LEnvExpr {
-    // TODO
-    match &*ltree.val {
+    match &*ltree.term {
       &LTerm::Apply(ref head, ref args) => {
-        let head = self._ltree_env_pass_rec(env.clone(), head.clone());
-        let args = args.iter().map(|arg| self._ltree_env_pass_rec(env.clone(), arg.clone())).collect();
-        LEnvExpr{
-          sym:  ltree.sym.clone(),
-          env:  env.clone(),
-          val:  Rc::new(LTerm::Apply(
+        let head = self._ltree_env_info_pass_rec(env.clone(), head.clone());
+        let args = args.iter().map(|arg| self._ltree_env_info_pass_rec(env.clone(), arg.clone())).collect();
+        let mut info = ltree.info;
+        info.env = Some(env);
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::Apply(
               head,
               args,
           )),
+          info,
         }
       }
-      //Lambda(Vec<LSym>, LExpr),
       &LTerm::Let(ref name, ref body, ref rest) => {
-        let body = self._ltree_env_pass_rec(env.clone(), body.clone());
-        let rest_env = env.fork_let(name.clone(), body.clone());
-        let rest = self._ltree_env_pass_rec(rest_env, rest.clone());
-        LEnvExpr{
-          sym:  ltree.sym.clone(),
-          env:  env.clone(),
-          val:  Rc::new(LTerm::Let(
+        let body = self._ltree_env_info_pass_rec(env.clone(), body.clone());
+        let rest_env = env.fork(name.clone(), body.clone());
+        let rest = self._ltree_env_info_pass_rec(rest_env, rest.clone());
+        let mut info = ltree.info;
+        info.env = Some(env);
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::Let(
               name.clone(),
               body,
               rest,
           )),
+          info,
         }
       }
-      //LetFunc(LSym, Vec<LSym>, LExpr, LExpr),
       &LTerm::IntLit(x) => {
-        LEnvExpr{
-          sym:  ltree.sym.clone(),
-          env:  env.clone(),
-          val:  Rc::new(LTerm::IntLit(x)),
+        let mut info = ltree.info;
+        info.env = Some(env);
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::IntLit(x)),
+          info,
         }
       }
-      //FloatLit(f64),
-      &LTerm::Lookup => {
-        LEnvExpr{
-          sym:  ltree.sym.clone(),
-          env:  env.clone(),
-          val:  Rc::new(LTerm::Lookup),
+      &LTerm::Lookup(ref lookup_sym) => {
+        let mut info = ltree.info;
+        info.env = Some(env);
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::Lookup(lookup_sym.clone())),
+          info,
+        }
+      }
+      &LTerm::Adj(ref body) => {
+        // TODO
+        let body = self._ltree_env_info_pass_rec(env.clone(), body.clone());
+        let mut info = ltree.info;
+        info.env = Some(env);
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::Adj(body)),
+          info,
+        }
+      }
+      &LTerm::AdjDyn(ref body) => {
+        // TODO
+        let body = self._ltree_env_info_pass_rec(env.clone(), body.clone());
+        let mut info = ltree.info;
+        info.env = Some(env);
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::AdjDyn(body)),
+          info,
+        }
+      }
+      &LTerm::DynEnvLookup(ref target, ref name) => {
+        // TODO
+        let target = self._ltree_env_info_pass_rec(env.clone(), target.clone());
+        let mut info = ltree.info;
+        info.env = Some(env);
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::DynEnvLookup(target, name.clone())),
+          info,
+        }
+        /*let target = self._ltree_env_info_pass_rec(env.clone(), target.clone());
+        match target.info.env {
+          Some(ref tgenv) => {
+            let (lk_sym, lk_code) = tgenv._lookup_name(name.clone());
+            // FIXME: may want a fresh label.
+            lk_code
+          }
+          None => panic!(),
+        }*/
+      }
+      _ => unimplemented!(),
+    }
+  }
+
+  pub fn _ltree_env_info_pass(&mut self, ltree: LExpr) -> LExpr {
+    // TODO: fill initial env.
+    let env = LEnv::default();
+    self._ltree_env_info_pass_rec(env, ltree)
+  }
+
+  pub fn _ltree_adjoint_pass(&mut self, ltree: LExpr) -> LExpr {
+    match &*ltree.term {
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        let body = self._ltree_adjoint_pass(body.clone());
+        let rest = self._ltree_adjoint_pass(rest.clone());
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::Let(
+              name.clone(),
+              body,
+              rest,
+          )),
+          info:     ltree.info,
+        }
+      }
+      &LTerm::IntLit(x) => {
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::IntLit(x)),
+          info:     ltree.info,
+        }
+      }
+      &LTerm::Lookup(ref lookup_sym) => {
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::Lookup(lookup_sym.clone())),
+          info:     ltree.info,
+        }
+      }
+      &LTerm::Adj(ref body) => {
+        // TODO
+        let orig_env = match ltree.info.env {
+          Some(ref env) => env.clone(),
+          None => panic!(),
+        };
+        let mut shadow_env = orig_env.clone();
+        let mut shadow = vec![];
+        // FIXME: only need to shadow freevars, not all bindings in scope.
+        for (fvar_sym, _) in orig_env.bindings.iter() {
+          let fvar_name = self.symbols.lookup_rev(fvar_sym.clone());
+          let (shadow_name, shadow_sym, shadow_oldsym) = self.symbols.bind(fvar_name);
+          // FIXME: next line is where we bind the adjoint expr;
+          // for now, we set the adjoint to be any old literal.
+          let shadow_code = LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::IntLit(42424242)), info: LExprInfo::default()};
+          shadow_env._bind_named(shadow_name.clone(), shadow_sym.clone(), shadow_code);
+          shadow.push((shadow_name, shadow_sym, shadow_oldsym));
+        }
+        for (shadow_name, shadow_sym, shadow_oldsym) in shadow.into_iter().rev() {
+          self.symbols.unbind(shadow_name, shadow_sym, shadow_oldsym);
+        }
+        let mut info = LExprInfo::default();
+        info.env = Some(shadow_env);
+        LExpr{
+          label:    self.labels.fresh(),
+          term:     Rc::new(LTerm::Env),
+          info,
+        }
+      }
+      &LTerm::AdjDyn(ref root) => {
+        // TODO
+        let root = self._ltree_adjoint_pass(root.clone());
+        let root_env = match root.info.env {
+          Some(ref env) => env.clone(),
+          None => panic!(),
+        };
+        let mut shadow_env = root_env.clone();
+        let mut shadow = vec![];
+        // FIXME: do the correct traversal order (requires freevars).
+        // FIXME: only need to shadow freevars, not all bindings in scope.
+        for (fvar_sym, _) in root_env.bindings.iter() {
+          let fvar_name = self.symbols.lookup_rev(fvar_sym.clone());
+          let (shadow_name, shadow_sym, shadow_oldsym) = self.symbols.bind(fvar_name);
+          // FIXME: next line is where we bind the adjoint expr;
+          // for now, we set the adjoint to be any old literal.
+          let shadow_code = LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::IntLit(42424242)), info: LExprInfo::default()};
+          shadow_env._bind_named(shadow_name.clone(), shadow_sym.clone(), shadow_code);
+          shadow.push((shadow_name, shadow_sym, shadow_oldsym));
+        }
+        for (shadow_name, shadow_sym, shadow_oldsym) in shadow.into_iter().rev() {
+          self.symbols.unbind(shadow_name, shadow_sym, shadow_oldsym);
+        }
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::DynEnv(shadow_env)),
+          info:     ltree.info,
+        }
+      }
+      &LTerm::DynEnvLookup(ref target, ref name) => {
+        // TODO
+        let target = self._ltree_adjoint_pass(target.clone());
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     Rc::new(LTerm::DynEnvLookup(target, name.clone())),
+          info:     ltree.info,
         }
       }
       _ => unimplemented!(),
     }
   }
 
-  pub fn _ltree_env_pass(&mut self, ltree: LExpr) -> LEnvExpr {
+  /*pub fn _ltree_adjoint_pass(&mut self, ltree: LExpr) -> LExpr {
     // TODO: fill initial env.
     let env = LEnv::default();
-    self._ltree_env_pass_rec(env, ltree)
-  }
+    self._ltree_adjoint_pass_rec(env, ltree)
+  }*/
 
-  pub fn _ltree_noenv_pass(&mut self, letree: LEnvExpr) -> LExpr {
+  pub fn _ltree_adjoint_lookup_pass(&mut self, ltree: LExpr) -> LExpr {
     // TODO
     unimplemented!();
   }

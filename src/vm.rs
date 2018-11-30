@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use crate::ir::{LExpr, LSym, LTerm};
+use crate::ir::{LEnv, LEnvVal, LExpr, LSym, LTerm};
 
 use rand::prelude::*;
 use rand::prng::chacha::{ChaChaRng};
@@ -879,20 +879,32 @@ pub struct VMBox {
   // TODO
 }
 
+pub struct VMModule {
+  pub env:  VMEnvRef,
+}
+
 pub struct VMLam {
   pub bind: Vec<LSym>,
   pub code: LExpr,
 }
 
 pub struct VMClosure {
-  pub lam:  VMLam,
   pub env:  VMEnvRef,
+  pub lam:  VMLam,
 }
 
+pub enum VMThunkSlot {
+  Empty,
+  Blkhole,
+  Ret(VMValRef),
+}
+
+pub type VMThunkRef = Rc<VMThunk>;
+
 pub struct VMThunk {
-  // TODO: saved retval.
-  pub lam:  VMLam,
   pub env:  VMEnvRef,
+  pub lam:  VMLam,
+  pub slot: RefCell<VMThunkSlot>,
 }
 
 pub type VMValRef = Rc<VMVal>;
@@ -900,13 +912,15 @@ pub type VMValRef = Rc<VMVal>;
 //#[derive(Debug)]
 pub enum VMVal {
   //Code(LExpr),
+  Env(VMEnvRef),
+  DEnv(LEnv),
   Clo(VMClosure),
   Box(VMBox),
   Bit(bool),
   Int(i64),
   Flo(f64),
   Tup,
-  Thk,
+  //Thk,
 }
 
 #[derive(Clone)]
@@ -921,6 +935,7 @@ pub struct VMEnvRef {
   // TODO
   mval_map: HashMap<LSym, VMValRef>,
   //addr_map: HashMap<LSym, VMAddr>,
+  named:    HashMap<String, VMValRef>,
 }
 
 impl VMEnvRef {
@@ -939,21 +954,19 @@ impl VMEnvRef {
   }
 }
 
-pub struct VMStore {
-  // TODO
-}
-
 pub type VMKontRef = Rc<VMKont>;
 
 pub enum VMKont {
   Stop,
-  Next(VMKontRef),
+  //Next(VMKontRef),
+  Lkd(String, VMEnvRef, VMKontRef),
   App0(VMEnvRef, VMKontRef),
   //App1(VMClosure, VMKontRef),
   App1(VMLam, VMEnvRef, VMKontRef),
   // TODO: like "arg" and "fun" konts but w/ arity.
   App(usize, Vec<LExpr>, Option<VMLam>, Vec<VMValRef>, VMEnvRef, VMKontRef),
   Swh(LExpr, LExpr, VMEnvRef, VMKontRef),
+  Frc(LSym, VMEnvRef, VMKontRef),
   // TODO: "ret" kont may be unnecessary.
   //Ret(VMValRef, VMKontRef),
 }
@@ -979,28 +992,34 @@ impl Default for VMKont {
   }
 }*/
 
-pub struct NewVM {
+#[derive(Default)]
+pub struct VMStore {
+  // TODO
+  thk_map:  HashMap<VMAddr, VMThunkRef>,
+}
+
+pub struct VMachine {
   pub initsave: MSaveState,
   pub counters: MCounters,
   //pub ctrl:     Option<LExpr>,
   pub ctrl:     VMReg,
   //pub env:      Option<VMEnvRef>,
   pub env:      VMEnvRef,
-  pub store:    VMStore,
   pub kont:     VMKontRef,
+  pub store:    VMStore,
 }
 
-impl NewVM {
-  pub fn new() -> NewVM {
-    NewVM{
+impl VMachine {
+  pub fn new() -> VMachine {
+    VMachine{
       initsave: MSaveState::default(),
       counters: MCounters::default(),
       //ctrl:     None,
       ctrl:     VMReg::Uninit,
       //env:      None,
       env:      VMEnvRef::default(),
-      store:    VMStore{},
       kont:     VMKontRef::default(),
+      store:    VMStore::default(),
     }
   }
 
@@ -1010,6 +1029,7 @@ impl NewVM {
       &VMReg::Code(_) => println!("DEBUG: vm: ctrl: code"),
       &VMReg::MVal(ref mval) => {
         match &**mval {
+          VMVal::Bit(x) => println!("DEBUG: vm: ctrl: mval: bit: {:?}", x),
           VMVal::Int(x) => println!("DEBUG: vm: ctrl: mval: int: {:?}", x),
           _ => println!("DEBUG: vm: ctrl: mval: other"),
         }
@@ -1072,7 +1092,25 @@ impl NewVM {
         unreachable!();
       }
       VMReg::Code(ltree) => {
-        match (&*ltree.val, &*kont) {
+        match (&*ltree.term, &*kont) {
+          (&LTerm::Env, _) => {
+            // TODO
+            unimplemented!();
+          }
+          (&LTerm::DynEnv(ref lenv), _) => {
+            // TODO
+            println!("TRACE: vm:   capturing dyn env...");
+            for (k, v) in env.mval_map.iter() {
+              println!("TRACE: vm:     kv: {:?}, _", k);
+            }
+            // FIXME
+            //let mval = VMValRef::new(VMVal::Env(env.clone()));
+            let mval = VMValRef::new(VMVal::DEnv(lenv.clone()));
+            let next_ctrl = VMReg::MVal(mval);
+            let next_kont = kont;
+            let next_env = env;
+            (next_ctrl, next_env, next_kont)
+          }
           (&LTerm::Let(ref name, ref body, ref rest), _) => {
             let mlam = VMLam{
               bind: vec![name.clone()],
@@ -1118,8 +1156,8 @@ impl NewVM {
             let next_kont = kont;
             (next_ctrl, next_env, next_kont)
           }
-          (&LTerm::Lookup, _) => {
-            let mval = self._lookup(ltree.sym.clone());
+          (&LTerm::Lookup(ref lookup_sym), _) => {
+            let mval = self._lookup(lookup_sym.clone());
             /*let next_kont = VMKont::Ret(mval, Rc::new(kont));
             (None, None, next_kont)*/
             let next_env = match &*mval {
@@ -1128,6 +1166,13 @@ impl NewVM {
             };
             let next_ctrl = VMReg::MVal(mval);
             let next_kont = kont;
+            (next_ctrl, next_env, next_kont)
+          }
+          (&LTerm::DynEnvLookup(ref target, ref name), _) => {
+            // TODO
+            let next_ctrl = VMReg::Code(target.clone());
+            let next_kont = VMKontRef::new(VMKont::Lkd(name.clone(), env.clone(), kont));
+            let next_env = env.clone();
             (next_ctrl, next_env, next_kont)
           }
           _ => unimplemented!(),
@@ -1142,10 +1187,29 @@ impl NewVM {
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
           }*/
+          (&VMVal::DEnv(ref tg_lenv), &VMKont::Lkd(ref name, ref env, ref kont)) => {
+            // TODO
+            let lk_sym = match tg_lenv.names.get(name) {
+              Some(lk_sym) => lk_sym.clone(),
+              None => panic!(),
+            };
+            let lk_code = match tg_lenv.bindings.get(&lk_sym) {
+              Some(&(_, LEnvVal::Name(ref lk_code))) => lk_code.clone(),
+              None => panic!(),
+            };
+            let next_ctrl = VMReg::Code(lk_code);
+            let next_env = env.clone();
+            let next_kont = kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
           (_, &VMKont::App0(ref env, ref kont)) => {
             // TODO: runtime panic if the reg is not a lambda.
             panic!();
           }
+          /*(&VMVal::Env(ref menv), &VMKont::App1(ref mlam, ref env, ref kont)) => {
+            // TODO
+            unimplemented!();
+          }*/
           (_, &VMKont::App1(ref mlam, ref env, ref kont)) => {
             let bvar = mlam.bind[0].clone();
             let next_env = env.insert(bvar, mval);

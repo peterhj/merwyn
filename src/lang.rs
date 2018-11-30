@@ -16,6 +16,8 @@ lexer! {
   r#"lambda"#       => HLToken::Lambda,
   r#"λ"#            => HLToken::Lambda,
   r#"extern"#       => HLToken::Extern,
+  r#"adj"#          => HLToken::Adj,
+  r#"dyn"#          => HLToken::Dyn,
   r#"pub"#          => HLToken::Pub,
   r#"let"#          => HLToken::Let,
   r#"alt"#          => HLToken::Alt,
@@ -83,6 +85,8 @@ pub enum HLToken {
   BlockComment,
   Lambda,
   Extern,
+  Adj,
+  Dyn,
   Pub,
   Let,
   Alt,
@@ -186,6 +190,11 @@ impl<'src> Iterator for HLexer<'src> {
   }
 }
 
+#[derive(Clone, Default, Debug)]
+pub struct HLetAttrs {
+  pub pub_: bool,
+}
+
 #[derive(Clone, Debug)]
 pub enum HExpr {
   Lambda0(Rc<HExpr>),
@@ -199,7 +208,9 @@ pub enum HExpr {
   TupleN(Vec<Rc<HExpr>>),
   //Group(Rc<HExpr>),
   //Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
-  Let(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
+  Adj(Rc<HExpr>),
+  AdjDyn(Rc<HExpr>),
+  Let(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>, Option<HLetAttrs>),
   LetRand(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetEmpty(Rc<HExpr>, Rc<HExpr>),
   //LetRec(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
@@ -230,6 +241,7 @@ pub enum HExpr {
   IntLit(i64),
   FloatLit(f64),
   Ident(String),
+  EnvLookup(Rc<HExpr>, String),
 }
 
 impl HExpr {
@@ -345,6 +357,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     // TODO
     match tok {
       &HLToken::Extern |
+      &HLToken::Adj |
+      &HLToken::Dyn |
       &HLToken::Pub |
       &HLToken::Let |
       &HLToken::Alt |
@@ -393,6 +407,33 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       HLToken::Extern => {
         // TODO
         unimplemented!();
+      }
+      HLToken::Adj => {
+        match self.current_token() {
+          HLToken::Dyn => {
+            self.advance();
+            let e = self.expression(0, -1)?;
+            Ok(HExpr::AdjDyn(Rc::new(e)))
+          }
+          _ => {
+            let e = self.expression(0, -1)?;
+            Ok(HExpr::Adj(Rc::new(e)))
+          }
+        }
+      }
+      HLToken::Pub => {
+        match self.current_token() {
+          HLToken::Let => {}
+          _ => panic!(),
+        }
+        self.expression(0, -1).map(|e| match e {
+          HExpr::Let(lhs, rhs, rest, maybe_attrs) => {
+            let mut attrs = maybe_attrs.unwrap_or(HLetAttrs::default());
+            attrs.pub_ = true;
+            HExpr::Let(lhs, rhs, rest, Some(attrs))
+          }
+          _ => panic!(),
+        })
       }
       HLToken::Let => {
         let e1_lhs = self.expression(0, -1)?;
@@ -467,7 +508,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
             }
             self.advance();
             let e2 = self.expression(0, -1)?;
-            Ok(HExpr::Let(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
+            Ok(HExpr::Let(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2), None))
           }
           HLToken::Tilde => {
             self.advance();
@@ -582,6 +623,15 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
   fn led(&mut self, tok: HLToken, left: HExpr) -> Result<HExpr, ()> {
     // TODO
     match tok {
+      HLToken::Dot => {
+        match self.current_token() {
+          HLToken::Ident(name) => {
+            self.advance();
+            Ok(HExpr::EnvLookup(Rc::new(left), name))
+          }
+          _ => panic!(),
+        }
+      }
       HLToken::BarBar => {
         let right = self.expression(self.lbp(&tok) - 1, -1)?;
         Ok(HExpr::ShortOr(Rc::new(left), Rc::new(right)))
@@ -686,30 +736,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
   }
 
   fn _try_expression(&mut self, rbp: i32, depth: i32) -> Result<HExpr, ()> {
-    // TODO
-    //let mut saved = self.save();
-    let mut left = match self._try_atom(rbp, depth) {
-      Ok(left) => {
-        left
-      }
-      Err(_) => {
-        //self.restore(saved);
-        return Err(());
-      }
-    };
-    /*loop {
-      saved = self.save();
-      match self._try_atom(900, depth) {
-        Ok(right) => {
-          left = HExpr::Apply1(Rc::new(left), Rc::new(right));
-        }
-        Err(_) => {
-          self.restore(saved);
-          break;
-        }
-      }
-    }*/
-    Ok(left)
+    self._try_atom(rbp, depth)
   }
 
   fn _try_atom(&mut self, rbp: i32, depth: i32) -> Result<HExpr, ()> {

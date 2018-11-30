@@ -11,9 +11,10 @@ fn test_ir_1() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
-  let ltree = builder._htree_to_ltree_lower_pass(htree);
+  //let ltree = builder._htree_to_ltree_lower_pass(htree);
+  let ltree = builder.lower(htree);
   builder._debug_dump_syms();
   println!("DEBUG: ltree: {:?}", ltree);
-  let letree = builder._ltree_env_pass(ltree);
-  println!("DEBUG: letree: {:?}", letree);
+  let ltree = builder._ltree_env_info_pass(ltree);
+  println!("DEBUG: ltree + env info: {:?}", ltree);
 }

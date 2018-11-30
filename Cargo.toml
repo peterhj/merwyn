@@ -11,7 +11,7 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 default = []
-#gpu = []
+gpu = []
 
 #[dev-dependencies]
 
@@ -19,8 +19,8 @@ default = []
 #lazy_static = "*"
 #num-traits = "^0.2"
 #parking_lot = { version = "*", features = ["nightly"] }
-rand = { version = "^0.5", features = ["i128_support"] }
-#rand = "^0.6"   # TODO: currently "0.6.0-pre1".
+rand = "^0.6"
+rdrand = { path = "../rdrand" }
 regex = "*"
 #plex = "*"
 plex = { path = "../plex", default-features = false, features = ["lexer"] }
