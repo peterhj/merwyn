@@ -241,7 +241,7 @@ pub enum HExpr {
   IntLit(i64),
   FloatLit(f64),
   Ident(String),
-  EnvLookup(Rc<HExpr>, String),
+  PathLookup(Rc<HExpr>, String),
 }
 
 impl HExpr {
@@ -627,7 +627,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         match self.current_token() {
           HLToken::Ident(name) => {
             self.advance();
-            Ok(HExpr::EnvLookup(Rc::new(left), name))
+            Ok(HExpr::PathLookup(Rc::new(left), name))
           }
           _ => panic!(),
         }

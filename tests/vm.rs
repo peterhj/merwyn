@@ -16,7 +16,7 @@ fn test_vm_1() {
   let mut builder = LBuilder::new();
   //let ltree = builder._htree_to_ltree_lower_pass(htree);
   let ltree = builder.lower(htree);
-  builder._debug_dump_syms();
+  builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
   //let letree = builder._ltree_env_pass(ltree);
   //println!("DEBUG: letree: {:?}", letree);
