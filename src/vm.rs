@@ -3,6 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar};
+use crate::rngs::{HwRng};
 
 use rand::prelude::*;
 use rand::prng::chacha::{ChaChaRng};
@@ -138,6 +139,19 @@ pub struct VMStore {
   // TODO
   val_map:  HashMap<VMAddr, VMValRef>,
   //thk_map:  HashMap<VMAddr, VMThunkRef>,
+  addr_ctr: u64,
+}
+
+impl VMStore {
+  pub fn nil_addr(&mut self) -> VMAddr {
+    VMAddr{raw: 0}
+  }
+
+  pub fn fresh_addr(&mut self) -> VMAddr {
+    let new_addr = self.addr_ctr + 1;
+    assert!(new_addr != 0);
+    VMAddr{raw: new_addr}
+  }
 }
 
 pub struct MState {
@@ -154,8 +168,10 @@ pub struct MRngSaveState {
 
 impl Default for MRngSaveState {
   fn default() -> Self {
+    let seed = HwRng::default().gen();
+    //println!("DEBUG: rng save state: default seed: {:?}", seed);
     MRngSaveState{
-      seed:     thread_rng().gen(),
+      seed:     seed,
       wpos:     0,
       seqnr:    0,
     }
