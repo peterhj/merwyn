@@ -75,23 +75,27 @@ pub enum VMReg {
 #[derive(Clone, Default)]
 pub struct VMEnvRef {
   // TODO
-  mval_map: HashMap<LVar, VMValRef>,
-  //addr_map: HashMap<LVar, VMAddr>,
-  named:    HashMap<String, VMValRef>,
+  //mval_map: HashMap<LVar, VMValRef>,
+  addr_map: HashMap<LVar, VMAddr>,
 }
 
 impl VMEnvRef {
-  pub fn lookup(&self, name: LVar) -> VMValRef {
-    match self.mval_map.get(&name) {
+  //pub fn lookup(&self, name: LVar) -> VMValRef {
+  pub fn lookup(&self, name: LVar) -> VMAddr {
+    //match self.mval_map.get(&name) {
+    match self.addr_map.get(&name) {
       None => panic!(),
-      Some(mval) => mval.clone(),
+      //Some(mval) => mval.clone(),
+      Some(addr) => addr.clone(),
     }
   }
 
-  pub fn insert(&self, name: LVar, mval: VMValRef) -> VMEnvRef {
+  //pub fn insert(&self, name: LVar, mval: VMValRef) -> VMEnvRef {
+  pub fn insert(&self, name: LVar, addr: VMAddr) -> VMEnvRef {
     // TODO
     let mut new_env = self.clone();
-    new_env.mval_map.insert(name, mval);
+    //new_env.mval_map.insert(name, mval);
+    new_env.addr_map.insert(name, addr);
     new_env
   }
 }
@@ -137,8 +141,8 @@ impl Default for VMKont {
 #[derive(Default)]
 pub struct VMStore {
   // TODO
-  val_map:  HashMap<VMAddr, VMValRef>,
-  //thk_map:  HashMap<VMAddr, VMThunkRef>,
+  mval_map: HashMap<VMAddr, VMValRef>,
+  //mthk_map: HashMap<VMAddr, VMThunkRef>,
   addr_ctr: u64,
 }
 
@@ -150,7 +154,19 @@ impl VMStore {
   pub fn fresh_addr(&mut self) -> VMAddr {
     let new_addr = self.addr_ctr + 1;
     assert!(new_addr != 0);
+    self.addr_ctr += 1;
     VMAddr{raw: new_addr}
+  }
+
+  pub fn lookup(&self, addr: VMAddr) -> VMValRef {
+    match self.mval_map.get(&addr) {
+      None => panic!(),
+      Some(mval) => mval.clone(),
+    }
+  }
+
+  pub fn insert_new(&mut self, addr: VMAddr, mval: VMValRef) {
+    assert!(self.mval_map.insert(addr, mval).is_none());
   }
 }
 
@@ -247,7 +263,8 @@ impl VMachine {
   pub fn _lookup(&self, var: LVar) -> VMValRef {
     // TODO
     //unimplemented!();
-    self.env.lookup(var)
+    let addr = self.env.lookup(var);
+    self.store.lookup(addr)
   }
 
   pub fn _reset(&mut self, ltree: LExpr) {
@@ -307,7 +324,7 @@ impl VMachine {
           (&LTerm::DynEnv(ref lenv), _) => {
             // TODO
             println!("TRACE: vm:   capturing dyn env...");
-            for (k, v) in env.mval_map.iter() {
+            for (k, _) in env.addr_map.iter() {
               println!("TRACE: vm:     kv: {:?}, _", k);
             }
             // FIXME
@@ -419,7 +436,9 @@ impl VMachine {
           }*/
           (_, &VMKont::App1(ref mlam, ref env, ref kont)) => {
             let bvar = mlam.bind[0].clone();
-            let next_env = env.insert(bvar, mval);
+            let a = self.store.fresh_addr();
+            self.store.insert_new(a.clone(), mval);
+            let next_env = env.insert(bvar, a);
             let next_ctrl = VMReg::Code(mlam.code.clone());
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
@@ -439,7 +458,10 @@ impl VMachine {
                 };
                 let mut next_env = next_env.clone();
                 for (bvar, arg) in mlam.bind.iter().zip(args.iter()) {
-                  next_env = next_env.insert(bvar.clone(), arg.clone());
+                  // FIXME
+                  let a = self.store.fresh_addr();
+                  self.store.insert_new(a.clone(), arg.clone());
+                  next_env = next_env.insert(bvar.clone(), a);
                 }
                 let next_ctrl = VMReg::Code(mlam.code.clone());
                 let next_kont = next_kont.clone();
