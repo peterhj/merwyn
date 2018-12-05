@@ -20,6 +20,7 @@ gpu = []
 #num-traits = "^0.2"
 #parking_lot = { version = "*", features = ["nightly"] }
 rand = "^0.6"
+rand_chacha = "^0.1"
 rdrand = "^0.3"
 regex = "*"
 #pbrtree = { path = "../pbrtree" }

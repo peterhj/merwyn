@@ -6,7 +6,7 @@ use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar};
 use crate::rngs::{HwRng};
 
 use rand::prelude::*;
-use rand::prng::chacha::{ChaChaRng};
+use rand_chacha::{ChaChaRng};
 
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap};
@@ -41,12 +41,39 @@ pub enum VMThunkSlot {
   Ret(VMValRef),
 }
 
+impl VMThunkSlot {
+  pub fn is_blkhole(&self) -> bool {
+    match self {
+      &VMThunkSlot::Blkhole => true,
+      _ => false,
+    }
+  }
+}
+
 pub type VMThunkRef = Rc<VMThunk>;
 
 pub struct VMThunk {
   pub env:  VMEnvRef,
   pub lam:  VMLam,
   pub slot: RefCell<VMThunkSlot>,
+}
+
+impl VMThunk {
+  pub fn new(lam: VMLam, env: VMEnvRef) -> VMThunk {
+    VMThunk{
+      lam,
+      env,
+      slot: RefCell::new(VMThunkSlot::Empty),
+    }
+  }
+
+  pub fn new_blkhole(lam: VMLam, env: VMEnvRef) -> VMThunk {
+    VMThunk{
+      lam,
+      env,
+      slot: RefCell::new(VMThunkSlot::Blkhole),
+    }
+  }
 }
 
 pub type VMValRef = Rc<VMVal>;
@@ -106,6 +133,7 @@ pub enum VMKont {
   Stop,
   //Next(VMKontRef),
   Lkd(String, VMEnvRef, VMKontRef),
+  Thk1(VMAddr, VMLam, VMEnvRef, VMKontRef),
   App0(VMEnvRef, VMKontRef),
   //App1(VMClosure, VMKontRef),
   App1(VMLam, VMEnvRef, VMKontRef),
@@ -141,8 +169,8 @@ impl Default for VMKont {
 #[derive(Default)]
 pub struct VMStore {
   // TODO
-  mval_map: HashMap<VMAddr, VMValRef>,
-  //mthk_map: HashMap<VMAddr, VMThunkRef>,
+  //mval_map: HashMap<VMAddr, VMValRef>,
+  mthk_map: HashMap<VMAddr, VMThunkRef>,
   addr_ctr: u64,
 }
 
@@ -158,15 +186,35 @@ impl VMStore {
     VMAddr{raw: new_addr}
   }
 
-  pub fn lookup(&self, addr: VMAddr) -> VMValRef {
-    match self.mval_map.get(&addr) {
+  //pub fn lookup(&self, addr: VMAddr) -> VMValRef {
+  pub fn lookup(&self, addr: VMAddr) -> VMThunkRef {
+    //match self.mval_map.get(&addr) {
+    match self.mthk_map.get(&addr) {
       None => panic!(),
-      Some(mval) => mval.clone(),
+      //Some(mval) => mval.clone(),
+      Some(mthk) => mthk.clone(),
     }
   }
 
-  pub fn insert_new(&mut self, addr: VMAddr, mval: VMValRef) {
-    assert!(self.mval_map.insert(addr, mval).is_none());
+  //pub fn insert_new(&mut self, addr: VMAddr, mval: VMValRef) {
+  pub fn insert_new(&mut self, addr: VMAddr, mthk: VMThunkRef) {
+    //assert!(self.mval_map.insert(addr, mval).is_none());
+    assert!(self.mthk_map.insert(addr, mthk).is_none());
+  }
+
+  pub fn update(&mut self, addr: VMAddr, mval: VMValRef) {
+    // TODO
+    match self.mthk_map.get(&addr) {
+      None => panic!(),
+      Some(mthk) => {
+        let mut mslot = mthk.slot.borrow_mut();
+        if mslot.is_blkhole() {
+          *mslot = VMThunkSlot::Ret(mval);
+        } else {
+          panic!();
+        }
+      }
+    }
   }
 }
 
@@ -264,7 +312,12 @@ impl VMachine {
     // TODO
     //unimplemented!();
     let addr = self.env.lookup(var);
-    self.store.lookup(addr)
+    let mthk = self.store.lookup(addr);
+    let mslot = mthk.slot.borrow();
+    match &*mslot {
+      &VMThunkSlot::Ret(ref mval) => mval.clone(),
+      _ => panic!(),
+    }
   }
 
   pub fn _reset(&mut self, ltree: LExpr) {
@@ -336,16 +389,22 @@ impl VMachine {
             (next_ctrl, next_env, next_kont)
           }
           (&LTerm::Let(ref name, ref body, ref rest), _) => {
-            let mlam = VMLam{
+            let rest_mlam = VMLam{
               bind: vec![name.clone()],
               code: rest.clone(),
             };
-            /*let mclosure = VMClosure{
-              lam:  mlam,
-              env:  env.clone(),
-            };*/
-            let next_kont = VMKontRef::new(VMKont::App1(mlam, env.clone(), kont));
+            let thk_a = self.store.fresh_addr();
+            let body_mlam = VMLam{
+              bind: vec![],
+              code: body.clone(),
+            };
+            // NB: The thunk will be immediately updated, so can directly
+            // construct it in the `Blkhole` state.
+            let mthk = VMThunkRef::new(VMThunk::new_blkhole(body_mlam, env.clone()));
+            self.store.insert_new(thk_a.clone(), mthk);
             let next_ctrl = VMReg::Code(body.clone());
+            //let next_kont = VMKontRef::new(VMKont::App1(rest_mlam, env.clone(), kont));
+            let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, rest_mlam, env.clone(), kont));
             let next_env = env;
             (next_ctrl, next_env, next_kont)
           }
@@ -426,6 +485,15 @@ impl VMachine {
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
           }
+          (_, &VMKont::Thk1(ref thk_a, ref mlam, ref env, ref kont)) => {
+            // TODO
+            let bvar = mlam.bind[0].clone();
+            self.store.update(thk_a.clone(), mval);
+            let next_env = env.insert(bvar, thk_a.clone());
+            let next_ctrl = VMReg::Code(mlam.code.clone());
+            let next_kont = kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
           (_, &VMKont::App0(ref env, ref kont)) => {
             // TODO: runtime panic if the reg is not a lambda.
             panic!();
@@ -435,13 +503,17 @@ impl VMachine {
             unimplemented!();
           }*/
           (_, &VMKont::App1(ref mlam, ref env, ref kont)) => {
-            let bvar = mlam.bind[0].clone();
-            let a = self.store.fresh_addr();
+            // FIXME
+            unimplemented!();
+            /*let bvar = mlam.bind[0].clone();
+            let thk_a = self.store.fresh_addr();
             self.store.insert_new(a.clone(), mval);
-            let next_env = env.insert(bvar, a);
+            /*let mthk = VMThunkRef::new(VMThunk::new(mval, env.clone()));
+            self.store.insert_new(thk_a.clone(), mthk);*/
+            let next_env = env.insert(bvar, thk_a);
             let next_ctrl = VMReg::Code(mlam.code.clone());
             let next_kont = kont.clone();
-            (next_ctrl, next_env, next_kont)
+            (next_ctrl, next_env, next_kont)*/
           }
           (_, &VMKont::App(rem, ref arg_codes, ref maybe_mlam, ref args, ref next_env, ref next_kont)) => {
             // TODO
@@ -459,9 +531,10 @@ impl VMachine {
                 let mut next_env = next_env.clone();
                 for (bvar, arg) in mlam.bind.iter().zip(args.iter()) {
                   // FIXME
-                  let a = self.store.fresh_addr();
+                  unimplemented!();
+                  /*let a = self.store.fresh_addr();
                   self.store.insert_new(a.clone(), arg.clone());
-                  next_env = next_env.insert(bvar.clone(), a);
+                  next_env = next_env.insert(bvar.clone(), a);*/
                 }
                 let next_ctrl = VMReg::Code(mlam.code.clone());
                 let next_kont = next_kont.clone();

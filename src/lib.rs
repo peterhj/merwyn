@@ -5,6 +5,7 @@
 //extern crate parking_lot;
 extern crate plex;
 extern crate rand;
+extern crate rand_chacha;
 extern crate rdrand;
 
 pub mod ir;
