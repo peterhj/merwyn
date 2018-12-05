@@ -1,6 +1,6 @@
 extern crate hebb;
 
-use hebb::ir::{LBuilder};
+use hebb::ir::{LBuilder, LVar};
 use hebb::lang::{HLexer, HParser};
 use hebb::vm::{VMachine};
 
@@ -21,6 +21,10 @@ fn test_vm_1() {
   //let letree = builder._ltree_env_pass(ltree);
   //println!("DEBUG: letree: {:?}", letree);
   let mut vm = VMachine::new();
-  vm.eval(ltree);
+  //vm.eval(ltree);
+  vm._debug_eval(Some(ltree), 9);
+  let (_, mthk) = vm._lookup_thunk(LVar(3));
+  mthk._kill();
+  vm._debug_eval(None, 100);
   vm._debug_dump_ctrl();
 }

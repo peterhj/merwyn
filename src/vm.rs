@@ -35,16 +35,22 @@ pub struct VMClosure {
   pub lam:  VMLam,
 }
 
+pub enum VMThunkState {
+  Emp,
+  Blk,
+  Ret,
+}
+
 pub enum VMThunkSlot {
-  Empty,
-  Blkhole,
+  Emp,
+  Blk,
   Ret(VMValRef),
 }
 
 impl VMThunkSlot {
   pub fn is_blkhole(&self) -> bool {
     match self {
-      &VMThunkSlot::Blkhole => true,
+      &VMThunkSlot::Blk => true,
       _ => false,
     }
   }
@@ -63,7 +69,7 @@ impl VMThunk {
     VMThunk{
       lam,
       env,
-      slot: RefCell::new(VMThunkSlot::Empty),
+      slot: RefCell::new(VMThunkSlot::Emp),
     }
   }
 
@@ -71,8 +77,22 @@ impl VMThunk {
     VMThunk{
       lam,
       env,
-      slot: RefCell::new(VMThunkSlot::Blkhole),
+      slot: RefCell::new(VMThunkSlot::Blk),
     }
+  }
+
+  pub fn state(&self) -> VMThunkState {
+    let mslot = self.slot.borrow();
+    match &*mslot {
+      &VMThunkSlot::Emp => VMThunkState::Emp,
+      &VMThunkSlot::Blk => VMThunkState::Blk,
+      &VMThunkSlot::Ret(_) => VMThunkState::Ret,
+    }
+  }
+
+  pub fn _kill(&self) {
+    let mut mslot = self.slot.borrow_mut();
+    *mslot = VMThunkSlot::Emp;
   }
 }
 
@@ -308,9 +328,14 @@ impl VMachine {
     }
   }
 
+  pub fn _lookup_thunk(&self, var: LVar) -> (VMAddr, VMThunkRef) {
+    let addr = self.env.lookup(var);
+    let mthk = self.store.lookup(addr);
+    (addr, mthk)
+  }
+
   pub fn _lookup(&self, var: LVar) -> VMValRef {
     // TODO
-    //unimplemented!();
     let addr = self.env.lookup(var);
     let mthk = self.store.lookup(addr);
     let mslot = mthk.slot.borrow();
@@ -389,6 +414,7 @@ impl VMachine {
             (next_ctrl, next_env, next_kont)
           }
           (&LTerm::Let(ref name, ref body, ref rest), _) => {
+            println!("TRACE: vm:   expr: let");
             let rest_mlam = VMLam{
               bind: vec![name.clone()],
               code: rest.clone(),
@@ -399,7 +425,7 @@ impl VMachine {
               code: body.clone(),
             };
             // NB: The thunk will be immediately updated, so can directly
-            // construct it in the `Blkhole` state.
+            // construct it in the "black hole" state.
             let mthk = VMThunkRef::new(VMThunk::new_blkhole(body_mlam, env.clone()));
             self.store.insert_new(thk_a.clone(), mthk);
             let next_ctrl = VMReg::Code(body.clone());
@@ -426,6 +452,7 @@ impl VMachine {
             (next_ctrl, next_env, next_kont)*/
           }
           (&LTerm::BitLit(x), _) => {
+            println!("TRACE: vm:   expr: bitlit");
             let mval = VMValRef::new(VMVal::Bit(x));
             let next_ctrl = VMReg::MVal(mval);
             let next_env = env;
@@ -433,6 +460,7 @@ impl VMachine {
             (next_ctrl, next_env, next_kont)
           }
           (&LTerm::IntLit(x), _) => {
+            println!("TRACE: vm:   expr: intlit");
             let mval = VMValRef::new(VMVal::Int(x));
             let next_ctrl = VMReg::MVal(mval);
             let next_env = env;
@@ -440,16 +468,51 @@ impl VMachine {
             (next_ctrl, next_env, next_kont)
           }
           (&LTerm::Lookup(ref lookup_var), _) => {
-            let mval = self._lookup(lookup_var.clone());
-            /*let next_kont = VMKont::Ret(mval, Rc::new(kont));
-            (None, None, next_kont)*/
+            println!("TRACE: vm:   expr: lookup");
+            /*let mval = self._lookup(lookup_var.clone());
             let next_env = match &*mval {
               &VMVal::Clo(ref mclosure) => mclosure.env.clone(),
               _ => env,
             };
             let next_ctrl = VMReg::MVal(mval);
-            let next_kont = kont;
-            (next_ctrl, next_env, next_kont)
+            let next_kont = kont;*/
+            let (thk_a, mthk) = self._lookup_thunk(lookup_var.clone());
+            match mthk.state() {
+              VMThunkState::Ret => {
+                println!("TRACE: vm:   expr:   ret");
+                let mslot = mthk.slot.borrow();
+                let mval = match &*mslot {
+                  &VMThunkSlot::Ret(ref mval) => mval.clone(),
+                  _ => unreachable!(),
+                };
+                let next_env = match &*mval {
+                  &VMVal::Clo(ref mclosure) => mclosure.env.clone(),
+                  _ => env,
+                };
+                let next_ctrl = VMReg::MVal(mval);
+                let next_kont = kont;
+                println!("TRACE: vm:   expr:   ret end");
+                (next_ctrl, next_env, next_kont)
+              }
+              VMThunkState::Emp => {
+                // TODO
+                println!("TRACE: vm:   expr:   emp");
+                let rest_mlam = VMLam{
+                  //bind: vec![lookup_var.clone()],
+                  bind: vec![],
+                  code: ltree.clone(),
+                };
+                // FIXME: correct env transitions.
+                let next_ctrl = VMReg::Code(mthk.lam.code.clone());
+                //let next_kont = VMKontRef::new(VMKont::App1(rest_mlam, env.clone(), kont));
+                let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, rest_mlam, env.clone(), kont));
+                //let next_env = env;
+                let next_env = mthk.env.clone();
+                println!("TRACE: vm:   expr:   emp end");
+                (next_ctrl, next_env, next_kont)
+              }
+              _ => panic!(),
+            }
           }
           (&LTerm::DynEnvLookup(ref target, ref name), _) => {
             // TODO
@@ -487,6 +550,7 @@ impl VMachine {
           }
           (_, &VMKont::Thk1(ref thk_a, ref mlam, ref env, ref kont)) => {
             // TODO
+            println!("TRACE: vm:   kont: thk1");
             let bvar = mlam.bind[0].clone();
             self.store.update(thk_a.clone(), mval);
             let next_env = env.insert(bvar, thk_a.clone());
@@ -575,6 +639,18 @@ impl VMachine {
     // TODO
     self._reset(ltree);
     while !self._is_terminal() {
+      self._step()
+    }
+  }
+
+  pub fn _debug_eval(&mut self, ltree: Option<LExpr>, nsteps: usize) {
+    if let Some(ltree) = ltree {
+      self._reset(ltree);
+    }
+    for _ in 0 .. nsteps {
+      if self._is_terminal() {
+        break;
+      }
       self._step()
     }
   }
