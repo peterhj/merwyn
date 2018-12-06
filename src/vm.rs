@@ -149,14 +149,14 @@ pub enum VMKont {
   Stop,
   //Next(VMKontRef),
   Lkd(String, VMEnvRef, VMKontRef),
-  Thk1(LVar, VMAddr, VMLam, VMEnvRef, VMKontRef),
+  Thk1(VMAddr, VMLam, VMEnvRef, VMKontRef),
   App0(VMEnvRef, VMKontRef),
   //App1(VMClosure, VMKontRef),
   App1(VMLam, VMEnvRef, VMKontRef),
   // TODO: like "arg" and "fun" konts but w/ arity.
   App(usize, Vec<LExpr>, Option<VMLam>, Vec<VMValRef>, VMEnvRef, VMKontRef),
   Swh(LExpr, LExpr, VMEnvRef, VMKontRef),
-  Frc(LVar, VMEnvRef, VMKontRef),
+  //Frc(LVar, VMEnvRef, VMKontRef),
   // TODO: "ret" kont may be unnecessary.
   //Ret(VMValRef, VMKontRef),
 }
@@ -424,6 +424,9 @@ impl VMachine {
               code: rest.clone(),
             };
             let thk_a = self.store.fresh_addr();
+            // NB: The `Thk1` continuation does not create bind the var to the
+            // thunk address, instead that happens here.
+            let rest_env = env.insert(name.clone(), thk_a.clone());
             let body_mlam = VMLam{
               bind: vec![],
               code: body.clone(),
@@ -433,7 +436,7 @@ impl VMachine {
             let mthk = VMThunkRef::new(VMThunk::new_blkhole(body_mlam, env.clone()));
             self.store.insert_new(thk_a.clone(), mthk);
             let next_ctrl = VMReg::Code(body.clone());
-            let next_kont = VMKontRef::new(VMKont::Thk1(name.clone(), thk_a, rest_mlam, env.clone(), kont));
+            let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, rest_mlam, rest_env, kont));
             let next_env = env;
             (next_ctrl, next_env, next_kont)
           }
@@ -484,7 +487,7 @@ impl VMachine {
                 // state using `_prep_update`.
                 mthk._prep_update();
                 let next_ctrl = VMReg::Code(mthk.lam.code.clone());
-                let next_kont = VMKontRef::new(VMKont::Thk1(lookup_var.clone(), thk_a, rest_mlam, env.clone(), kont));
+                let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, rest_mlam, env.clone(), kont));
                 let next_env = mthk.env.clone();
                 println!("TRACE: vm:   expr:   emp end");
                 (next_ctrl, next_env, next_kont)
@@ -496,6 +499,8 @@ impl VMachine {
                   &VMThunkSlot::Ret(ref mval) => mval.clone(),
                   _ => unreachable!(),
                 };
+                // TODO: this basically overwrites the current env if the mval
+                // is a closure... is this the correct behavior?
                 let next_env = match &*mval {
                   &VMVal::Clo(ref mclosure) => mclosure.env.clone(),
                   _ => env,
@@ -542,13 +547,12 @@ impl VMachine {
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
           }
-          (_, &VMKont::Thk1(ref var, ref thk_a, ref mlam, ref env, ref kont)) => {
+          (_, &VMKont::Thk1(ref thk_a, ref mlam, ref env, ref kont)) => {
             // TODO
             println!("TRACE: vm:   kont: thk1");
-            /*let var = mlam.bind[0].clone();*/
             self.store.update(thk_a.clone(), mval);
-            let next_env = env.insert(var.clone(), thk_a.clone());
             let next_ctrl = VMReg::Code(mlam.code.clone());
+            let next_env = env.clone();
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
           }
