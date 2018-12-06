@@ -47,15 +47,6 @@ pub enum VMThunkSlot {
   Ret(VMValRef),
 }
 
-impl VMThunkSlot {
-  pub fn is_blkhole(&self) -> bool {
-    match self {
-      &VMThunkSlot::Blk => true,
-      _ => false,
-    }
-  }
-}
-
 pub type VMThunkRef = Rc<VMThunk>;
 
 pub struct VMThunk {
@@ -88,6 +79,11 @@ impl VMThunk {
       &VMThunkSlot::Blk => VMThunkState::Blk,
       &VMThunkSlot::Ret(_) => VMThunkState::Ret,
     }
+  }
+
+  pub fn _prep_update(&self) {
+    let mut mslot = self.slot.borrow_mut();
+    *mslot = VMThunkSlot::Blk;
   }
 
   pub fn _kill(&self) {
@@ -153,7 +149,7 @@ pub enum VMKont {
   Stop,
   //Next(VMKontRef),
   Lkd(String, VMEnvRef, VMKontRef),
-  Thk1(VMAddr, VMLam, VMEnvRef, VMKontRef),
+  Thk1(LVar, VMAddr, VMLam, VMEnvRef, VMKontRef),
   App0(VMEnvRef, VMKontRef),
   //App1(VMClosure, VMKontRef),
   App1(VMLam, VMEnvRef, VMKontRef),
@@ -227,11 +223,19 @@ impl VMStore {
     match self.mthk_map.get(&addr) {
       None => panic!(),
       Some(mthk) => {
-        let mut mslot = mthk.slot.borrow_mut();
-        if mslot.is_blkhole() {
-          *mslot = VMThunkSlot::Ret(mval);
-        } else {
-          panic!();
+        match mthk.state() {
+          VMThunkState::Emp => {
+            println!("WARNING: updating an empty thunk");
+            let mut mslot = mthk.slot.borrow_mut();
+            *mslot = VMThunkSlot::Ret(mval);
+          }
+          VMThunkState::Blk => {
+            let mut mslot = mthk.slot.borrow_mut();
+            *mslot = VMThunkSlot::Ret(mval);
+          }
+          VMThunkState::Ret => {
+            panic!();
+          }
         }
       }
     }
@@ -429,8 +433,7 @@ impl VMachine {
             let mthk = VMThunkRef::new(VMThunk::new_blkhole(body_mlam, env.clone()));
             self.store.insert_new(thk_a.clone(), mthk);
             let next_ctrl = VMReg::Code(body.clone());
-            //let next_kont = VMKontRef::new(VMKont::App1(rest_mlam, env.clone(), kont));
-            let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, rest_mlam, env.clone(), kont));
+            let next_kont = VMKontRef::new(VMKont::Thk1(name.clone(), thk_a, rest_mlam, env.clone(), kont));
             let next_env = env;
             (next_ctrl, next_env, next_kont)
           }
@@ -469,17 +472,25 @@ impl VMachine {
           }
           (&LTerm::Lookup(ref lookup_var), _) => {
             println!("TRACE: vm:   expr: lookup");
-            /*let mval = self._lookup(lookup_var.clone());
-            let next_env = match &*mval {
-              &VMVal::Clo(ref mclosure) => mclosure.env.clone(),
-              _ => env,
-            };
-            let next_ctrl = VMReg::MVal(mval);
-            let next_kont = kont;*/
             let (thk_a, mthk) = self._lookup_thunk(lookup_var.clone());
             match mthk.state() {
+              VMThunkState::Emp => {
+                println!("TRACE: vm:   expr:   emp...");
+                let rest_mlam = VMLam{
+                  bind: vec![],
+                  code: ltree.clone(),
+                };
+                // NB: Must explicitly transition the thunk to a "black hole"
+                // state using `_prep_update`.
+                mthk._prep_update();
+                let next_ctrl = VMReg::Code(mthk.lam.code.clone());
+                let next_kont = VMKontRef::new(VMKont::Thk1(lookup_var.clone(), thk_a, rest_mlam, env.clone(), kont));
+                let next_env = mthk.env.clone();
+                println!("TRACE: vm:   expr:   emp end");
+                (next_ctrl, next_env, next_kont)
+              }
               VMThunkState::Ret => {
-                println!("TRACE: vm:   expr:   ret");
+                println!("TRACE: vm:   expr:   ret...");
                 let mslot = mthk.slot.borrow();
                 let mval = match &*mslot {
                   &VMThunkSlot::Ret(ref mval) => mval.clone(),
@@ -492,23 +503,6 @@ impl VMachine {
                 let next_ctrl = VMReg::MVal(mval);
                 let next_kont = kont;
                 println!("TRACE: vm:   expr:   ret end");
-                (next_ctrl, next_env, next_kont)
-              }
-              VMThunkState::Emp => {
-                // TODO
-                println!("TRACE: vm:   expr:   emp");
-                let rest_mlam = VMLam{
-                  //bind: vec![lookup_var.clone()],
-                  bind: vec![],
-                  code: ltree.clone(),
-                };
-                // FIXME: correct env transitions.
-                let next_ctrl = VMReg::Code(mthk.lam.code.clone());
-                //let next_kont = VMKontRef::new(VMKont::App1(rest_mlam, env.clone(), kont));
-                let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, rest_mlam, env.clone(), kont));
-                //let next_env = env;
-                let next_env = mthk.env.clone();
-                println!("TRACE: vm:   expr:   emp end");
                 (next_ctrl, next_env, next_kont)
               }
               _ => panic!(),
@@ -548,12 +542,12 @@ impl VMachine {
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
           }
-          (_, &VMKont::Thk1(ref thk_a, ref mlam, ref env, ref kont)) => {
+          (_, &VMKont::Thk1(ref var, ref thk_a, ref mlam, ref env, ref kont)) => {
             // TODO
             println!("TRACE: vm:   kont: thk1");
-            let bvar = mlam.bind[0].clone();
+            /*let var = mlam.bind[0].clone();*/
             self.store.update(thk_a.clone(), mval);
-            let next_env = env.insert(bvar, thk_a.clone());
+            let next_env = env.insert(var.clone(), thk_a.clone());
             let next_ctrl = VMReg::Code(mlam.code.clone());
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
