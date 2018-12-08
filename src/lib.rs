@@ -14,6 +14,7 @@ extern crate rand_chacha;
 extern crate rdrand;
 extern crate serde;
 #[macro_use] extern crate serde_derive;
+extern crate vertreap;
 
 pub mod cfg;
 pub mod ir;

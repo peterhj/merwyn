@@ -4,14 +4,16 @@
 
 use crate::lang::{HExpr};
 
+use vertreap::{VertreapMap};
+
 use std::collections::{HashMap};
 //use std::collections::hash_map::{Entry};
 use std::rc::{Rc};
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LVar(pub u64);
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LHash(pub u64);
 
 #[derive(Clone, Debug)]

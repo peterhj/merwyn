@@ -24,8 +24,8 @@ rand = "^0.6"
 rand_chacha = "^0.1"
 rdrand = "^0.3"
 regex = "*"
-#pbrtree = { path = "../pbrtree" }
 #plex = "*"
 plex = { path = "../plex", default-features = false, features = ["lexer"] }
 serde = "^1.0"
 serde_derive = "^1.0"
+vertreap = { path = "../vertreap" }

@@ -8,6 +8,7 @@ use crate::rngs::{HwRng};
 
 use rand::prelude::*;
 use rand_chacha::{ChaChaRng};
+use vertreap::{VertreapMap};
 
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap};
@@ -120,27 +121,33 @@ pub enum VMReg {
 pub struct VMEnvRef {
   // TODO
   //mval_map: HashMap<LVar, VMValRef>,
-  addr_map: HashMap<LVar, VMAddr>,
+  //addr_map: HashMap<LVar, VMAddr>,
+  addr_map: VertreapMap<LVar, VMAddr>,
 }
 
 impl VMEnvRef {
   //pub fn lookup(&self, name: LVar) -> VMValRef {
   pub fn lookup(&self, name: LVar) -> VMAddr {
     //match self.mval_map.get(&name) {
-    match self.addr_map.get(&name) {
+    //match self.addr_map.get(&name) {
+    match self.addr_map.find(&name) {
       None => panic!(),
       //Some(mval) => mval.clone(),
-      Some(addr) => addr.clone(),
+      //Some(addr) => addr.clone(),
+      Some(kv) => kv.v.clone(),
     }
   }
 
   //pub fn insert(&self, name: LVar, mval: VMValRef) -> VMEnvRef {
   pub fn insert(&self, name: LVar, addr: VMAddr) -> VMEnvRef {
     // TODO
-    let mut new_env = self.clone();
+    /*let mut new_env = self.clone();
     //new_env.mval_map.insert(name, mval);
     new_env.addr_map.insert(name, addr);
-    new_env
+    new_env*/
+    VMEnvRef{
+      addr_map: self.addr_map.append(name, addr),
+    }
   }
 }
 
@@ -409,9 +416,9 @@ impl VMachine {
           (&LTerm::DynEnv(ref lenv), _) => {
             // TODO
             println!("TRACE: vm:   capturing dyn env...");
-            for (k, _) in env.addr_map.iter() {
+            /*for (k, _) in env.addr_map.iter() {
               println!("TRACE: vm:     kv: {:?}, _", k);
-            }
+            }*/
             // FIXME
             //let mval = VMValRef::new(VMVal::Env(env.clone()));
             let mval = VMValRef::new(VMVal::DEnv(lenv.clone()));
