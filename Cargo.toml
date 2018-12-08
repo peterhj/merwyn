@@ -16,6 +16,7 @@ gpu = []
 #[dev-dependencies]
 
 [dependencies]
+envy = "^0.3"
 #lazy_static = "*"
 #num-traits = "^0.2"
 #parking_lot = { version = "*", features = ["nightly"] }
@@ -26,3 +27,5 @@ regex = "*"
 #pbrtree = { path = "../pbrtree" }
 #plex = "*"
 plex = { path = "../plex", default-features = false, features = ["lexer"] }
+serde = "^1.0"
+serde_derive = "^1.0"

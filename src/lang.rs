@@ -193,6 +193,8 @@ impl<'src> Iterator for HLexer<'src> {
 #[derive(Clone, Default, Debug)]
 pub struct HLetAttrs {
   pub pub_: bool,
+  //pub alt:  bool,
+  pub rec:  bool,
 }
 
 #[derive(Clone, Debug)]
@@ -428,7 +430,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         }
         self.expression(0, -1).map(|e| match e {
           HExpr::Let(lhs, rhs, rest, maybe_attrs) => {
-            let mut attrs = maybe_attrs.unwrap_or(HLetAttrs::default());
+            let mut attrs = maybe_attrs.unwrap_or_default();
             attrs.pub_ = true;
             HExpr::Let(lhs, rhs, rest, Some(attrs))
           }
@@ -436,6 +438,23 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         })
       }
       HLToken::Let => {
+        let mut maybe_attrs: Option<HLetAttrs> = None;
+        match self.current_token() {
+          // TODO
+          /*HLToken::Alt => {
+            let mut attrs = maybe_attrs.unwrap_or_default();
+            attrs.alt = true;
+            maybe_attrs = Some(attrs);
+            self.advance();
+          }*/
+          HLToken::Rec => {
+            let mut attrs = maybe_attrs.unwrap_or_default();
+            attrs.rec = true;
+            maybe_attrs = Some(attrs);
+            self.advance();
+          }
+          _ => {}
+        }
         let e1_lhs = self.expression(0, -1)?;
         match self.current_token() {
           HLToken::If => {
@@ -503,12 +522,13 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
             self.advance();
             let e1_rhs = self.expression(0, -1)?;
             match self.current_token() {
-              HLToken::In | HLToken::Semi => {}
+              HLToken::In | HLToken::Semi => {
+                self.advance();
+              }
               _ => panic!(),
             }
-            self.advance();
             let e2 = self.expression(0, -1)?;
-            Ok(HExpr::Let(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2), None))
+            Ok(HExpr::Let(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2), maybe_attrs))
           }
           HLToken::Tilde => {
             self.advance();
@@ -552,7 +572,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
             let e2 = self.expression(0, -1)?;
             Ok(HExpr::LetWhere(Rc::new(e1_lhs), e1_clauses, Rc::new(e1_rhs), Rc::new(e2)))
           }
-          _ => panic!(),
+          //_ => panic!(),
+          tok => panic!("unknown token in let rhs: {:?}", tok),
         }
       }
       HLToken::Where => {

@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use crate::cfg::{Config};
 use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar};
 use crate::rngs::{HwRng};
 
@@ -300,6 +301,7 @@ impl MSaveState {
 }
 
 pub struct VMachine {
+  pub cfg:      Config,
   pub ctrl:     VMReg,
   pub env:      VMEnvRef,
   pub kont:     VMKontRef,
@@ -310,6 +312,7 @@ pub struct VMachine {
 impl VMachine {
   pub fn new() -> VMachine {
     VMachine{
+      cfg:      Config::default(),
       ctrl:     VMReg::Uninit,
       env:      VMEnvRef::default(),
       kont:     VMKontRef::default(),

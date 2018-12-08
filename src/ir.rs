@@ -325,9 +325,11 @@ impl LBuilder {
         let body = self._htree_to_ltree_lower_pass(body.clone());
         LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::AdjDyn(body)), info: LExprInfo::default()}
       }
-      &HExpr::Let(ref lhs, ref body, ref rest, ref attrs) => {
+      &HExpr::Let(ref lhs, ref body, ref rest, ref maybe_attrs) => {
+        let attrs = maybe_attrs.clone().unwrap_or_default();
         match &**lhs {
           &HExpr::Ident(ref lhs) => {
+            // FIXME: desugar "let rec" to "let fix in".
             let lhs_hash = self.hashes.lookup(lhs.to_string());
             let (lhs_hash, lhs_var, lhs_oldvar) = self.vars.bind(lhs_hash);
             let body = self._htree_to_ltree_lower_pass(body.clone());
