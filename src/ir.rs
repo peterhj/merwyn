@@ -301,16 +301,7 @@ impl LBuilder {
   pub fn _htree_to_ltree_lower_pass(&mut self, htree: Rc<HExpr>) -> LExpr {
     // TODO
     match &*htree {
-      &HExpr::Apply0(ref lhs) => {
-        let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
-        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Apply(lhs, vec![])), info: LExprInfo::default()}
-      }
-      &HExpr::Apply1(ref lhs, ref arg0) => {
-        let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
-        let arg0 = self._htree_to_ltree_lower_pass(arg0.clone());
-        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Apply(lhs, vec![arg0])), info: LExprInfo::default()}
-      }
-      &HExpr::ApplyN(ref lhs, ref args) => {
+      &HExpr::Apply(ref lhs, ref args) => {
         let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
         let args: Vec<_> = args.iter().map(|arg| {
           self._htree_to_ltree_lower_pass(arg.clone())
@@ -339,43 +330,8 @@ impl LBuilder {
             self.vars.unbind(lhs_hash, lhs_var.clone(), lhs_oldvar);
             LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(lhs_var, body, rest)), info: LExprInfo::default()}
           }
-          &HExpr::Apply0(ref lhs) => {
-            let lhs_hash = match &**lhs {
-              &HExpr::Ident(ref name) => {
-                self.hashes.lookup(name.to_string())
-              }
-              _ => panic!(),
-            };
-            let (name, name_var, name_oldvar) = self.vars.bind(lhs_hash.clone());
-            let body = self._htree_to_ltree_lower_pass(body.clone());
-            let lam = LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Lambda(vec![], body)), info: LExprInfo::default()};
-            let rest = self._htree_to_ltree_lower_pass(rest.clone());
-            self.vars.unbind(name, name_var.clone(), name_oldvar);
-            LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(name_var, lam, rest)), info: LExprInfo::default()}
-          }
-          &HExpr::Apply1(ref lhs, ref arg0) => {
-            let lhs_hash = match &**lhs {
-              &HExpr::Ident(ref name) => {
-                self.hashes.lookup(name.to_string())
-              }
-              _ => panic!(),
-            };
-            let (name, name_var, name_oldvar) = self.vars.bind(lhs_hash);
-            let arg0_hash = match &**arg0 {
-              &HExpr::Ident(ref name) => {
-                self.hashes.lookup(name.to_string())
-              }
-              _ => panic!(),
-            };
-            let (arg0_, arg0_var, arg0_oldvar) = self.vars.bind(arg0_hash);
-            let body = self._htree_to_ltree_lower_pass(body.clone());
-            self.vars.unbind(arg0_, arg0_var.clone(), arg0_oldvar);
-            let lam = LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Lambda(vec![arg0_var], body)), info: LExprInfo::default()};
-            let rest = self._htree_to_ltree_lower_pass(rest.clone());
-            self.vars.unbind(name, name_var.clone(), name_oldvar);
-            LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(name_var, lam, rest)), info: LExprInfo::default()}
-          }
-          &HExpr::ApplyN(ref lhs, ref args) => {
+          &HExpr::Apply(ref lhs, ref args) => {
+            // FIXME: desugar "let rec" to "let fix in".
             let lhs_hash = match &**lhs {
               &HExpr::Ident(ref name) => {
                 self.hashes.lookup(name.to_string())

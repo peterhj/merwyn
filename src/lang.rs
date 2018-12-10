@@ -199,15 +199,15 @@ pub struct HLetAttrs {
 
 #[derive(Clone, Debug)]
 pub enum HExpr {
-  Lambda0(Rc<HExpr>),
-  Lambda1(Rc<HExpr>, Rc<HExpr>),
-  LambdaN(Vec<Rc<HExpr>>, Rc<HExpr>),
-  Apply0(Rc<HExpr>),
-  Apply1(Rc<HExpr>, Rc<HExpr>),
-  ApplyN(Rc<HExpr>, Vec<Rc<HExpr>>),
-  Tuple0,
-  Tuple1(Rc<HExpr>),
-  TupleN(Vec<Rc<HExpr>>),
+  //Lambda0(Rc<HExpr>),
+  //Lambda1(Rc<HExpr>, Rc<HExpr>),
+  Lambda(Vec<Rc<HExpr>>, Rc<HExpr>),
+  //Apply0(Rc<HExpr>),
+  //Apply1(Rc<HExpr>, Rc<HExpr>),
+  Apply(Rc<HExpr>, Vec<Rc<HExpr>>),
+  //Tuple0,
+  //Tuple1(Rc<HExpr>),
+  Tuple(Vec<Rc<HExpr>>),
   //Group(Rc<HExpr>),
   //Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
   Adj(Rc<HExpr>),
@@ -244,37 +244,6 @@ pub enum HExpr {
   FloatLit(f64),
   Ident(String),
   PathLookup(Rc<HExpr>, String),
-}
-
-impl HExpr {
-  /*fn is_atom(&self) -> bool {
-    match self {
-      &HExpr::Apply1(..) => false,
-      _ => true,
-    }
-  }*/
-
-  pub fn pre_walk<F: FnMut(&HExpr)>(&self, f: &mut F) {
-    f(self);
-    match self {
-      // TODO
-      HExpr::Lambda0(ref body) => {
-        body.pre_walk(f);
-      }
-      HExpr::Lambda1(ref arg, ref body) => {
-        arg.pre_walk(f);
-        body.pre_walk(f);
-      }
-      HExpr::LambdaN(ref args, ref body) => {
-        for arg in args.iter() {
-          arg.pre_walk(f);
-        }
-        body.pre_walk(f);
-      }
-      HExpr::Tuple0 => {}
-      _ => unimplemented!(),
-    }
-  }
 }
 
 pub struct HParser<Toks: Iterator<Item=HLToken>> {
@@ -719,7 +688,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         match self.current_token() {
           HLToken::RBrack => {
             self.advance();
-            return Ok(HExpr::Apply0(Rc::new(left)));
+            //return Ok(HExpr::Apply0(Rc::new(left)));
+            return Ok(HExpr::Apply(Rc::new(left), vec![]));
           }
           HLToken::Comma => panic!(),
           _ => {}
@@ -728,7 +698,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         match self.current_token() {
           HLToken::RBrack => {
             self.advance();
-            return Ok(HExpr::Apply1(Rc::new(left), Rc::new(right)));
+            //return Ok(HExpr::Apply1(Rc::new(left), Rc::new(right)));
+            return Ok(HExpr::Apply(Rc::new(left), vec![Rc::new(right)]));
           }
           HLToken::Comma => {
             let mut args = vec![Rc::new(right)];
@@ -740,7 +711,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
                 HLToken::RBrack => {
                   self.advance();
                   assert!(args.len() >= 2);
-                  return Ok(HExpr::ApplyN(Rc::new(left), args));
+                  return Ok(HExpr::Apply(Rc::new(left), args));
                 }
                 HLToken::Comma => {}
                 _ => panic!(),
