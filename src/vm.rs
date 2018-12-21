@@ -10,6 +10,7 @@ use rand::prelude::*;
 use rand_chacha::{ChaChaRng};
 use vertreap::{VertreapMap};
 
+use std::any::{Any};
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap};
 use std::rc::{Rc};
@@ -21,15 +22,28 @@ pub struct VMAddr {
 
 pub struct VMBox {
   // TODO
+  ival: Rc<dyn Any>,
+}
+
+#[derive(Clone)]
+pub struct VMBoxCode {
+  // TODO
+  ifun: Rc<dyn Fn(usize, VMEnvRef) -> VMValRef>,
 }
 
 pub struct VMModule {
   pub env:  VMEnvRef,
 }
 
+pub enum VMLamCode {
+  Box_(VMBoxCode),
+  Expr(LExpr),
+}
+
 pub struct VMLam {
   pub bind: Vec<LVar>,
   pub code: LExpr,
+  //pub code: VMLamCode,
 }
 
 pub struct VMClosure {
@@ -102,7 +116,7 @@ pub enum VMVal {
   Env(VMEnvRef),
   DEnv(LEnv),
   Clo(VMClosure),
-  Box(VMBox),
+  Box_(VMBox),
   Bit(bool),
   Int(i64),
   Flo(f64),
@@ -113,6 +127,7 @@ pub enum VMVal {
 #[derive(Clone)]
 pub enum VMReg {
   Uninit,
+  BCode(VMBoxCode, usize),
   Code(LExpr),
   MVal(VMValRef),
 }
@@ -163,6 +178,7 @@ pub enum VMKont {
   App1(VMLam, VMEnvRef, VMKontRef),
   // TODO: like "arg" and "fun" konts but w/ arity.
   App(usize, Vec<LExpr>, Option<VMLam>, Vec<VMValRef>, VMEnvRef, VMKontRef),
+  ApBc(VMEnvRef, VMKontRef),
   Swh(LExpr, LExpr, VMEnvRef, VMKontRef),
   //Frc(LVar, VMEnvRef, VMKontRef),
   // TODO: "ret" kont may be unnecessary.
@@ -339,6 +355,7 @@ impl VMachine {
           _ => println!("DEBUG: vm: ctrl: mval: other"),
         }
       }
+      _ => unimplemented!(),
     }
   }
 
@@ -407,6 +424,19 @@ impl VMachine {
         }*/
         unreachable!();
       }
+      VMReg::BCode(bcode, nargs) => {
+        match &*kont {
+          &VMKont::ApBc(..) => {
+            // TODO
+            let mval = (bcode.ifun)(nargs, env.clone());
+            let next_ctrl = VMReg::MVal(mval);
+            let next_env = env;
+            let next_kont = kont;
+            (next_ctrl, next_env, next_kont)
+          }
+          _ => panic!(),
+        }
+      }
       VMReg::Code(ltree) => {
         match (&*ltree.term, &*kont) {
           (&LTerm::Env, _) => {
@@ -453,7 +483,8 @@ impl VMachine {
           (&LTerm::Fix(ref name, ref expr), _) => {
             // TODO
             unimplemented!();
-            /*let fix_code = ltree.clone();
+            /*let cap_env = env.clone();
+            let fix_code = ltree.clone();
             let fix_mlam = VMLam{
               bind: vec![],
               code: fix_code,
@@ -557,11 +588,11 @@ impl VMachine {
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
           }
-          (_, &VMKont::Thk1(ref thk_a, ref mlam, ref env, ref kont)) => {
+          (_, &VMKont::Thk1(ref thk_a, ref rest_mlam, ref env, ref kont)) => {
             // TODO
             println!("TRACE: vm:   kont: thk1");
             self.store.update(thk_a.clone(), mval);
-            let next_ctrl = VMReg::Code(mlam.code.clone());
+            let next_ctrl = VMReg::Code(rest_mlam.code.clone());
             let next_env = env.clone();
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)

@@ -609,30 +609,41 @@ impl LTransformer {
         let mut shadow = vec![];
         // FIXME: do the correct traversal order (requires freevars).
         // FIXME: only need to shadow freevars, not all bindings in scope.
-        for (fvar_var, _) in root_env.bindings.iter() {
-          let fvar_name = self.vars.rev_lookup(fvar_var.clone());
-          let (shadow_hash, shadow_var, shadow_oldvar) = self.vars.bind(fvar_name);
-          let shadow_name = self.hashes.rev_lookup(shadow_hash.clone());
+        for (fvar_var, &(_, ref fvar_def)) in root_env.bindings.iter() {
+          let fvar_hash = self.vars.rev_lookup(fvar_var.clone());
+          let (fvar_hash, shadow_var, shadow_oldvar) = self.vars.bind(fvar_hash);
+          let fvar_name = self.hashes.rev_lookup(fvar_hash.clone());
           // FIXME: next line is where we bind the adjoint expr;
           // for now, we set the adjoint to be any old literal.
           let adj_term = match &*root.term {
             &LTerm::Lookup(ref root_var) => {
-              // FIXME: if the IR is properly normalized, root should always be
-              // a var.
               if root_var == fvar_var {
-                LTerm::IntLit(1)
+                Some(LTerm::IntLit(1))
               } else {
-                LTerm::IntLit(42424242)
+                None
               }
             }
-            _ => LTerm::IntLit(42424242),
-          };
+            _ => {
+              // FIXME: if the IR is properly normalized, root should always be
+              // a var.
+              println!("WARNING: adj dyn: root is not a var");
+              None
+            }
+          }.unwrap_or({
+            /*match fvar_def {
+              &LDef::Code(ref ltree) => {
+                // TODO
+                //unimplemented!();
+              }
+            }*/
+            LTerm::IntLit(42424242)
+          });
           let shadow_code = LExpr{label: self.labels.fresh(), term: Rc::new(adj_term), info: LExprInfo::default()};
-          shadow_env._bind_named(shadow_name.clone(), shadow_var.clone(), shadow_code);
-          shadow.push((shadow_hash, shadow_var, shadow_oldvar));
+          shadow_env._bind_named(fvar_name, shadow_var.clone(), shadow_code);
+          shadow.push((fvar_hash, shadow_var, shadow_oldvar));
         }
-        for (shadow_hash, shadow_var, shadow_oldvar) in shadow.into_iter().rev() {
-          self.vars.unbind(shadow_hash, shadow_var, shadow_oldvar);
+        for (fvar_hash, shadow_var, shadow_oldvar) in shadow.into_iter().rev() {
+          self.vars.unbind(fvar_hash, shadow_var, shadow_oldvar);
         }
         LExpr{
           label:    ltree.label.clone(),
