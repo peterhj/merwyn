@@ -4,19 +4,21 @@
 
 use crate::lang::{HExpr};
 
-use vertreap::{VertreapMap};
+use serde::{Serialize, Serializer};
+use serde::ser::{SerializeStruct};
+//use vertreap::{VertreapMap};
 
 use std::collections::{HashMap};
 //use std::collections::hash_map::{Entry};
 use std::rc::{Rc};
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
 pub struct LVar(pub u64);
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
 pub struct LHash(pub u64);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct LLabel(pub u64);
 
 /*#[derive(Clone, Debug)]
@@ -31,8 +33,8 @@ pub enum LLambdaTerm {
   pub code: LExpr,
 }*/
 
-#[derive(Debug)]
-pub enum LTerm<E> {
+#[derive(Debug, Serialize)]
+pub enum LTerm<E=LExpr, X=()> {
   Apply(E, Vec<E>),
   Env,
   DynEnv(LEnv),
@@ -50,9 +52,10 @@ pub enum LTerm<E> {
   //DynEnvLookup(E, LHash),
   Adj(E),
   AdjDyn(E),
+  Extension(X),
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Serialize)]
 pub struct LExprInfo {
   pub env:  Option<LEnv>,
 }
@@ -60,18 +63,28 @@ pub struct LExprInfo {
 #[derive(Clone, Debug)]
 pub struct LExpr {
   pub label:    LLabel,
-  pub term:     Rc<LTerm<LExpr>>,
+  pub term:     Rc<LTerm>,
   pub info:     LExprInfo,
 }
 
-#[derive(Clone, Debug)]
+impl Serialize for LExpr {
+  fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    let mut s = serializer.serialize_struct("LExpr", 3)?;
+    s.serialize_field("label", &self.label)?;
+    s.serialize_field("term", &*self.term)?;
+    s.serialize_field("info", &self.info)?;
+    s.end()
+  }
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub enum LDef {
   Code(LExpr),
   //Func(Vec<LVar>, LExpr),
   //Memo(Vec<LVar>, LExpr),
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Serialize)]
 pub struct LEnv {
   //pub bindings: HashMap<LVar, (usize, Rc<LExpr>)>,
   //pub vars:     Vec<(LVar, usize)>,
@@ -323,12 +336,25 @@ impl LBuilder {
         match &**lhs {
           &HExpr::Ident(ref lhs) => {
             // FIXME: desugar "let rec" to "let fix in".
-            let lhs_hash = self.hashes.lookup(lhs.to_string());
-            let (lhs_hash, lhs_var, lhs_oldvar) = self.vars.bind(lhs_hash);
-            let body = self._htree_to_ltree_lower_pass(body.clone());
-            let rest = self._htree_to_ltree_lower_pass(rest.clone());
-            self.vars.unbind(lhs_hash, lhs_var.clone(), lhs_oldvar);
-            LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(lhs_var, body, rest)), info: LExprInfo::default()}
+            match attrs.rec {
+              false => {
+                let lhs_hash = self.hashes.lookup(lhs.to_string());
+                let (lhs_hash, lhs_var, lhs_oldvar) = self.vars.bind(lhs_hash);
+                let body = self._htree_to_ltree_lower_pass(body.clone());
+                let rest = self._htree_to_ltree_lower_pass(rest.clone());
+                self.vars.unbind(lhs_hash, lhs_var.clone(), lhs_oldvar);
+                LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(lhs_var, body, rest)), info: LExprInfo::default()}
+              }
+              true  => {
+                let lhs_hash = self.hashes.lookup(lhs.to_string());
+                let (lhs_hash, lhs_var, lhs_oldvar) = self.vars.bind(lhs_hash);
+                let fixbody = self._htree_to_ltree_lower_pass(body.clone());
+                let fix = LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Fix(lhs_var.clone(), fixbody)), info: LExprInfo::default()};
+                let rest = self._htree_to_ltree_lower_pass(rest.clone());
+                self.vars.unbind(lhs_hash, lhs_var.clone(), lhs_oldvar);
+                LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Let(lhs_var, fix, rest)), info: LExprInfo::default()}
+              }
+            }
           }
           &HExpr::Apply(ref lhs, ref args) => {
             // FIXME: desugar "let rec" to "let fix in".

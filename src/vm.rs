@@ -11,7 +11,7 @@ use rand_chacha::{ChaChaRng};
 use vertreap::{VertreapMap};
 
 use std::any::{Any};
-use std::cell::{RefCell, RefMut};
+use std::cell::{RefCell};
 use std::collections::{HashMap};
 use std::rc::{Rc};
 
@@ -28,22 +28,23 @@ pub struct VMBox {
 #[derive(Clone)]
 pub struct VMBoxCode {
   // TODO
-  ifun: Rc<dyn Fn(usize, VMEnvRef) -> VMValRef>,
+  ifun: Rc<dyn Fn(Vec<VMValRef>, VMEnvRef) -> VMValRef>,
 }
 
 pub struct VMModule {
   pub env:  VMEnvRef,
 }
 
+#[derive(Clone)]
 pub enum VMLamCode {
-  Box_(VMBoxCode),
   Expr(LExpr),
+  Box_(VMBoxCode),
 }
 
 pub struct VMLam {
-  pub bind: Vec<LVar>,
-  pub code: LExpr,
-  //pub code: VMLamCode,
+  //pub bind: Vec<LVar>,
+  //pub code: LExpr,
+  pub code: VMLamCode,
 }
 
 pub struct VMClosure {
@@ -72,7 +73,7 @@ pub struct VMThunk {
 }
 
 impl VMThunk {
-  pub fn new(lam: VMLam, env: VMEnvRef) -> VMThunk {
+  pub fn new_empty(lam: VMLam, env: VMEnvRef) -> VMThunk {
     VMThunk{
       lam,
       env,
@@ -127,8 +128,8 @@ pub enum VMVal {
 #[derive(Clone)]
 pub enum VMReg {
   Uninit,
-  BCode(VMBoxCode, usize),
   Code(LExpr),
+  BCode(VMBoxCode),
   MVal(VMValRef),
 }
 
@@ -177,8 +178,8 @@ pub enum VMKont {
   //App1(VMClosure, VMKontRef),
   App1(VMLam, VMEnvRef, VMKontRef),
   // TODO: like "arg" and "fun" konts but w/ arity.
-  App(usize, Vec<LExpr>, Option<VMLam>, Vec<VMValRef>, VMEnvRef, VMKontRef),
-  ApBc(VMEnvRef, VMKontRef),
+  App(Vec<LExpr>, Option<VMLam>, Vec<VMValRef>, VMEnvRef, VMKontRef),
+  //ApBc(VMEnvRef, VMKontRef),
   Swh(LExpr, LExpr, VMEnvRef, VMKontRef),
   //Frc(LVar, VMEnvRef, VMKontRef),
   // TODO: "ret" kont may be unnecessary.
@@ -424,19 +425,6 @@ impl VMachine {
         }*/
         unreachable!();
       }
-      VMReg::BCode(bcode, nargs) => {
-        match &*kont {
-          &VMKont::ApBc(..) => {
-            // TODO
-            let mval = (bcode.ifun)(nargs, env.clone());
-            let next_ctrl = VMReg::MVal(mval);
-            let next_env = env;
-            let next_kont = kont;
-            (next_ctrl, next_env, next_kont)
-          }
-          _ => panic!(),
-        }
-      }
       VMReg::Code(ltree) => {
         match (&*ltree.term, &*kont) {
           (&LTerm::Env, _) => {
@@ -460,16 +448,16 @@ impl VMachine {
           (&LTerm::Let(ref name, ref body, ref rest), _) => {
             println!("TRACE: vm:   expr: let");
             let rest_mlam = VMLam{
-              bind: vec![name.clone()],
-              code: rest.clone(),
+              //bind: vec![name.clone()],
+              code: VMLamCode::Expr(rest.clone()),
             };
             let thk_a = self.store.fresh_addr();
             // NB: The `Thk1` continuation does not create bind the var to the
             // thunk address, instead that happens here.
             let rest_env = env.insert(name.clone(), thk_a.clone());
             let body_mlam = VMLam{
-              bind: vec![],
-              code: body.clone(),
+              //bind: vec![],
+              code: VMLamCode::Expr(body.clone()),
             };
             // NB: The thunk will be immediately updated, so can directly
             // construct it in the "black hole" state.
@@ -480,23 +468,27 @@ impl VMachine {
             let next_env = env;
             (next_ctrl, next_env, next_kont)
           }
-          (&LTerm::Fix(ref name, ref expr), _) => {
-            // TODO
-            unimplemented!();
-            /*let cap_env = env.clone();
-            let fix_code = ltree.clone();
+          (&LTerm::Fix(ref fixname, ref fixbody), _) => {
+            println!("TRACE: vm:   expr: fix");
+            let thk_a = self.store.fresh_addr();
+            let fix_env = env.insert(fixname.clone(), thk_a.clone());
             let fix_mlam = VMLam{
-              bind: vec![],
-              code: fix_code,
+              //bind: vec![],
+              code: VMLamCode::Expr(ltree.clone()),
             };
-            let fix_mclosure = VMClosure{
-              lam:  fix_mlam,
-              env:  env.clone(),
+            // NB: The fixpoint thunk maybe delayed, so must construct it in
+            // the "empty" state.
+            // TODO: should `mthk` capture `env` or `fix_env`?
+            let mthk = VMThunkRef::new(VMThunk::new_empty(fix_mlam, env.clone()));
+            self.store.insert_new(thk_a.clone(), mthk);
+            let fixbody_mlam = VMLam{
+              //bind: vec![],
+              code: VMLamCode::Expr(fixbody.clone()),
             };
-            let next_env = env.insert(name, fix_mclosure);
-            let next_ctrl = VMReg::Code(body.clone());
-            let next_kont = kont.clone();
-            (next_ctrl, next_env, next_kont)*/
+            let next_ctrl = VMReg::Code(fixbody.clone());
+            let next_env = fix_env.clone();
+            let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, fixbody_mlam, fix_env, kont));
+            (next_ctrl, next_env, next_kont)
           }
           (&LTerm::BitLit(x), _) => {
             println!("TRACE: vm:   expr: bitlit");
@@ -521,17 +513,23 @@ impl VMachine {
               VMThunkState::Emp => {
                 println!("TRACE: vm:   expr:   emp...");
                 let rest_mlam = VMLam{
-                  bind: vec![],
-                  code: ltree.clone(),
+                  //bind: vec![],
+                  code: VMLamCode::Expr(ltree.clone()),
                 };
                 // NB: Must explicitly transition the thunk to a "black hole"
                 // state using `_prep_update`.
                 mthk._prep_update();
-                let next_ctrl = VMReg::Code(mthk.lam.code.clone());
+                let next_ctrl = match mthk.lam.code.clone() {
+                  VMLamCode::Expr(e) => VMReg::Code(e),
+                  VMLamCode::Box_(bc) => VMReg::BCode(bc),
+                };
                 let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, rest_mlam, env.clone(), kont));
                 let next_env = mthk.env.clone();
-                println!("TRACE: vm:   expr:   emp end");
+                println!("TRACE: vm:   expr:     end emp");
                 (next_ctrl, next_env, next_kont)
+              }
+              VMThunkState::Blk => {
+                panic!("invalid thunk state (blkhole)");
               }
               VMThunkState::Ret => {
                 println!("TRACE: vm:   expr:   ret...");
@@ -548,10 +546,9 @@ impl VMachine {
                 };
                 let next_ctrl = VMReg::MVal(mval);
                 let next_kont = kont;
-                println!("TRACE: vm:   expr:   ret end");
+                println!("TRACE: vm:   expr:     end ret");
                 (next_ctrl, next_env, next_kont)
               }
-              _ => panic!(),
             }
           }
           (&LTerm::DynEnvLookup(ref target, ref name), _) => {
@@ -562,6 +559,29 @@ impl VMachine {
             (next_ctrl, next_env, next_kont)
           }
           _ => unimplemented!(),
+        }
+      }
+      VMReg::BCode(bcode) => {
+        match &*kont {
+          &VMKont::App(ref code_args, ref maybe_mlam, ref mval_args, ref env, ref kont) => {
+            assert_eq!(code_args.len(), 0);
+            assert!(maybe_mlam.is_none());
+            let mval_ret = (bcode.ifun)(mval_args.clone(), env.clone());
+            let next_ctrl = VMReg::MVal(mval_ret);
+            let next_env = env.clone();
+            let next_kont = kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          /*&VMKont::ApBc(..) => {
+            // TODO
+            /*let mval = (bcode.ifun)(nargs, env.clone());
+            let next_ctrl = VMReg::MVal(mval);
+            let next_env = env;
+            let next_kont = kont;
+            (next_ctrl, next_env, next_kont)*/
+            unimplemented!();
+          }*/
+          _ => panic!(),
         }
       }
       VMReg::MVal(mval) => {
@@ -592,7 +612,11 @@ impl VMachine {
             // TODO
             println!("TRACE: vm:   kont: thk1");
             self.store.update(thk_a.clone(), mval);
-            let next_ctrl = VMReg::Code(rest_mlam.code.clone());
+            //let next_ctrl = VMReg::Code(rest_mlam.code.clone());
+            let next_ctrl = match rest_mlam.code.clone() {
+              VMLamCode::Expr(e) => VMReg::Code(e),
+              VMLamCode::Box_(bc) => VMReg::BCode(bc),
+            };
             let next_env = env.clone();
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
@@ -618,13 +642,13 @@ impl VMachine {
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)*/
           }
-          (_, &VMKont::App(rem, ref arg_codes, ref maybe_mlam, ref args, ref next_env, ref next_kont)) => {
+          (_, &VMKont::App(ref arg_codes, ref maybe_mlam, ref mval_args, ref next_env, ref next_kont)) => {
             // TODO
-            assert_eq!(rem, arg_codes.len());
+            let rem = arg_codes.len();
             let mut arg_codes = arg_codes.clone();
             let _ = arg_codes.pop();
-            let mut args = args.clone();
-            args.push(mval.clone());
+            let mut mval_args = mval_args.clone();
+            mval_args.push(mval.clone());
             match rem {
               0 => {
                 let mlam = match maybe_mlam {
@@ -632,21 +656,25 @@ impl VMachine {
                   &None => panic!(),
                 };
                 let mut next_env = next_env.clone();
-                for (bvar, arg) in mlam.bind.iter().zip(args.iter()) {
+                // TODO: freevars.
+                /*for (bvar, arg) in mlam.bind.iter().zip(mval_args.iter()) {
                   // FIXME
                   unimplemented!();
                   /*let a = self.store.fresh_addr();
                   self.store.insert_new(a.clone(), arg.clone());
                   next_env = next_env.insert(bvar.clone(), a);*/
-                }
-                let next_ctrl = VMReg::Code(mlam.code.clone());
+                }*/
+                let next_ctrl = match mlam.code.clone() {
+                  VMLamCode::Expr(e) => VMReg::Code(e),
+                  VMLamCode::Box_(bc) => VMReg::BCode(bc),
+                };
                 let next_kont = next_kont.clone();
                 (next_ctrl, next_env, next_kont)
               }
               _ => {
                 // TODO
                 unimplemented!();
-                //let next_kont = VMKontRef::new(VMKont::App(rem - 1, arg_codes, maybe_mlam.clone(), args, next_env.clone(), next_kont.clone()));
+                //let next_kont = VMKontRef::new(VMKont::App(rem - 1, arg_codes, maybe_mlam.clone(), mval_args, next_env.clone(), next_kont.clone()));
                 //let next_env = env.clone();
                 //(next_ctrl, next_env, next_kont)
               }

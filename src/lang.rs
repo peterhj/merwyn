@@ -13,9 +13,10 @@ lexer! {
   r#"#[^\n]*"#      => HLToken::LineComment,
   r#"\([*](~(.*[*]\).*))[*]\)"# => HLToken::BlockComment,
 
+  r#"extern"#       => HLToken::Extern,
+  r#"intern"#       => HLToken::Intern,
   r#"lambda"#       => HLToken::Lambda,
   r#"λ"#            => HLToken::Lambda,
-  r#"extern"#       => HLToken::Extern,
   r#"adj"#          => HLToken::Adj,
   r#"dyn"#          => HLToken::Dyn,
   r#"pub"#          => HLToken::Pub,
@@ -83,8 +84,9 @@ pub enum HLToken {
   Whitespace,
   LineComment,
   BlockComment,
-  Lambda,
   Extern,
+  Intern,
+  Lambda,
   Adj,
   Dyn,
   Pub,
@@ -199,6 +201,8 @@ pub struct HLetAttrs {
 
 #[derive(Clone, Debug)]
 pub enum HExpr {
+  //Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
+  Intern(String, Rc<HExpr>),
   //Lambda0(Rc<HExpr>),
   //Lambda1(Rc<HExpr>, Rc<HExpr>),
   Lambda(Vec<Rc<HExpr>>, Rc<HExpr>),
@@ -209,7 +213,6 @@ pub enum HExpr {
   //Tuple1(Rc<HExpr>),
   Tuple(Vec<Rc<HExpr>>),
   //Group(Rc<HExpr>),
-  //Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
   Adj(Rc<HExpr>),
   AdjDyn(Rc<HExpr>),
   Let(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>, Option<HLetAttrs>),
@@ -328,6 +331,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     // TODO
     match tok {
       &HLToken::Extern |
+      &HLToken::Intern |
       &HLToken::Adj |
       &HLToken::Dyn |
       &HLToken::Pub |
@@ -378,6 +382,22 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       HLToken::Extern => {
         // TODO
         unimplemented!();
+      }
+      HLToken::Intern => {
+        // TODO
+        match self.current_token() {
+          HLToken::Ident(mod_name) => {
+            self.advance();
+            match self.current_token() {
+              HLToken::In | HLToken::Semi => {}
+              _ => panic!(),
+            }
+            self.advance();
+            let e = self.expression(0, -1)?;
+            Ok(HExpr::Intern(mod_name, Rc::new(e)))
+          }
+          _ => panic!(),
+        }
       }
       HLToken::Adj => {
         match self.current_token() {

@@ -35,3 +35,6 @@ test-vm: pre
 
 test-vmad: pre
 	RUST_TEST_THREADS=1 cargo test --test vmad --release -- --nocapture
+
+test-vmfix: pre
+	RUST_TEST_THREADS=1 cargo test --test vmfix --release -- --nocapture
