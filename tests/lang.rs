@@ -100,6 +100,14 @@ fn test_lang_let() {
 }
 
 #[test]
+fn test_lang_let_lam0() {
+  let lexer = HLexer::new("let f = \\. asdf; 0");
+  let parser = HParser::new(lexer);
+  let ast = parser.parse();
+  println!("{:?}", ast);
+}
+
+#[test]
 fn test_lang_let_pub() {
   let lexer = HLexer::new("pub let asdf[x] = 1; 0");
   let parser = HParser::new(lexer);

@@ -18,7 +18,7 @@ impl Default for Config {
   fn default() -> Config {
     match envy::from_env::<Config>() {
       Err(_) => panic!("failed to parse env vars"),
-      Ok(cfg) => { println!("DEBUG: env cfg: {:?}", cfg); cfg }
+      Ok(cfg) => { println!("DEBUG: cfg: {:?}", cfg); cfg }
     }
   }
 }

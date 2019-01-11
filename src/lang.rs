@@ -344,6 +344,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::For |
       &HLToken::Equals |
       &HLToken::Tilde |
+      &HLToken::Backslash |
       &HLToken::Comma |
       &HLToken::Semi => 0,
       &HLToken::BarBar => 300,
@@ -585,6 +586,19 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         self.advance();
         let e2 = self.expression(0, -1)?;
         Ok(HExpr::WhereLet(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
+      }
+      HLToken::Backslash => {
+        match self.current_token() {
+          HLToken::Dot => {}
+          HLToken::Comma => {
+            // TODO
+            unimplemented!();
+          }
+          _ => panic!(),
+        }
+        self.advance();
+        let body = self.expression(0, -1)?;
+        Ok(HExpr::Lambda(vec![], Rc::new(body)))
       }
       HLToken::Dash => {
         let right = self.expression(700, -1)?;

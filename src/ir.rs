@@ -13,6 +13,9 @@ use std::collections::{HashMap};
 use std::rc::{Rc};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
+pub struct LIdx(pub usize);
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
 pub struct LVar(pub u64);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
@@ -314,6 +317,18 @@ impl LBuilder {
   pub fn _htree_to_ltree_lower_pass(&mut self, htree: Rc<HExpr>) -> LExpr {
     // TODO
     match &*htree {
+      &HExpr::Lambda(ref args, ref body) => {
+        // TODO
+        let bvars: Vec<_> = args.iter().map(|arg| {
+          let a = self._htree_to_ltree_lower_pass(arg.clone());
+          match &*a.term {
+            &LTerm::Lookup(ref v) => v.clone(),
+            _ => panic!(),
+          }
+        }).collect();
+        let body = self._htree_to_ltree_lower_pass(body.clone());
+        LExpr{label: self.labels.fresh(), term: Rc::new(LTerm::Lambda(bvars, body)), info: LExprInfo::default()}
+      }
       &HExpr::Apply(ref lhs, ref args) => {
         let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
         let args: Vec<_> = args.iter().map(|arg| {

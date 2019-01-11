@@ -113,7 +113,6 @@ pub type VMValRef = Rc<VMVal>;
 
 //#[derive(Debug)]
 pub enum VMVal {
-  //Code(LExpr),
   Env(VMEnvRef),
   DEnv(LEnv),
   Clo(VMClosure),
@@ -122,7 +121,21 @@ pub enum VMVal {
   Int(i64),
   Flo(f64),
   Tup,
-  //Thk,
+}
+
+impl VMVal {
+  pub fn _mval_name(&self) -> &'static str {
+    match self {
+      &VMVal::Env(_) => "Env",
+      &VMVal::DEnv(_) => "DEnv",
+      &VMVal::Clo(_) => "Clo",
+      &VMVal::Box_(_) => "Box_",
+      &VMVal::Bit(_) => "Bit",
+      &VMVal::Int(_) => "Int",
+      &VMVal::Flo(_) => "Flo",
+      &VMVal::Tup => "Tup",
+    }
+  }
 }
 
 #[derive(Clone)]
@@ -180,7 +193,8 @@ pub enum VMKont {
   // TODO: like "arg" and "fun" konts but w/ arity.
   App(Vec<LExpr>, Option<VMLam>, Vec<VMValRef>, VMEnvRef, VMKontRef),
   //ApBc(VMEnvRef, VMKontRef),
-  Swh(LExpr, LExpr, VMEnvRef, VMKontRef),
+  Call(VMEnvRef, VMKontRef),
+  Swch(LExpr, LExpr, VMEnvRef, VMKontRef),
   //Frc(LVar, VMEnvRef, VMKontRef),
   // TODO: "ret" kont may be unnecessary.
   //Ret(VMValRef, VMKontRef),
@@ -192,8 +206,21 @@ impl Default for VMKont {
   }
 }
 
-/*impl VMKont {
-  pub fn is_terminal(&self) -> bool {
+impl VMKont {
+  pub fn _kont_name(&self) -> &'static str {
+    match self {
+      &VMKont::Stop => "Stop",
+      &VMKont::Lkd(..) => "Lkd",
+      &VMKont::Thk1(..) => "Thk1",
+      &VMKont::App0(..) => "App0",
+      &VMKont::App1(..) => "App1",
+      &VMKont::App(..) => "App",
+      &VMKont::Call(..) => "Call",
+      &VMKont::Swch(..) => "Swch",
+    }
+  }
+
+  /*pub fn is_terminal(&self) -> bool {
     // TODO: version below assumes a "ret" kont.
     match self {
       &VMKont::Ret(_, ref next) => {
@@ -204,8 +231,8 @@ impl Default for VMKont {
       }
       _ => false,
     }
-  }
-}*/
+  }*/
+}
 
 #[derive(Default)]
 pub struct VMStore {
@@ -351,6 +378,7 @@ impl VMachine {
       &VMReg::Code(_) => println!("DEBUG: vm: ctrl: code"),
       &VMReg::MVal(ref mval) => {
         match &**mval {
+          VMVal::Clo(_) => println!("DEBUG: vm: ctrl: mval: closure"),
           VMVal::Bit(x) => println!("DEBUG: vm: ctrl: mval: bit: {:?}", x),
           VMVal::Int(x) => println!("DEBUG: vm: ctrl: mval: int: {:?}", x),
           _ => println!("DEBUG: vm: ctrl: mval: other"),
@@ -427,6 +455,19 @@ impl VMachine {
       }
       VMReg::Code(ltree) => {
         match (&*ltree.term, &*kont) {
+          (&LTerm::Apply(ref head, ref args), _) => {
+            // TODO
+            match args.len() {
+              0 => {
+                println!("TRACE: vm:   expr: apply 0");
+                let next_ctrl = VMReg::Code(head.clone());
+                let next_kont = VMKontRef::new(VMKont::App0(env.clone(), kont));
+                let next_env = env;
+                (next_ctrl, next_env, next_kont)
+              }
+              _ => unimplemented!(),
+            }
+          }
           (&LTerm::Env, _) => {
             // TODO
             unimplemented!();
@@ -434,15 +475,31 @@ impl VMachine {
           (&LTerm::DynEnv(ref lenv), _) => {
             // TODO
             println!("TRACE: vm:   capturing dyn env...");
-            /*for (k, _) in env.addr_map.iter() {
-              println!("TRACE: vm:     kv: {:?}, _", k);
-            }*/
-            // FIXME
-            //let mval = VMValRef::new(VMVal::Env(env.clone()));
+            for kv in env.addr_map.iter() {
+              println!("TRACE: vm:     kv: {:?}, _", kv.k);
+            }
             let mval = VMValRef::new(VMVal::DEnv(lenv.clone()));
             let next_ctrl = VMReg::MVal(mval);
-            let next_kont = kont;
             let next_env = env;
+            let next_kont = kont;
+            (next_ctrl, next_env, next_kont)
+          }
+          (&LTerm::Lambda(ref bvars, ref body), _) => {
+            // TODO
+            println!("TRACE: vm:   capturing lambda...");
+            for kv in env.addr_map.iter() {
+              println!("TRACE: vm:     kv: {:?}, _", kv.k);
+            }
+            let mval = VMValRef::new(VMVal::Clo(VMClosure{
+              env: env.clone(),
+              lam: VMLam{
+                //bind: bvars.clone(),
+                code: VMLamCode::Expr(body.clone()),
+              },
+            }));
+            let next_ctrl = VMReg::MVal(mval);
+            let next_env = env;
+            let next_kont = kont;
             (next_ctrl, next_env, next_kont)
           }
           (&LTerm::Let(ref name, ref body, ref rest), _) => {
@@ -487,7 +544,7 @@ impl VMachine {
             };
             let next_ctrl = VMReg::Code(fixbody.clone());
             let next_env = fix_env.clone();
-            let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, fixbody_mlam, fix_env, kont));
+            let next_kont = kont;
             (next_ctrl, next_env, next_kont)
           }
           (&LTerm::BitLit(x), _) => {
@@ -586,13 +643,6 @@ impl VMachine {
       }
       VMReg::MVal(mval) => {
         match (&*mval, &*kont) {
-          /*(&VMVal::Lam(ref mlam), &VMKont::App0(ref env, ref kont)) => {
-            // TODO
-            let next_ctrl = VMReg::Code(mlam.code.clone());
-            let next_env = env.clone();
-            let next_kont = kont.clone();
-            (next_ctrl, next_env, next_kont)
-          }*/
           (&VMVal::DEnv(ref tg_lenv), &VMKont::Lkd(ref name, ref env, ref kont)) => {
             // TODO
             let lk_var = match tg_lenv.names.get(name) {
@@ -621,9 +671,20 @@ impl VMachine {
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
           }
-          (_, &VMKont::App0(ref env, ref kont)) => {
-            // TODO: runtime panic if the reg is not a lambda.
-            panic!();
+          (&VMVal::Clo(ref closure), &VMKont::App0(ref env, ref kont)) => {
+            // TODO
+            println!("TRACE: vm:   kont: app0");
+            let next_ctrl = match closure.lam.code.clone() {
+              VMLamCode::Expr(e) => VMReg::Code(e),
+              VMLamCode::Box_(bc) => VMReg::BCode(bc),
+            };
+            let next_env = closure.env.clone();
+            //let next_kont = VMKontRef::new(VMKont::Call(env.clone(), kont.clone()));
+            let next_kont = kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          (_, &VMKont::App0(..)) => {
+            panic!("bug");
           }
           /*(&VMVal::Env(ref menv), &VMKont::App1(ref mlam, ref env, ref kont)) => {
             // TODO
@@ -644,6 +705,7 @@ impl VMachine {
           }
           (_, &VMKont::App(ref arg_codes, ref maybe_mlam, ref mval_args, ref next_env, ref next_kont)) => {
             // TODO
+            println!("TRACE: vm:   kont: app");
             let rem = arg_codes.len();
             let mut arg_codes = arg_codes.clone();
             let _ = arg_codes.pop();
@@ -680,7 +742,8 @@ impl VMachine {
               }
             }
           }
-          (&VMVal::Bit(x), &VMKont::Swh(ref on_code, ref off_code, ref env, ref kont)) => {
+          (&VMVal::Bit(x), &VMKont::Swch(ref on_code, ref off_code, ref env, ref kont)) => {
+            println!("TRACE: vm:   kont: swch");
             let next_ctrl = VMReg::Code(match x {
               true  => on_code.clone(),
               false => off_code.clone(),
@@ -689,11 +752,13 @@ impl VMachine {
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)
           }
-          (_, &VMKont::Swh(..)) => {
+          (_, &VMKont::Swch(..)) => {
             // TODO: runtime panic if the reg is not a bit.
             panic!();
           }
-          _ => unimplemented!(),
+          _ => {
+            panic!("unimpl: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
+          }
         }
       }
     };

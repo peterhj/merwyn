@@ -5,7 +5,7 @@ use hebb::lang::{HLexer, HParser};
 use hebb::vm::{VMachine};
 
 #[test]
-fn test_vm_1() {
+fn test_vmfix_1() {
   println!();
   //let lexer = HLexer::new("let x = 1; let y = 2; y");
   let lexer = HLexer::new("let rec x = x; x");
