@@ -21,4 +21,5 @@ pub mod ir;
 pub mod lang;
 //pub mod repl;
 pub mod rngs;
+pub mod stdlib;
 pub mod vm;

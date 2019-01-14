@@ -27,4 +27,5 @@ fn test_vmfix_1() {
   mthk._kill();*/
   vm._debug_eval(Some(ltree), 1000);
   vm._debug_dump_ctrl();
+  vm._debug_dump_stack_depth();
 }

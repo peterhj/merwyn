@@ -4,11 +4,6 @@ version = "0.0.0"
 authors = ["Peter Jin <peterhaijin@gmail.com>"]
 edition = "2018"
 
-[lib]
-name = "hebb"
-path = "src/lib.rs"
-crate-type = ["rlib", "cdylib"]
-
 [features]
 default = []
 gpu = []
@@ -20,12 +15,17 @@ envy = "^0.3"
 #lazy_static = "*"
 #num-traits = "^0.2"
 #parking_lot = { version = "*", features = ["nightly"] }
+#plex = "*"
+#plex = { path = "../plex", default-features = false, features = ["lexer"] }
+plex = { git = "https://github.com/goffrie/plex", rev = "a4c1068fc31293b209677f6347aa51bbf73c1e53", default-features = false, features = ["lexer"] }
 rand = "^0.6"
 rand_chacha = "^0.1"
 rdrand = "^0.3"
-regex = "*"
-#plex = "*"
-plex = { path = "../plex", default-features = false, features = ["lexer"] }
 serde = "^1.0"
 serde_derive = "^1.0"
 vertreap = { path = "../vertreap" }
+
+#[lib]
+#name = "hebb"
+#path = "src/lib.rs"
+#crate-type = ["rlib", "cdylib"]
