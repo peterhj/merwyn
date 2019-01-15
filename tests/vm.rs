@@ -86,7 +86,7 @@ fn test_vm_4() {
   println!();
   //let lexer = HLexer::new("let x = 1; let y = 2; let x = \\. pi100[]; let t = tee; x[]");
   //let lexer = HLexer::new("let x = 1; let y = 2; let t = tee; pi100[]");
-  let lexer = HLexer::new("-1");
+  let lexer = HLexer::new("let x = 1; -x");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);

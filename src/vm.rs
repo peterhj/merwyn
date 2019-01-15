@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::cfg::{Config};
-use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar, LTermVMExt, LLabel, LTermRef, LExprInfo};
+use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar, LTermVMExt};
 use crate::rngs::{HwRng};
 
 use rand::prelude::*;
@@ -166,7 +166,13 @@ impl VMEnvRef {
     //match self.mval_map.get(&name) {
     //match self.addr_map.get(&name) {
     match self.addr_map.find(&name) {
-      None => panic!(),
+      None => {
+        eprintln!("missing var in env: {:?}", name);
+        for kv in self.addr_map.iter() {
+          eprintln!("  kv: {:?}, _", kv.k);
+        }
+        panic!();
+      }
       //Some(mval) => mval.clone(),
       //Some(addr) => addr.clone(),
       Some(kv) => kv.v.clone(),
@@ -192,11 +198,11 @@ pub enum VMKont {
   Halt,
   //Next(VMKontRef),
   Lkd(String, VMEnvRef, VMKontRef),
-  Thk1(VMAddr, VMLam, VMEnvRef, VMKontRef),
+  Thk0(VMAddr, VMLam, VMEnvRef, VMKontRef),
   App0(VMEnvRef, VMKontRef),
   //App1(VMClosure, VMKontRef),
   //App1(VMLam, VMEnvRef, VMKontRef),
-  App1(LExpr, Option<VMClosure>, VMEnvRef, VMKontRef),
+  App1(LExpr, Option<VMClosure>, Option<VMValRef>, VMEnvRef, VMKontRef),
   // TODO: like "arg" and "fun" konts but w/ arity.
   App(Vec<LExpr>, Option<VMLam>, Vec<VMValRef>, VMEnvRef, VMKontRef),
   //ApBc(VMEnvRef, VMKontRef),
@@ -218,7 +224,7 @@ impl VMKont {
     match self {
       &VMKont::Halt => "Halt",
       &VMKont::Lkd(..) => "Lkd",
-      &VMKont::Thk1(..) => "Thk1",
+      &VMKont::Thk0(..) => "Thk0",
       &VMKont::App0(..) => "App0",
       &VMKont::App1(..) => "App1",
       &VMKont::App(..) => "App",
@@ -409,7 +415,7 @@ impl VMachine {
           depth += 1;
           kont = prev_kont.clone();
         }
-        &VMKont::Thk1(.., ref prev_kont) => {
+        &VMKont::Thk0(.., ref prev_kont) => {
           depth += 1;
           kont = prev_kont.clone();
         }
@@ -510,6 +516,9 @@ impl VMachine {
             match args.len() {
               0 => {
                 println!("TRACE: vm:   expr: apply 0");
+                /*for kv in env.addr_map.iter() {
+                  println!("TRACE: vm:     kv: {:?}, _", kv.k);
+                }*/
                 let next_ctrl = VMReg::Code(head.clone());
                 let next_kont = VMKontRef::new(VMKont::App0(env.clone(), kont));
                 let next_env = env;
@@ -517,8 +526,11 @@ impl VMachine {
               }
               1 => {
                 println!("TRACE: vm:   expr: apply 1");
+                /*for kv in env.addr_map.iter() {
+                  println!("TRACE: vm:     kv: {:?}, _", kv.k);
+                }*/
                 let next_ctrl = VMReg::Code(head.clone());
-                let next_kont = VMKontRef::new(VMKont::App1(args[0].clone(), None, env.clone(), kont));
+                let next_kont = VMKontRef::new(VMKont::App1(args[0].clone(), None, None, env.clone(), kont));
                 let next_env = env;
                 (next_ctrl, next_env, next_kont)
               }
@@ -584,7 +596,7 @@ impl VMachine {
               code: VMLamCode::Expr(rest.clone()),
             };
             let thk_a = self.store.fresh_addr();
-            // NB: The `Thk1` continuation does not create bind the var to the
+            // NB: The `Thk0` continuation does not create bind the var to the
             // thunk address, instead that happens here.
             let rest_env = env.insert(name.clone(), thk_a.clone());
             let body_mlam = VMLam{
@@ -596,7 +608,7 @@ impl VMachine {
             let mthk = VMThunkRef::new(VMThunk::new_blkhole(body_mlam, env.clone()));
             self.store.insert_new(thk_a.clone(), mthk);
             let next_ctrl = VMReg::Code(body.clone());
-            let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, rest_mlam, rest_env, kont));
+            let next_kont = VMKontRef::new(VMKont::Thk0(thk_a, rest_mlam, rest_env, kont));
             let next_env = env;
             (next_ctrl, next_env, next_kont)
           }
@@ -639,7 +651,7 @@ impl VMachine {
             (next_ctrl, next_env, next_kont)
           }
           (&LTerm::Lookup(ref lookup_var), _) => {
-            println!("TRACE: vm:   expr: lookup");
+            println!("TRACE: vm:   expr: lookup: {:?}", lookup_var);
             let (thk_a, mthk) = self._lookup_thunk(lookup_var.clone());
             match mthk.state() {
               VMThunkState::Emp => {
@@ -655,7 +667,7 @@ impl VMachine {
                   VMLamCode::Expr(e) => VMReg::Code(e),
                   VMLamCode::Box_(bc) => VMReg::BCode(bc),
                 };
-                let next_kont = VMKontRef::new(VMKont::Thk1(thk_a, rest_mlam, env.clone(), kont));
+                let next_kont = VMKontRef::new(VMKont::Thk0(thk_a, rest_mlam, env.clone(), kont));
                 let next_env = mthk.env.clone();
                 println!("TRACE: vm:   expr:     end emp");
                 (next_ctrl, next_env, next_kont)
@@ -668,15 +680,16 @@ impl VMachine {
                 let mslot = mthk.slot.borrow();
                 let mval = match &*mslot {
                   &VMThunkSlot::Ret(ref mval) => mval.clone(),
-                  _ => unreachable!(),
+                  _ => panic!("bug"),
                 };
-                // TODO: this basically overwrites the current env if the mval
+                /*// TODO: this basically overwrites the current env if the mval
                 // is a closure... is this the correct behavior?
                 let next_env = match &*mval {
                   &VMVal::Clo(ref mclosure) => mclosure.env.clone(),
                   _ => env,
-                };
+                };*/
                 let next_ctrl = VMReg::MVal(mval);
+                let next_env = env;
                 let next_kont = kont;
                 println!("TRACE: vm:   expr:     end ret");
                 (next_ctrl, next_env, next_kont)
@@ -730,14 +743,14 @@ impl VMachine {
           (_, &VMKont::Lkd(..)) => {
             panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
           }
-          (_, &VMKont::Thk1(ref thk_a, ref rest_mlam, ref env, ref kont)) => {
+          (_, &VMKont::Thk0(ref thk_a, ref rest_mlam, ref env, ref kont)) => {
             // TODO
-            println!("TRACE: vm:   kont: thk1");
+            println!("TRACE: vm:   kont: thk0");
             self.store.update(thk_a.clone(), mval);
             let next_ctrl = match rest_mlam.code.clone() {
               VMLamCode::Expr(e) => VMReg::Code(e),
               VMLamCode::Box_(bc) => {
-                println!("WARNING: rest of the code after thk1 is bc, this path is untested and likely to be broken");
+                println!("WARNING: rest of the code after thk0 is bc, this path is untested and likely to be broken");
                 VMReg::BCode(bc)
               }
             };
@@ -778,20 +791,36 @@ impl VMachine {
             let next_kont = kont.clone();
             (next_ctrl, next_env, next_kont)*/
           }*/
-          (&VMVal::Clo(ref closure), &VMKont::App1(ref arg_code, None, ref k_env, ref k_kont)) => {
+          (&VMVal::Clo(ref closure), &VMKont::App1(ref arg_code, None, None, ref k_env, ref k_kont)) => {
             // TODO
             println!("TRACE: vm:   kont: app1 (closure)");
+            /*for kv in env.addr_map.iter() {
+              println!("TRACE: vm:     kv: {:?}, _", kv.k);
+            }*/
             let next_ctrl = VMReg::Code(arg_code.clone());
             let next_env = env.clone();
-            let next_kont = VMKontRef::new(VMKont::App1(arg_code.clone(), Some(closure.clone()), k_env.clone(), k_kont.clone()));
+            let next_kont = VMKontRef::new(VMKont::App1(arg_code.clone(), Some(closure.clone()), None, k_env.clone(), k_kont.clone()));
             (next_ctrl, next_env, next_kont)
           }
-          (_, &VMKont::App1(_, Some(ref closure), ref env, ref kont)) => {
-            // TODO
+          (_, &VMKont::App1(ref arg_code, Some(ref closure), None, ref k_env, ref k_kont)) => {
             println!("TRACE: vm:   kont: app1 (arg)");
+            /*for kv in env.addr_map.iter() {
+              println!("TRACE: vm:     kv: {:?}, _", kv.k);
+            }*/
+            let next_ctrl = VMReg::MVal(mval.clone());
+            let next_env = env.clone();
+            let next_kont = VMKontRef::new(VMKont::App1(arg_code.clone(), Some(closure.clone()), Some(mval), k_env.clone(), k_kont.clone()));
+            (next_ctrl, next_env, next_kont)
+          }
+          (_, &VMKont::App1(_, Some(ref closure), Some(ref arg_mval), ref env, ref kont)) => {
+            // TODO
+            println!("TRACE: vm:   kont: app1 (eval)");
+            /*for kv in env.addr_map.iter() {
+              println!("TRACE: vm:     kv: {:?}, _", kv.k);
+            }*/
             let next_ctrl = match closure.lam.code.clone() {
               VMLamCode::Expr(e) => VMReg::Code(e),
-              VMLamCode::Box_(bc) => VMReg::BCodeArgs(bc, vec![mval]),
+              VMLamCode::Box_(bc) => VMReg::BCodeArgs(bc, vec![arg_mval.clone()]),
             };
             let next_env = closure.env.clone();
             let next_kont = kont.clone();
