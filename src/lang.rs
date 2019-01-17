@@ -27,6 +27,8 @@ lexer! {
   r#"letmemo"#      => HLToken::LetMemo,
   r#"where"#        => HLToken::Where,
   r#"for"#          => HLToken::For,
+  r#"switch"#       => HLToken::Switch,
+  r#"match"#        => HLToken::Match,
   r#":-"#           => HLToken::If,
   r#":="#           => HLToken::Assigns,
   r#"<="#           => HLToken::LtEquals,
@@ -97,6 +99,8 @@ pub enum HLToken {
   LetMemo,
   Where,
   For,
+  Switch,
+  Match,
   If,
   Assigns,
   Equals,
@@ -223,6 +227,7 @@ pub enum HExpr {
   LetIf(Rc<HExpr>, Vec<Rc<HExpr>>, Rc<HExpr>),
   LetForIf(Rc<HExpr>, Vec<Rc<HExpr>>, Vec<Rc<HExpr>>, Rc<HExpr>),
   WhereLet(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
+  Switch(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   ShortOr(Rc<HExpr>, Rc<HExpr>),
   ShortAnd(Rc<HExpr>, Rc<HExpr>),
   Eq(Rc<HExpr>, Rc<HExpr>),
@@ -340,13 +345,16 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::Rec |
       &HLToken::In |
       &HLToken::Where |
+      &HLToken::Switch |
       &HLToken::If |
       &HLToken::For |
       &HLToken::Equals |
       &HLToken::Tilde |
       &HLToken::Backslash |
       &HLToken::Comma |
-      &HLToken::Semi => 0,
+      &HLToken::Semi |
+      &HLToken::Then |
+      &HLToken::Bar => 0,
       &HLToken::BarBar => 300,
       &HLToken::HatHat => 320,
       &HLToken::EqEquals |
@@ -355,7 +363,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::GtEquals |
       &HLToken::Lt |
       &HLToken::LtEquals => 400,
-      &HLToken::Bar => 460,
+      //&HLToken::Bar => 460,
+      &HLToken::BarBar => 460,
       &HLToken::Hat => 480,
       &HLToken::Plus |
       &HLToken::Dash => 500,
@@ -587,6 +596,22 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         let e2 = self.expression(0, -1)?;
         Ok(HExpr::WhereLet(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
       }
+      HLToken::Switch => {
+        let pred_e = self.expression(0, -1)?;
+        match self.current_token() {
+          HLToken::Then => {}
+          _ => panic!(),
+        }
+        self.advance();
+        let top_e = self.expression(0, -1)?;
+        match self.current_token() {
+          HLToken::Bar => {}
+          _ => panic!(),
+        }
+        self.advance();
+        let bot_e = self.expression(0, -1)?;
+        Ok(HExpr::Switch(Rc::new(pred_e), Rc::new(top_e), Rc::new(bot_e)))
+      }
       HLToken::Backslash => {
         match self.current_token() {
           HLToken::Dot => {}
@@ -688,7 +713,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         let right = self.expression(self.lbp(&tok), -1)?;
         Ok(HExpr::LtEq(Rc::new(left), Rc::new(right)))
       }
-      HLToken::Bar => {
+      //HLToken::Bar => {
+      HLToken::BarBar => {
         let right = self.expression(self.lbp(&tok), -1)?;
         Ok(HExpr::Or(Rc::new(left), Rc::new(right)))
       }

@@ -20,7 +20,7 @@ pub struct VMAddr {
   pub raw:  u64,
 }
 
-pub struct VMBox {
+pub struct VMBoxVal {
   // TODO
   pub ival: Rc<dyn Any>,
 }
@@ -121,11 +121,11 @@ pub enum VMVal {
   Env(VMEnvRef),
   DEnv(LEnv),
   Clo(VMClosure),
-  Box_(VMBox),
   Bit(bool),
   Int(i64),
   Flo(f64),
   Tup,
+  Box_(VMBoxVal),
 }
 
 impl VMVal {
@@ -634,6 +634,13 @@ impl VMachine {
             let next_kont = kont;
             (next_ctrl, next_env, next_kont)
           }
+          (&LTerm::Switch(ref pred, ref top, ref bot), _) => {
+            println!("TRACE: vm:   expr: switch");
+            let next_ctrl = VMReg::Code(pred.clone());
+            let next_kont = VMKontRef::new(VMKont::Swch(top.clone(), bot.clone(), env.clone(), kont));
+            let next_env = env;
+            (next_ctrl, next_env, next_kont)
+          }
           (&LTerm::BitLit(x), _) => {
             println!("TRACE: vm:   expr: bitlit");
             let mval = VMValRef::new(VMVal::Bit(x));
@@ -868,11 +875,11 @@ impl VMachine {
               }
             }
           }
-          (&VMVal::Bit(x), &VMKont::Swch(ref on_code, ref off_code, ref env, ref kont)) => {
+          (&VMVal::Bit(x), &VMKont::Swch(ref top_code, ref bot_code, ref env, ref kont)) => {
             println!("TRACE: vm:   kont: swch");
             let next_ctrl = VMReg::Code(match x {
-              true  => on_code.clone(),
-              false => off_code.clone(),
+              true  => top_code.clone(),
+              false => bot_code.clone(),
             });
             let next_env = env.clone();
             let next_kont = kont.clone();

@@ -31,6 +31,24 @@ pub fn make_bc_neg() -> VMBoxCode {
   bc
 }
 
+pub fn make_bc_eq() -> VMBoxCode {
+  let bc = VMBoxCode{
+    ifun: Rc::new(|args, _env| {
+      // TODO
+      assert_eq!(2, args.len());
+      match (&*args[0], &*args[1]) {
+        (&VMVal::Int(x0), &VMVal::Int(x1)) => {
+          let r = x0 == x1;
+          let mval = VMValRef::new(VMVal::Bit(r));
+          mval
+        }
+        _ => panic!("eq: unsupported operand types"),
+      }
+    }),
+  };
+  bc
+}
+
 pub fn make_bc_add() -> VMBoxCode {
   let bc = VMBoxCode{
     ifun: Rc::new(|args, _env| {

@@ -57,6 +57,7 @@ pub enum LTerm<E=LExpr, X=LTermVMExt> {
   Let(LVar, E, E),
   Fix(LVar, E),
   //LetFunc(LVar, Vec<LVar>, E, E),
+  Switch(E, E, E),
   BitLit(bool),
   IntLit(i64),
   FloatLit(f64),
@@ -484,6 +485,21 @@ impl LBuilder {
             panic!();
           }
         }
+      }
+      &HExpr::Switch(ref pred, ref top, ref bot) => {
+        let pred = self._htree_to_ltree_lower_pass(pred.clone());
+        let top = self._htree_to_ltree_lower_pass(top.clone());
+        let bot = self._htree_to_ltree_lower_pass(bot.clone());
+        LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Switch(pred, top, bot)), info: LExprInfo::default()}
+      }
+      &HExpr::Eq(ref lhs, ref rhs) => {
+        let op_name = "eq".to_string();
+        let op_hash = self.hashes.lookup(op_name);
+        let op_var = self.vars.lookup(op_hash);
+        let op = LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Lookup(op_var)), info: LExprInfo::default()};
+        let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
+        let rhs = self._htree_to_ltree_lower_pass(rhs.clone());
+        LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Apply(op, vec![lhs, rhs])), info: LExprInfo::default()}
       }
       &HExpr::Add(ref lhs, ref rhs) => {
         let op_name = "add".to_string();
