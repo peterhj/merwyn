@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::cfg::{Config};
-use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar, LTermVMExt};
+use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar, LTermVMExt, LTermRef};
 use crate::rngs::{HwRng};
 
 use rand::prelude::*;
@@ -28,7 +28,8 @@ pub struct VMBoxVal {
 #[derive(Clone)]
 pub struct VMBoxCode {
   // TODO
-  pub ifun: Rc<dyn Fn(Vec<VMValRef>, VMEnvRef) -> VMValRef>,
+  pub ifun: Rc<dyn Fn(Vec<VMValRef>) -> VMValRef>,
+  pub ladj: Option<Rc<dyn Fn(usize, LExpr) -> LTermRef>>,
 }
 
 pub struct VMModule {
@@ -715,7 +716,7 @@ impl VMachine {
       }
       VMReg::BCode(bcode) => {
         println!("TRACE: vm:   bcode");
-        let ret_mval = (bcode.ifun)(vec![], env.clone());
+        let ret_mval = (bcode.ifun)(vec![]);
         let next_ctrl = VMReg::MVal(ret_mval);
         let next_env = env.clone();
         let next_kont = kont.clone();
@@ -723,7 +724,7 @@ impl VMachine {
       }
       VMReg::BCodeArgs(bcode, arg_mvals) => {
         println!("TRACE: vm:   bcode args");
-        let ret_mval = (bcode.ifun)(arg_mvals, env.clone());
+        let ret_mval = (bcode.ifun)(arg_mvals);
         let next_ctrl = VMReg::MVal(ret_mval);
         let next_env = env.clone();
         let next_kont = kont.clone();
@@ -740,6 +741,10 @@ impl VMachine {
             };
             let lk_code = match tg_lenv.bindings.get(&lk_var) {
               Some(&(_, LDef::Code(ref lk_code))) => lk_code.clone(),
+              Some(&(_, LDef::Fixpoint(..))) => {
+                // FIXME
+                unimplemented!();
+              }
               None => panic!(),
             };
             let next_ctrl = VMReg::Code(lk_code);

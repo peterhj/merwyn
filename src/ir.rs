@@ -8,7 +8,7 @@ use crate::vm::{VMBoxCode};
 
 use serde::{Serialize, Serializer};
 //use serde::ser::{SerializeStruct};
-//use vertreap::{VertreapMap};
+use vertreap::{VertreapMap};
 
 use std::collections::{HashMap};
 //use std::collections::hash_map::{Entry};
@@ -58,6 +58,8 @@ pub enum LTerm<E=LExpr, X=LTermVMExt> {
   Fix(LVar, E),
   //LetFunc(LVar, Vec<LVar>, E, E),
   Switch(E, E, E),
+  NoRet,
+  NonSmooth,
   BitLit(bool),
   IntLit(i64),
   FloatLit(f64),
@@ -104,7 +106,8 @@ impl<E, X> LTermRef<E, X> {
 
 #[derive(Clone, Default, Debug)]
 pub struct LExprInfo {
-  pub env:  Option<LEnv>,
+  pub env:      Option<LEnv>,
+  //pub freevars: Option<Vec<LVar>>,
 }
 
 #[derive(Clone, Debug)]
@@ -127,7 +130,14 @@ pub struct LExpr {
 #[derive(Clone, Debug)]
 pub enum LDef {
   Code(LExpr),
-  //BCode(VMBoxCode),
+  // TODO
+  Fixpoint(LLabel, LVar, LTermRef, /*LEnvInfo,*/ Option<LEnv>),
+}
+
+#[derive(Clone, Default)]
+pub struct LEnvNew {
+  pub bindings: VertreapMap<LVar, (usize, LDef)>,
+  pub vars:     VertreapMap<usize, LVar>,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -147,6 +157,12 @@ impl LEnv {
     self.vars.push(var);
   }
 
+  pub fn _bind_fixed(&mut self, label: LLabel, fixvar: LVar, fixbody: LTermRef, env: Option<LEnv>) {
+    let left_idx = self.vars.len();
+    self.bindings.insert(fixvar.clone(), (left_idx, LDef::Fixpoint(label, fixvar.clone(), fixbody, env)));
+    self.vars.push(fixvar);
+  }
+
   pub fn _bind_named(&mut self, name: String, var: LVar, body: LExpr) {
     let left_idx = self.vars.len();
     self.bindings.insert(var.clone(), (left_idx, LDef::Code(body)));
@@ -161,6 +177,22 @@ impl LEnv {
           Some(&(_, LDef::Code(ref code))) => {
             (var.clone(), code.clone())
           }
+          Some(&(_, LDef::Fixpoint(ref label, ref fixvar, ref fixbody, ref maybe_env))) => {
+            // TODO: in the case of static env info, need to make sure that
+            // the returned `LExpr` knows about itself... hence the fixpoint!
+            // FIXME: initializing an empty expr info seems wrong.
+            let mut info = LExprInfo::default();
+            if let &Some(ref env) = maybe_env {
+              let fix_env = env.fork_fixed(label.clone(), fixvar.clone(), fixbody.clone(), maybe_env.clone());
+              info.env = Some(fix_env.clone());
+            }
+            let code = LExpr{
+              label:    label.clone(),
+              term:     fixbody.clone(),
+              info,
+            };
+            (var.clone(), code)
+          }
           None => panic!(),
         }
       }
@@ -168,25 +200,17 @@ impl LEnv {
     }
   }
 
-  /*pub fn _bind_func(&mut self, name: LVar, args: Vec<LVar>, body: LExpr) {
-    let left_idx = self.vars.len();
-    self.bindings.insert(name.clone(), (left_idx, LDef::Func(args, body)));
-    self.vars.push(name);
-  }*/
-
   pub fn fork(&self, name: LVar, body: LExpr) -> LEnv {
-    // TODO
     let mut new_env = self.clone();
     new_env._bind(name, body);
     new_env
   }
 
-  /*pub fn fork_func(&self, name: LVar, args: Vec<LVar>, body: LExpr) -> LEnv {
-    // TODO
+  pub fn fork_fixed(&self, label: LLabel, fixname: LVar, fixbody: LTermRef, env: Option<LEnv>) -> LEnv {
     let mut new_env = self.clone();
-    new_env._bind_func(name, args, body);
+    new_env._bind_fixed(label, fixname, fixbody, env);
     new_env
-  }*/
+  }
 }
 
 /*pub enum LVarKey {
@@ -333,28 +357,16 @@ impl LBuilder {
   pub fn new() -> LBuilder {
     let labels = LLabelBuilder::default();
     let hashes = LHashBuilder::default();
-    let mut vars = LVarBuilder::default();
-    let mut builder = LBuilder{
+    let vars = LVarBuilder::default();
+    LBuilder{
       labels,
       hashes,
       vars,
-    };
-    // TODO: initial envionrment.
-    // TODO: put builtins and "standard library" into the namespace.
-    /*vars.insert("add".to_string());
-    vars.insert("sub".to_string());
-    vars.insert("mul".to_string());
-    vars.insert("div".to_string());*/
-    builder
+    }
   }
 
   pub fn _debug_dump_vars(&self) {
     self.vars._debug_dump_vars();
-  }
-
-  pub fn _insert_old(&mut self, name: String) {
-    let hash = self.hashes.lookup(name);
-    self.vars.bind(hash);
   }
 
   pub fn _alloc_name(&mut self, name: &str) -> (LHash, LVar, LLabel) {
@@ -545,6 +557,12 @@ impl LBuilder {
         let arg = self._htree_to_ltree_lower_pass(arg.clone());
         LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Apply(op, vec![arg])), info: LExprInfo::default()}
       }
+      &HExpr::NoRet => {
+        LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::NoRet), info: LExprInfo::default()}
+      }
+      &HExpr::NonSmooth => {
+        LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::NonSmooth), info: LExprInfo::default()}
+      }
       &HExpr::BotLit => {
         // TODO: special varbol key for literal constants.
         LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::BitLit(false)), info: LExprInfo::default()}
@@ -632,6 +650,37 @@ impl LTransformer {
               name.clone(),
               body,
               rest,
+          )),
+          info,
+        }
+      }
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        // TODO
+        let fix_env = env.fork_fixed(ltree.label.clone(), fixname.clone(), fixbody.term.clone(), Some(env.clone()));
+        let fixbody = self._ltree_env_info_pass_rec(fix_env, fixbody.clone());
+        let mut info = ltree.info;
+        info.env = Some(env);
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Fix(
+              fixname.clone(),
+              fixbody,
+          )),
+          info,
+        }
+      }
+      &LTerm::Switch(ref pred, ref top, ref bot) => {
+        let pred = self._ltree_env_info_pass_rec(env.clone(), pred.clone());
+        let top = self._ltree_env_info_pass_rec(env.clone(), top.clone());
+        let bot = self._ltree_env_info_pass_rec(env.clone(), bot.clone());
+        let mut info = ltree.info;
+        info.env = Some(env);
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Switch(
+              pred,
+              top,
+              bot,
           )),
           info,
         }

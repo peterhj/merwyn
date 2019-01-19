@@ -4,18 +4,19 @@ use std::rc::{Rc};
 
 pub fn make_bc_pi100() -> VMBoxCode {
   let bc = VMBoxCode{
-    ifun: Rc::new(|args, _env| {
+    ifun: Rc::new(|args| {
       assert_eq!(0, args.len());
       let mval = VMValRef::new(VMVal::Int(314));
       mval
     }),
+    ladj: None,
   };
   bc
 }
 
 pub fn make_bc_neg() -> VMBoxCode {
   let bc = VMBoxCode{
-    ifun: Rc::new(|args, _env| {
+    ifun: Rc::new(|args| {
       // TODO
       assert_eq!(1, args.len());
       match &*args[0] {
@@ -27,13 +28,14 @@ pub fn make_bc_neg() -> VMBoxCode {
         _ => panic!("neg: unsupported operand type"),
       }
     }),
+    ladj: None,
   };
   bc
 }
 
 pub fn make_bc_eq() -> VMBoxCode {
   let bc = VMBoxCode{
-    ifun: Rc::new(|args, _env| {
+    ifun: Rc::new(|args| {
       // TODO
       assert_eq!(2, args.len());
       match (&*args[0], &*args[1]) {
@@ -45,13 +47,14 @@ pub fn make_bc_eq() -> VMBoxCode {
         _ => panic!("eq: unsupported operand types"),
       }
     }),
+    ladj: None,
   };
   bc
 }
 
 pub fn make_bc_add() -> VMBoxCode {
   let bc = VMBoxCode{
-    ifun: Rc::new(|args, _env| {
+    ifun: Rc::new(|args| {
       // TODO
       assert_eq!(2, args.len());
       match (&*args[0], &*args[1]) {
@@ -63,13 +66,14 @@ pub fn make_bc_add() -> VMBoxCode {
         _ => panic!("add: unsupported operand types"),
       }
     }),
+    ladj: None,
   };
   bc
 }
 
 pub fn make_bc_mul() -> VMBoxCode {
   let bc = VMBoxCode{
-    ifun: Rc::new(|args, _env| {
+    ifun: Rc::new(|args| {
       // TODO
       assert_eq!(2, args.len());
       match (&*args[0], &*args[1]) {
@@ -81,6 +85,7 @@ pub fn make_bc_mul() -> VMBoxCode {
         _ => panic!("mul: unsupported operand types"),
       }
     }),
+    ladj: None,
   };
   bc
 }

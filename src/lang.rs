@@ -66,6 +66,7 @@ lexer! {
   r#"_"#            => HLToken::WildPat,
 
   r#"noret"#        => HLToken::NoRet,
+  r#"nonsmooth"#    => HLToken::NonSmooth,
   r#"unit"#         => HLToken::UnitLit,
   r#"bot"#          => HLToken::BotLit,
   r#"⊥"#            => HLToken::BotLit,
@@ -136,6 +137,7 @@ pub enum HLToken {
   RBrack,
   WildPat,
   NoRet,
+  NonSmooth,
   UnitLit,
   BotLit,
   TeeLit,
@@ -245,6 +247,7 @@ pub enum HExpr {
   Infix(String, Rc<HExpr>, Rc<HExpr>),
   Neg(Rc<HExpr>),
   NoRet,
+  NonSmooth,
   UnitLit,
   BotLit,
   TeeLit,
@@ -375,6 +378,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::RParen => 0,
       &HLToken::LBrack => 800,
       &HLToken::RBrack => 0,
+      &HLToken::NoRet |
+      &HLToken::NonSmooth |
       &HLToken::UnitLit |
       &HLToken::BotLit |
       &HLToken::TeeLit |
@@ -647,6 +652,12 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
             Ok(right)
           }
         }
+      }
+      HLToken::NoRet => {
+        Ok(HExpr::NoRet)
+      }
+      HLToken::NonSmooth => {
+        Ok(HExpr::NonSmooth)
       }
       HLToken::BotLit => {
         Ok(HExpr::BotLit)
