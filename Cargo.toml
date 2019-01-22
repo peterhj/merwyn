@@ -12,6 +12,7 @@ gpu = []
 
 [dependencies]
 envy = "^0.3"
+fixedbitset = "^0.1.9"
 #lazy_static = "*"
 #num-traits = "^0.2"
 #parking_lot = { version = "*", features = ["nightly"] }

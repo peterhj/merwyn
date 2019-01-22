@@ -6,6 +6,7 @@ use crate::lang::{HExpr};
 use crate::stdlib::*;
 use crate::vm::{VMBoxCode};
 
+use fixedbitset::{FixedBitSet};
 use serde::{Serialize, Serializer};
 //use serde::ser::{SerializeStruct};
 use vertreap::{VertreapMap};
@@ -13,6 +14,8 @@ use vertreap::{VertreapMap};
 use std::collections::{HashMap};
 //use std::collections::hash_map::{Entry};
 use std::fmt::{self, Debug};
+use std::iter::{FromIterator};
+use std::mem::{size_of};
 use std::ops::{Deref};
 use std::rc::{Rc};
 
@@ -34,6 +37,58 @@ pub struct LHash(pub u64);
 #[derive(Clone, Default, Debug, Serialize)]
 pub struct LLabel(pub u64);
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct LVarSet {
+  inner:    FixedBitSet,
+}
+
+impl FromIterator<LVar> for LVarSet {
+  fn from_iter<I: IntoIterator<Item=LVar>>(var_iter: I) -> LVarSet {
+    assert!(size_of::<u64>() <= size_of::<usize>());
+    LVarSet{
+      inner:    FixedBitSet::from_iter(var_iter.into_iter().map(|var| var.0 as usize)),
+    }
+  }
+}
+
+impl<'v> FromIterator<&'v LVar> for LVarSet {
+  fn from_iter<I: IntoIterator<Item=&'v LVar>>(var_iter: I) -> LVarSet {
+    assert!(size_of::<u64>() <= size_of::<usize>());
+    LVarSet{
+      inner:    FixedBitSet::from_iter(var_iter.into_iter().map(|var| var.0 as usize)),
+    }
+  }
+}
+
+impl LVarSet {
+  pub fn empty() -> LVarSet {
+    LVarSet{
+      inner:    FixedBitSet::with_capacity(32),
+    }
+  }
+
+  pub fn insert(&mut self, var: LVar) {
+    assert!(size_of::<u64>() <= size_of::<usize>());
+    let v = var.0 as usize;
+    if v >= self.inner.len() {
+      self.inner.grow(v + 1);
+    }
+    self.inner.insert(v);
+  }
+
+  pub fn union(&self, other: &LVarSet) -> LVarSet {
+    LVarSet{
+      inner:    FixedBitSet::from_iter(self.inner.union(&other.inner)),
+    }
+  }
+
+  pub fn difference(&self, other: &LVarSet) -> LVarSet {
+    LVarSet{
+      inner:    FixedBitSet::from_iter(self.inner.difference(&other.inner)),
+    }
+  }
+}
+
 pub enum LTermVMExt {
   BcLambda(Vec<LVar>, VMBoxCode),
 }
@@ -48,18 +103,16 @@ impl Debug for LTermVMExt {
 #[derive(Debug)]
 //#[derive(Debug, Serialize)]
 pub enum LTerm<E=LExpr, X=LTermVMExt> {
+  NoRet,
+  NonSmooth,
   Apply(E, Vec<E>),
   TailApply(E, Vec<E>),
   Env,
   DynEnv(LEnv),
   Lambda(Vec<LVar>, E),
-  //BcLambda(Vec<LVar>, VMBoxCode),
   Let(LVar, E, E),
   Fix(LVar, E),
-  //LetFunc(LVar, Vec<LVar>, E, E),
   Switch(E, E, E),
-  NoRet,
-  NonSmooth,
   BitLit(bool),
   IntLit(i64),
   FloatLit(f64),
@@ -70,7 +123,7 @@ pub enum LTerm<E=LExpr, X=LTermVMExt> {
   //DynEnvLookup(E, LHash),
   Adj(E),
   AdjDyn(E),
-  Extension(X),
+  VMExt(X),
 }
 
 #[derive(Debug)]
@@ -107,7 +160,8 @@ impl<E, X> LTermRef<E, X> {
 #[derive(Clone, Default, Debug)]
 pub struct LExprInfo {
   pub env:      Option<LEnv>,
-  //pub freevars: Option<Vec<LVar>>,
+  pub uses:     Option<LVarSet>,
+  pub freeuses: Option<LVarSet>,
 }
 
 #[derive(Clone, Debug)]
@@ -378,7 +432,7 @@ impl LBuilder {
   }
 
   pub fn _make_bclambda(&mut self, bc: VMBoxCode) -> LExpr {
-    LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Extension(LTermVMExt::BcLambda(vec![], bc))), info: LExprInfo::default()}
+    LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::VMExt(LTermVMExt::BcLambda(vec![], bc))), info: LExprInfo::default()}
   }
 
   pub fn _alloc_bclambda(&mut self, name: &str, bc: VMBoxCode) -> (LHash, LVar, LLabel, LExpr) {
@@ -750,9 +804,112 @@ impl LTransformer {
   }
 
   pub fn _ltree_env_info_pass(&mut self, ltree: LExpr) -> LExpr {
-    // TODO: fill initial env.
     let env = LEnv::default();
     self._ltree_env_info_pass_rec(env, ltree)
+  }
+
+  pub fn _ltree_use_info_pass_init(&mut self, ltree: LExpr) -> LExpr {
+    // TODO
+    match &*ltree.term {
+      &LTerm::Apply(ref head, ref args) => {
+        // TODO
+        unimplemented!();
+      }
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        // TODO
+        unimplemented!();
+      }
+      &LTerm::IntLit(x) => {
+        // TODO
+        let mut info = ltree.info;
+        info.uses = Some(LVarSet::empty());
+        info.freeuses = info.uses.clone();
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::IntLit(x)),
+          info,
+        }
+      }
+      &LTerm::Lookup(ref lookup_var) => {
+        // TODO
+        let mut info = ltree.info;
+        let mut uses = LVarSet::empty();
+        uses.insert(lookup_var.clone());
+        info.uses = Some(uses);
+        info.freeuses = info.uses.clone();
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Lookup(lookup_var.clone())),
+          info,
+        }
+      }
+      _ => unimplemented!(),
+    }
+  }
+
+  pub fn _ltree_use_info_pass_step(&mut self, ltree: LExpr) -> (LExpr, bool) {
+    // TODO
+    match &*ltree.term {
+      &LTerm::Lambda(ref args, ref body) => {
+        // NOTE: Equation: this.freeuses U= body.freeuses \ bindvars.
+        let (body, body_changed) = self._ltree_use_info_pass_step(body.clone());
+        let bindvars = LVarSet::from_iter(args.iter());
+        let body_freeuses = body.info.freeuses.clone().unwrap();
+        let nonbind_body_freeuses = body_freeuses.difference(&bindvars);
+        let this_freeuses = ltree.info.freeuses.clone().unwrap();
+        let this_freeuses_new = this_freeuses.union(&nonbind_body_freeuses);
+        let this_changed = this_freeuses_new != this_freeuses;
+        let mut info = ltree.info.clone();
+        info.freeuses = Some(this_freeuses_new);
+        let changed = body_changed || this_changed;
+        (LExpr{
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Lambda(
+              args.clone(),
+              body,
+          )),
+          info,
+        }, changed)
+      }
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        // NOTE: Equation: this.freeuses U= body.freeuses U (rest.freeuses \ {name}).
+        let (body, body_changed) = self._ltree_use_info_pass_step(body.clone());
+        let (rest, rest_changed) = self._ltree_use_info_pass_step(rest.clone());
+        let bindvars = LVarSet::from_iter(&[name.clone()]);
+        let body_freeuses = body.info.freeuses.clone().unwrap();
+        let rest_freeuses = rest.info.freeuses.clone().unwrap();
+        let nonbind_rest_freeuses = rest_freeuses.difference(&bindvars);
+        let this_freeuses = ltree.info.freeuses.clone().unwrap();
+        let this_freeuses_new = this_freeuses.union(&body_freeuses.union(&nonbind_rest_freeuses));
+        let this_changed = this_freeuses_new != this_freeuses;
+        let mut info = ltree.info.clone();
+        info.freeuses = Some(this_freeuses_new);
+        let changed = body_changed || this_changed;
+        (LExpr{
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Let(
+              name.clone(),
+              body,
+              rest,
+          )),
+          info,
+        }, changed)
+      }
+      _ => unimplemented!(),
+    }
+  }
+
+  pub fn _ltree_use_info_pass(&mut self, ltree: LExpr) -> LExpr {
+    let ltree = self._ltree_use_info_pass_init(ltree);
+    let (mut prev_ltree, _) = self._ltree_use_info_pass_step(ltree);
+    loop {
+      let (next_ltree, next_changed) = self._ltree_use_info_pass_step(prev_ltree);
+      if !next_changed {
+        return next_ltree;
+      } else {
+        prev_ltree = next_ltree;
+      }
+    }
   }
 
   pub fn _ltree_adjoint_pass(&mut self, ltree: LExpr) -> LExpr {

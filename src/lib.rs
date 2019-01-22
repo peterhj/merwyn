@@ -6,6 +6,7 @@
 #![feature(proc_macro_hygiene)]
 
 extern crate envy;
+extern crate fixedbitset;
 //#[macro_use] extern crate lazy_static;
 //extern crate parking_lot;
 extern crate plex;

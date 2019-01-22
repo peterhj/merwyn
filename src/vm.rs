@@ -572,7 +572,7 @@ impl VMachine {
             let next_kont = kont;
             (next_ctrl, next_env, next_kont)
           }
-          (&LTerm::Extension(LTermVMExt::BcLambda(ref bvars, ref body)), _) => {
+          (&LTerm::VMExt(LTermVMExt::BcLambda(ref bvars, ref body)), _) => {
             // TODO
             println!("TRACE: vm:   capturing bc lambda...");
             for kv in env.addr_map.iter() {
