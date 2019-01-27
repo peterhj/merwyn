@@ -209,22 +209,14 @@ pub struct HLetAttrs {
 pub enum HExpr {
   //Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
   Intern(String, Rc<HExpr>),
-  //Lambda0(Rc<HExpr>),
-  //Lambda1(Rc<HExpr>, Rc<HExpr>),
   Lambda(Vec<Rc<HExpr>>, Rc<HExpr>),
-  //Apply0(Rc<HExpr>),
-  //Apply1(Rc<HExpr>, Rc<HExpr>),
   Apply(Rc<HExpr>, Vec<Rc<HExpr>>),
-  //Tuple0,
-  //Tuple1(Rc<HExpr>),
   Tuple(Vec<Rc<HExpr>>),
-  //Group(Rc<HExpr>),
   Adj(Rc<HExpr>),
   AdjDyn(Rc<HExpr>),
   Let(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>, Option<HLetAttrs>),
   LetRand(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetEmpty(Rc<HExpr>, Rc<HExpr>),
-  //LetRec(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetWhere(Rc<HExpr>, Vec<Rc<HExpr>>, Rc<HExpr>, Rc<HExpr>),
   LetIf(Rc<HExpr>, Vec<Rc<HExpr>>, Rc<HExpr>),
   LetForIf(Rc<HExpr>, Vec<Rc<HExpr>>, Vec<Rc<HExpr>>, Rc<HExpr>),
@@ -255,6 +247,7 @@ pub enum HExpr {
   FloatLit(f64),
   Ident(String),
   PathLookup(Rc<HExpr>, String),
+  KeyLookup(Rc<HExpr>, String),
 }
 
 pub struct HParser<Toks: Iterator<Item=HLToken>> {
@@ -645,6 +638,10 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
             self.backtrack();
             let right = self.expression(0, -1)?;
             match self.current_token() {
+              HLToken::Comma => {
+                // TODO
+                unimplemented!();
+              }
               HLToken::RParen => {}
               _ => panic!(),
             }

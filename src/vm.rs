@@ -127,6 +127,7 @@ pub enum VMVal {
   Flo(f64),
   Tup,
   Box_(VMBoxVal),
+  State(MState),
 }
 
 impl VMVal {
@@ -140,6 +141,7 @@ impl VMVal {
       &VMVal::Int(_) => "Int",
       &VMVal::Flo(_) => "Flo",
       &VMVal::Tup => "Tup",
+      &VMVal::State(_) => "State",
     }
   }
 }
@@ -626,6 +628,8 @@ impl VMachine {
             // TODO: should `mthk` capture `env` or `fix_env`?
             let mthk = VMThunkRef::new(VMThunk::new_empty(fix_mlam, env.clone()));
             self.store.insert_new(thk_a.clone(), mthk);
+            // FIXME: this next part needs some reworking, as the current env is
+            // basically overwritten with `fix_env`.
             let fixbody_mlam = VMLam{
               //bind: vec![],
               code: VMLamCode::Expr(fixbody.clone()),
@@ -830,6 +834,7 @@ impl VMachine {
             /*for kv in env.addr_map.iter() {
               println!("TRACE: vm:     kv: {:?}, _", kv.k);
             }*/
+            // FIXME: need to bind args to env when evaling expr code.
             let next_ctrl = match closure.lam.code.clone() {
               VMLamCode::Expr(e) => VMReg::Code(e),
               VMLamCode::Box_(bc) => VMReg::BCodeArgs(bc, vec![arg_mval.clone()]),

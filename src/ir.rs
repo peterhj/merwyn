@@ -160,7 +160,7 @@ impl<E, X> LTermRef<E, X> {
 #[derive(Clone, Default, Debug)]
 pub struct LExprInfo {
   pub env:      Option<LEnv>,
-  pub uses:     Option<LVarSet>,
+  //pub uses:     Option<LVarSet>,
   pub freeuses: Option<LVarSet>,
 }
 
@@ -171,16 +171,6 @@ pub struct LExpr {
   pub info:     LExprInfo,
 }
 
-/*impl Serialize for LExpr {
-  fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-    let mut s = serializer.serialize_struct("LExpr", 3)?;
-    s.serialize_field("label", &self.label)?;
-    s.serialize_field("term", &*self.term)?;
-    s.serialize_field("info", &self.info)?;
-    s.end()
-  }
-}*/
-
 #[derive(Clone, Debug)]
 pub enum LDef {
   Code(LExpr),
@@ -190,7 +180,8 @@ pub enum LDef {
 
 #[derive(Clone, Default)]
 pub struct LEnvNew {
-  pub bindings: VertreapMap<LVar, (usize, LDef)>,
+  pub bindings: VertreapMap<LVar, (usize, LHash, LDef)>,
+  pub hashes:   VertreapMap<LHash, LVar>,
   pub vars:     VertreapMap<usize, LVar>,
 }
 
@@ -254,13 +245,13 @@ impl LEnv {
     }
   }
 
-  pub fn fork(&self, name: LVar, body: LExpr) -> LEnv {
+  pub fn fork(&self, /*hash: LHash,*/ var: LVar, body: LExpr) -> LEnv {
     let mut new_env = self.clone();
-    new_env._bind(name, body);
+    new_env._bind(var, body);
     new_env
   }
 
-  pub fn fork_fixed(&self, label: LLabel, fixname: LVar, fixbody: LTermRef, env: Option<LEnv>) -> LEnv {
+  pub fn fork_fixed(&self, label: LLabel, /*hash: LHash,*/ fixname: LVar, fixbody: LTermRef, env: Option<LEnv>) -> LEnv {
     let mut new_env = self.clone();
     new_env._bind_fixed(label, fixname, fixbody, env);
     new_env
@@ -808,22 +799,58 @@ impl LTransformer {
     self._ltree_env_info_pass_rec(env, ltree)
   }
 
-  pub fn _ltree_use_info_pass_init(&mut self, ltree: LExpr) -> LExpr {
+  pub fn _ltree_freeuse_info_pass_init(&mut self, ltree: LExpr) -> LExpr {
     // TODO
     match &*ltree.term {
       &LTerm::Apply(ref head, ref args) => {
         // TODO
-        unimplemented!();
+        let head = self._ltree_freeuse_info_pass_init(head.clone());
+        let args: Vec<_> = args.iter().map(|a| self._ltree_freeuse_info_pass_init(a.clone())).collect();
+        let mut info = ltree.info;
+        info.freeuses = Some(LVarSet::empty());
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Apply(
+              head,
+              args,
+          )),
+          info,
+        }
+      }
+      &LTerm::Lambda(ref bvars, ref body) => {
+        // TODO
+        let body = self._ltree_freeuse_info_pass_init(body.clone());
+        let mut info = ltree.info;
+        info.freeuses = Some(LVarSet::empty());
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Lambda(
+              bvars.clone(),
+              body,
+          )),
+          info,
+        }
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
         // TODO
-        unimplemented!();
+        let body = self._ltree_freeuse_info_pass_init(body.clone());
+        let rest = self._ltree_freeuse_info_pass_init(rest.clone());
+        let mut info = ltree.info;
+        info.freeuses = Some(LVarSet::empty());
+        LExpr{
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Let(
+              name.clone(),
+              body,
+              rest,
+          )),
+          info,
+        }
       }
       &LTerm::IntLit(x) => {
         // TODO
         let mut info = ltree.info;
-        info.uses = Some(LVarSet::empty());
-        info.freeuses = info.uses.clone();
+        info.freeuses = Some(LVarSet::empty());
         LExpr{
           label:    ltree.label.clone(),
           term:     LTermRef::new(LTerm::IntLit(x)),
@@ -835,8 +862,7 @@ impl LTransformer {
         let mut info = ltree.info;
         let mut uses = LVarSet::empty();
         uses.insert(lookup_var.clone());
-        info.uses = Some(uses);
-        info.freeuses = info.uses.clone();
+        info.freeuses = Some(uses);
         LExpr{
           label:    ltree.label.clone(),
           term:     LTermRef::new(LTerm::Lookup(lookup_var.clone())),
@@ -847,13 +873,17 @@ impl LTransformer {
     }
   }
 
-  pub fn _ltree_use_info_pass_step(&mut self, ltree: LExpr) -> (LExpr, bool) {
+  pub fn _ltree_freeuse_info_pass_step(&mut self, ltree: LExpr) -> (LExpr, bool) {
     // TODO
     match &*ltree.term {
-      &LTerm::Lambda(ref args, ref body) => {
+      &LTerm::Apply(ref head, ref args) => {
+        // TODO
+        unimplemented!();
+      }
+      &LTerm::Lambda(ref bvars, ref body) => {
         // NOTE: Equation: this.freeuses U= body.freeuses \ bindvars.
-        let (body, body_changed) = self._ltree_use_info_pass_step(body.clone());
-        let bindvars = LVarSet::from_iter(args.iter());
+        let (body, body_changed) = self._ltree_freeuse_info_pass_step(body.clone());
+        let bindvars = LVarSet::from_iter(bvars.iter());
         let body_freeuses = body.info.freeuses.clone().unwrap();
         let nonbind_body_freeuses = body_freeuses.difference(&bindvars);
         let this_freeuses = ltree.info.freeuses.clone().unwrap();
@@ -865,7 +895,7 @@ impl LTransformer {
         (LExpr{
           label:    ltree.label.clone(),
           term:     LTermRef::new(LTerm::Lambda(
-              args.clone(),
+              bvars.clone(),
               body,
           )),
           info,
@@ -873,8 +903,8 @@ impl LTransformer {
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
         // NOTE: Equation: this.freeuses U= body.freeuses U (rest.freeuses \ {name}).
-        let (body, body_changed) = self._ltree_use_info_pass_step(body.clone());
-        let (rest, rest_changed) = self._ltree_use_info_pass_step(rest.clone());
+        let (body, body_changed) = self._ltree_freeuse_info_pass_step(body.clone());
+        let (rest, rest_changed) = self._ltree_freeuse_info_pass_step(rest.clone());
         let bindvars = LVarSet::from_iter(&[name.clone()]);
         let body_freeuses = body.info.freeuses.clone().unwrap();
         let rest_freeuses = rest.info.freeuses.clone().unwrap();
@@ -884,7 +914,7 @@ impl LTransformer {
         let this_changed = this_freeuses_new != this_freeuses;
         let mut info = ltree.info.clone();
         info.freeuses = Some(this_freeuses_new);
-        let changed = body_changed || this_changed;
+        let changed = body_changed || rest_changed || this_changed;
         (LExpr{
           label:    ltree.label.clone(),
           term:     LTermRef::new(LTerm::Let(
@@ -895,16 +925,43 @@ impl LTransformer {
           info,
         }, changed)
       }
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        // NOTE: Equation: this.freeuses U= fixbody.freeuses \ {fixname}.
+        let (fixbody, fixbody_changed) = self._ltree_freeuse_info_pass_step(fixbody.clone());
+        let bindvars = LVarSet::from_iter(&[fixname.clone()]);
+        let fixbody_freeuses = fixbody.info.freeuses.clone().unwrap();
+        let nonbind_fixbody_freeuses = fixbody_freeuses.difference(&bindvars);
+        let this_freeuses = ltree.info.freeuses.clone().unwrap();
+        let this_freeuses_new = this_freeuses.union(&nonbind_fixbody_freeuses);
+        let this_changed = this_freeuses_new != this_freeuses;
+        let mut info = ltree.info.clone();
+        info.freeuses = Some(this_freeuses_new);
+        let changed = fixbody_changed || this_changed;
+        (LExpr{
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Fix(
+              fixname.clone(),
+              fixbody,
+          )),
+          info,
+        }, changed)
+      }
+      &LTerm::IntLit(_) => {
+        (ltree, false)
+      }
+      &LTerm::Lookup(_) => {
+        (ltree, false)
+      }
       _ => unimplemented!(),
     }
   }
 
-  pub fn _ltree_use_info_pass(&mut self, ltree: LExpr) -> LExpr {
-    let ltree = self._ltree_use_info_pass_init(ltree);
-    let (mut prev_ltree, _) = self._ltree_use_info_pass_step(ltree);
+  pub fn _ltree_freeuse_info_pass(&mut self, ltree: LExpr) -> LExpr {
+    let ltree = self._ltree_freeuse_info_pass_init(ltree);
+    let (mut prev_ltree, _) = self._ltree_freeuse_info_pass_step(ltree);
     loop {
-      let (next_ltree, next_changed) = self._ltree_use_info_pass_step(prev_ltree);
-      if !next_changed {
+      let (next_ltree, changed) = self._ltree_freeuse_info_pass_step(prev_ltree);
+      if !changed {
         return next_ltree;
       } else {
         prev_ltree = next_ltree;
