@@ -14,6 +14,7 @@ use vertreap::{VertreapMap};
 use std::collections::{HashMap};
 //use std::collections::hash_map::{Entry};
 use std::fmt::{self, Debug};
+use std::io::{Write, stdout};
 use std::iter::{FromIterator};
 use std::mem::{size_of};
 use std::ops::{Deref};
@@ -169,6 +170,12 @@ pub struct LExpr {
   pub label:    LLabel,
   pub term:     LTermRef,
   pub info:     LExprInfo,
+}
+
+impl LExpr {
+  pub fn _pretty_print(&self) {
+    LPrettyPrinter{}.print(self.clone());
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -1103,5 +1110,105 @@ impl LTransformer {
   pub fn _ltree_adjoint_lookup_pass(&mut self, ltree: LExpr) -> LExpr {
     // TODO
     unimplemented!();
+  }
+}
+
+pub struct LPrettyPrinter {
+}
+
+impl LPrettyPrinter {
+  fn _write<W: Write>(&mut self, ltree: LExpr, indent: usize, indent_first: bool, writer: &mut W) -> bool {
+    // TODO
+    if indent_first {
+      for _ in 0 .. indent {
+        write!(writer, " ").unwrap();
+      }
+    }
+    match &*ltree.term {
+      &LTerm::Apply(ref head, ref args) => {
+        // TODO
+        unimplemented!();
+      }
+      &LTerm::Lambda(ref bvars, ref body) => {
+        // TODO
+        unimplemented!();
+      }
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        // TODO
+        if let Some(ref freeuses) = ltree.info.freeuses {
+          write!(writer, "# INFO: freeuses: [").unwrap();
+          match freeuses.inner.len() {
+            0 => {}
+            1 => {
+              let v = freeuses.inner.ones().next().unwrap();
+              write!(writer, "{}", v).unwrap();
+            }
+            _ => {
+              let mut freeuses_iter = freeuses.inner.ones();
+              let v0 = freeuses_iter.next().unwrap();
+              write!(writer, "{}", v0).unwrap();
+              for v in freeuses_iter {
+                write!(writer, ", ${}", v).unwrap();
+              }
+            }
+          }
+          writeln!(writer, "]").unwrap();
+          for _ in 0 .. indent {
+            write!(writer, " ").unwrap();
+          }
+        }
+        let let_toks = format!("let ${} = ", name.0);
+        write!(writer, "{}", let_toks).unwrap();
+        let body_indent = indent + let_toks.len();
+        if self._write(body.clone(), body_indent, false, writer) {
+          writeln!(writer, "").unwrap();
+        }
+        writeln!(writer, " in").unwrap();
+        self._write(rest.clone(), indent, true, writer)
+      }
+      &LTerm::IntLit(x) => {
+        // TODO
+        write!(writer, "{}", x).unwrap();
+        false
+      }
+      &LTerm::Lookup(ref lookup_var) => {
+        // TODO
+        if let Some(ref freeuses) = ltree.info.freeuses {
+          write!(writer, "# INFO: freeuses: [").unwrap();
+          match freeuses.inner.len() {
+            0 => {}
+            1 => {
+              let v = freeuses.inner.ones().next().unwrap();
+              write!(writer, "{}", v).unwrap();
+            }
+            _ => {
+              let mut freeuses_iter = freeuses.inner.ones();
+              let v0 = freeuses_iter.next().unwrap();
+              write!(writer, "{}", v0).unwrap();
+              for v in freeuses_iter {
+                write!(writer, ", ${}", v).unwrap();
+              }
+            }
+          }
+          writeln!(writer, "]").unwrap();
+          for _ in 0 .. indent {
+            write!(writer, " ").unwrap();
+          }
+        }
+        write!(writer, "${}", lookup_var.0).unwrap();
+        false
+      }
+      _ => unimplemented!(),
+    }
+  }
+
+  pub fn write_to<W: Write>(&mut self, ltree: LExpr, writer: &mut W) {
+    self._write(ltree, 0, true, writer);
+    writeln!(writer, "").unwrap();
+  }
+
+  pub fn print(&mut self, ltree: LExpr) {
+    let w = stdout();
+    self.write_to(ltree, &mut w.lock());
   }
 }

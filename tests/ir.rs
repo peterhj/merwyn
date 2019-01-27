@@ -20,4 +20,6 @@ fn test_ir_1() {
   println!("DEBUG: ltree + env info: {:?}", ltree);
   let ltree = builder._ltree_freeuse_info_pass(ltree);
   println!("DEBUG: ltree + env + freeuse info: {:?}", ltree);
+  println!("DEBUG: ltree pretty printed:");
+  ltree._pretty_print();
 }
