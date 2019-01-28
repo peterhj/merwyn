@@ -122,7 +122,7 @@ pub enum LTerm<E=LExpr, X=LTermVMExt> {
   DynEnvLookup(E, String),
   //DynEnvLookupStr(E, String),
   //DynEnvLookup(E, LHash),
-  Adj(E),
+  Adj(LVar),
   AdjDyn(E),
   VMExt(X),
 }
@@ -477,10 +477,15 @@ impl LBuilder {
         }).collect();
         LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Apply(lhs, args)), info: LExprInfo::default()}
       }
-      &HExpr::Adj(ref body) => {
+      &HExpr::Adj(ref sink) => {
         // TODO
-        let body = self._htree_to_ltree_lower_pass(body.clone());
-        LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Adj(body)), info: LExprInfo::default()}
+        //let body = self._htree_to_ltree_lower_pass(body.clone());
+        let sink = self._htree_to_ltree_lower_pass(sink.clone());
+        let sink_var = match &*sink.term {
+          &LTerm::Lookup(ref v) => v.clone(),
+          _ => panic!(),
+        };
+        LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Adj(sink_var)), info: LExprInfo::default()}
       }
       &HExpr::AdjDyn(ref body) => {
         // TODO
@@ -755,14 +760,14 @@ impl LTransformer {
           info,
         }
       }
-      &LTerm::Adj(ref body) => {
+      &LTerm::Adj(ref sink) => {
         // TODO
-        let body = self._ltree_env_info_pass_rec(env.clone(), body.clone());
+        //let body = self._ltree_env_info_pass_rec(env.clone(), body.clone());
         let mut info = ltree.info;
         info.env = Some(env);
         LExpr{
           label:    ltree.label.clone(),
-          term:     LTermRef::new(LTerm::Adj(body)),
+          term:     LTermRef::new(LTerm::Adj(sink.clone())),
           info,
         }
       }
@@ -976,11 +981,11 @@ impl LTransformer {
     }
   }
 
-  pub fn _ltree_adjoint_pass(&mut self, ltree: LExpr) -> LExpr {
+  pub fn _ltree_dyn_adjoint_pass(&mut self, ltree: LExpr) -> LExpr {
     match &*ltree.term {
       &LTerm::Let(ref name, ref body, ref rest) => {
-        let body = self._ltree_adjoint_pass(body.clone());
-        let rest = self._ltree_adjoint_pass(rest.clone());
+        let body = self._ltree_dyn_adjoint_pass(body.clone());
+        let rest = self._ltree_dyn_adjoint_pass(rest.clone());
         LExpr{
           label:    ltree.label.clone(),
           term:     LTermRef::new(LTerm::Let(
@@ -1007,7 +1012,8 @@ impl LTransformer {
       }
       &LTerm::Adj(ref body) => {
         // TODO
-        let orig_env = match ltree.info.env {
+        panic!();
+        /*let orig_env = match ltree.info.env {
           Some(ref env) => env.clone(),
           None => panic!(),
         };
@@ -1033,11 +1039,11 @@ impl LTransformer {
           label:    self.labels.fresh(),
           term:     LTermRef::new(LTerm::Env),
           info,
-        }
+        }*/
       }
       &LTerm::AdjDyn(ref root) => {
         // TODO
-        let root = self._ltree_adjoint_pass(root.clone());
+        let root = self._ltree_dyn_adjoint_pass(root.clone());
         let root_env = match root.info.env {
           Some(ref env) => env.clone(),
           None => panic!(),
@@ -1090,7 +1096,7 @@ impl LTransformer {
       }
       &LTerm::DynEnvLookup(ref target, ref name) => {
         // TODO
-        let target = self._ltree_adjoint_pass(target.clone());
+        let target = self._ltree_dyn_adjoint_pass(target.clone());
         LExpr{
           label:    ltree.label.clone(),
           term:     LTermRef::new(LTerm::DynEnvLookup(target, name.clone())),
@@ -1101,19 +1107,109 @@ impl LTransformer {
     }
   }
 
-  /*pub fn _ltree_adjoint_pass(&mut self, ltree: LExpr) -> LExpr {
-    // TODO: fill initial env.
-    let env = LEnv::default();
-    self._ltree_adjoint_pass_rec(env, ltree)
-  }*/
-
-  pub fn _ltree_adjoint_lookup_pass(&mut self, ltree: LExpr) -> LExpr {
+  pub fn _ltree_strip_info_pass(&mut self, ltree: LExpr) -> LExpr {
     // TODO
     unimplemented!();
   }
+
+  pub fn _ltree_adjoint_transform_rec(&mut self, sink: LVar, ltree: LExpr) -> LExpr {
+    // TODO
+    match &*ltree.term {
+      &LTerm::Apply(ref head, ref args) => {
+        // TODO
+        unimplemented!();
+      }
+      &LTerm::Lambda(ref bvars, ref body) => {
+        // TODO
+        let body = self._ltree_adjoint_transform_rec(sink.clone(), body.clone());
+        unimplemented!();
+        LExpr{
+          label:    ltree.label,
+          term:     LTermRef::new(LTerm::Lambda(
+              bvars.clone(),
+              body,
+          )),
+          info:     ltree.info,
+        }
+      }
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        // TODO
+        let body = self._ltree_adjoint_transform_rec(sink.clone(), body.clone());
+        let rest = self._ltree_adjoint_transform_rec(sink.clone(), rest.clone());
+        unimplemented!();
+        LExpr{
+          label:    ltree.label,
+          term:     LTermRef::new(LTerm::Let(
+              name.clone(),
+              body,
+              rest,
+          )),
+          info:     ltree.info,
+        }
+      }
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        // TODO
+        let fixbody = self._ltree_adjoint_transform_rec(sink.clone(), fixbody.clone());
+        unimplemented!();
+        LExpr{
+          label:    ltree.label,
+          term:     LTermRef::new(LTerm::Fix(
+              fixname.clone(),
+              fixbody,
+          )),
+          info:     ltree.info,
+        }
+      }
+      &LTerm::IntLit(_) => {
+        LExpr{
+          label:    ltree.label,
+          term:     LTermRef::new(LTerm::IntLit(0)),
+          info:     ltree.info,
+        }
+      }
+      &LTerm::Lookup(ref lookup_var) => {
+        // TODO
+        unimplemented!();
+        LExpr{
+          label:    ltree.label,
+          term:     LTermRef::new(LTerm::Lookup(lookup_var.clone())),
+          info:     ltree.info,
+        }
+      }
+      &LTerm::Adj(_) => {
+        // TODO
+        unimplemented!();
+      }
+      _ => unimplemented!(),
+    }
+  }
+
+  pub fn _ltree_adjoint_transform_rooted(&mut self, lroot: LExpr, ltree: LExpr) -> LExpr {
+    // TODO
+    match &*ltree.term {
+      &LTerm::Adj(_) => {
+        // TODO
+        unimplemented!();
+        /*self._ltree_adjoint_transform_rec(_, lroot);*/
+      }
+      _ => unimplemented!(),
+    }
+  }
+
+  pub fn _ltree_adjoint_transform(&mut self, ltree: LExpr) -> LExpr {
+    self._ltree_adjoint_transform_rooted(ltree.clone(), ltree)
+  }
+}
+
+pub enum LPrettyPrinterVerbosity {
+  V0,
+  V1,
+  V2,
+  V3,
 }
 
 pub struct LPrettyPrinter {
+  //v: LPrettyPrinterVerbosity,
 }
 
 impl LPrettyPrinter {
@@ -1137,19 +1233,13 @@ impl LPrettyPrinter {
         // TODO
         if let Some(ref freeuses) = ltree.info.freeuses {
           write!(writer, "# INFO: freeuses: [").unwrap();
-          match freeuses.inner.len() {
-            0 => {}
-            1 => {
-              let v = freeuses.inner.ones().next().unwrap();
+          let mut first_it = true;
+          for v in freeuses.inner.ones() {
+            if first_it {
               write!(writer, "{}", v).unwrap();
-            }
-            _ => {
-              let mut freeuses_iter = freeuses.inner.ones();
-              let v0 = freeuses_iter.next().unwrap();
-              write!(writer, "{}", v0).unwrap();
-              for v in freeuses_iter {
-                write!(writer, ", ${}", v).unwrap();
-              }
+              first_it = false;
+            } else {
+              write!(writer, ", ${}", v).unwrap();
             }
           }
           writeln!(writer, "]").unwrap();
@@ -1173,28 +1263,6 @@ impl LPrettyPrinter {
       }
       &LTerm::Lookup(ref lookup_var) => {
         // TODO
-        if let Some(ref freeuses) = ltree.info.freeuses {
-          write!(writer, "# INFO: freeuses: [").unwrap();
-          match freeuses.inner.len() {
-            0 => {}
-            1 => {
-              let v = freeuses.inner.ones().next().unwrap();
-              write!(writer, "{}", v).unwrap();
-            }
-            _ => {
-              let mut freeuses_iter = freeuses.inner.ones();
-              let v0 = freeuses_iter.next().unwrap();
-              write!(writer, "{}", v0).unwrap();
-              for v in freeuses_iter {
-                write!(writer, ", ${}", v).unwrap();
-              }
-            }
-          }
-          writeln!(writer, "]").unwrap();
-          for _ in 0 .. indent {
-            write!(writer, " ").unwrap();
-          }
-        }
         write!(writer, "${}", lookup_var.0).unwrap();
         false
       }

@@ -21,7 +21,7 @@ fn test_vmad_1() {
   let ltree = builder._ltree_env_info_pass(ltree);
   builder._debug_dump_vars();
   //println!("DEBUG: ltree + env info: {:?}", ltree);
-  let ltree = builder._ltree_adjoint_pass(ltree);
+  let ltree = builder._ltree_dyn_adjoint_pass(ltree);
   builder._debug_dump_vars();
   //println!("DEBUG: ltree + adjoint: {:?}", ltree);
   let mut vm = VMachine::new();

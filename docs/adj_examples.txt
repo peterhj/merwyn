@@ -1,0 +1,29 @@
+let powi = fix powi in \x, k.
+    switch k == 0 -:
+      1
+    | x * powi[x, k-1]
+;
+
+let x = 3.14;
+let y = powi[x, 5];
+let adj_y = adj y;
+adj_y.x == 5 * powi[x, 4]   # TRUE (modulo numerical precision)
+
+# adjoint transform:
+let powi' = fix powi' in \x, k.
+    let y = switch k == 0 -:
+      1
+    | let (y_k_1, gx_k_1, _) = powi'[x, k-1] in
+      let y_k = x * y_k_1 in
+      y_k
+    ;
+    let gx = \sink.
+        switch k == 0 -:
+          0
+        | let (y_k_1', gx_k_1', _) = powi'[x, k-1] in
+          let y_k' = x * gx_k_1'[1] + y_k_1' in
+          y_k' * sink
+    ;
+    let gk = noadj;
+    (y, gx, gk)
+;
