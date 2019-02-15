@@ -104,6 +104,8 @@ impl Debug for LTermVMExt {
 #[derive(Debug)]
 //#[derive(Debug, Serialize)]
 pub enum LTerm<E=LExpr, X=LTermVMExt> {
+  Break(E),
+  Trace(E),
   NoRet,
   NonSmooth,
   Apply(E, Vec<E>),
@@ -509,8 +511,10 @@ impl LBuilder {
               true  => {
                 let lhs_hash = self.hashes.lookup(lhs.to_string());
                 let (lhs_hash, lhs_var, lhs_oldvar) = self.vars.bind(lhs_hash);
+                let (fixname_hash, fixname_var, fixname_oldvar) = self.vars.bind(lhs_hash.clone());
                 let fixbody = self._htree_to_ltree_lower_pass(body.clone());
-                let fix = LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Fix(lhs_var.clone(), fixbody)), info: LExprInfo::default()};
+                let fix = LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Fix(fixname_var.clone(), fixbody)), info: LExprInfo::default()};
+                self.vars.unbind(fixname_hash, fixname_var, fixname_oldvar);
                 let rest = self._htree_to_ltree_lower_pass(rest.clone());
                 self.vars.unbind(lhs_hash, lhs_var.clone(), lhs_oldvar);
                 LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Let(lhs_var, fix, rest)), info: LExprInfo::default()}

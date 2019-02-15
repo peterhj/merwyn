@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use crate::cfg::{Config};
+use crate::cfg::{GlobalConfig};
 use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar, LTermVMExt, LTermRef};
 use crate::rngs::{HwRng};
 
@@ -70,28 +70,29 @@ pub enum VMThunkSlot {
 pub type VMThunkRef = Rc<VMThunk>;
 
 pub struct VMThunk {
-  pub env:  VMEnvRef,
+  pub addr: VMAddr,
   pub lam:  VMLam,
+  pub env:  VMEnvRef,
+  //pub save: MSaveState,
   pub slot: RefCell<VMThunkSlot>,
-  pub froz: bool,
 }
 
 impl VMThunk {
-  pub fn new_empty(lam: VMLam, env: VMEnvRef) -> VMThunk {
+  pub fn new_empty(addr: VMAddr, lam: VMLam, env: VMEnvRef) -> VMThunk {
     VMThunk{
+      addr,
       lam,
       env,
       slot: RefCell::new(VMThunkSlot::Emp),
-      froz: false,
     }
   }
 
-  pub fn new_blkhole(lam: VMLam, env: VMEnvRef) -> VMThunk {
+  pub fn new_blkhole(addr: VMAddr, lam: VMLam, env: VMEnvRef) -> VMThunk {
     VMThunk{
+      addr,
       lam,
       env,
       slot: RefCell::new(VMThunkSlot::Blk),
-      froz: false,
     }
   }
 
@@ -299,11 +300,7 @@ impl VMStore {
           }
           VMThunkState::Blk => {
             let mut mslot = mthk.slot.borrow_mut();
-            if mthk.froz {
-              panic!("bug");
-            } else {
-              *mslot = VMThunkSlot::Ret(mval);
-            }
+            *mslot = VMThunkSlot::Ret(mval);
           }
           VMThunkState::Ret => {
             panic!("bug");
@@ -372,7 +369,7 @@ impl MSaveState {
 }
 
 pub struct VMachine {
-  pub cfg:      Config,
+  pub cfg:      GlobalConfig,
   pub ctrl:     VMReg,
   pub env:      VMEnvRef,
   pub kont:     VMKontRef,
@@ -383,7 +380,7 @@ pub struct VMachine {
 impl VMachine {
   pub fn new() -> VMachine {
     VMachine{
-      cfg:      Config::default(),
+      cfg:      GlobalConfig::default(),
       ctrl:     VMReg::Uninit,
       env:      VMEnvRef::default(),
       kont:     VMKontRef::default(),
@@ -608,7 +605,7 @@ impl VMachine {
             };
             // NB: The thunk will be immediately updated, so can directly
             // construct it in the "black hole" state.
-            let mthk = VMThunkRef::new(VMThunk::new_blkhole(body_mlam, env.clone()));
+            let mthk = VMThunkRef::new(VMThunk::new_blkhole(thk_a.clone(), body_mlam, env.clone()));
             self.store.insert_new(thk_a.clone(), mthk);
             let next_ctrl = VMReg::Code(body.clone());
             let next_kont = VMKontRef::new(VMKont::Thk0(thk_a, rest_mlam, rest_env, kont));
@@ -626,8 +623,8 @@ impl VMachine {
             // NB: The fixpoint thunk maybe delayed, so must construct it in
             // the "empty" state.
             // TODO: should `mthk` capture `env` or `fix_env`?
-            let mthk = VMThunkRef::new(VMThunk::new_empty(fix_mlam, env.clone()));
-            self.store.insert_new(thk_a.clone(), mthk);
+            let mthk = VMThunkRef::new(VMThunk::new_empty(thk_a.clone(), fix_mlam, env.clone()));
+            self.store.insert_new(thk_a, mthk);
             // FIXME: this next part needs some reworking, as the current env is
             // basically overwritten with `fix_env`.
             let fixbody_mlam = VMLam{
