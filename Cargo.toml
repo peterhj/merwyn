@@ -12,7 +12,7 @@ gpu = []
 
 [dependencies]
 envy = "^0.3"
-fixedbitset = "^0.1.9"
+fixedbitset = "^0.1"
 #lazy_static = "*"
 #num-traits = "^0.2"
 #parking_lot = { version = "*", features = ["nightly"] }
@@ -21,7 +21,8 @@ fixedbitset = "^0.1.9"
 plex = { git = "https://github.com/goffrie/plex", rev = "a4c1068fc31293b209677f6347aa51bbf73c1e53", default-features = false, features = ["lexer"] }
 rand = "^0.6"
 rand_chacha = "^0.1"
-rdrand = "^0.3"
+rdrand = "^0.5"
+rearray = { path = "../rearray" }
 serde = "^1.0"
 serde_derive = "^1.0"
 vertreap = { path = "../vertreap" }
@@ -30,3 +31,7 @@ vertreap = { path = "../vertreap" }
 #name = "hebb"
 #path = "src/lib.rs"
 #crate-type = ["rlib", "cdylib"]
+
+#[[bin]]
+#name = "hebbi"
+#path = "tools/hebbi.rs"

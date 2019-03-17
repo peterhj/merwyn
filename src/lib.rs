@@ -20,6 +20,7 @@ extern crate vertreap;
 pub mod cfg;
 pub mod ir;
 pub mod lang;
+pub mod num_util;
 //pub mod repl;
 pub mod rngs;
 pub mod stdlib;

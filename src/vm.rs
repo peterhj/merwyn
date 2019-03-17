@@ -4,6 +4,7 @@
 
 use crate::cfg::{GlobalConfig};
 use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar, LTermVMExt, LTermRef};
+use crate::num_util::{Checked};
 use crate::rngs::{HwRng};
 
 use rand::prelude::*;
@@ -124,7 +125,7 @@ pub enum VMVal {
   DEnv(LEnv),
   Clo(VMClosure),
   Bit(bool),
-  Int(i64),
+  Int(Checked<i64>),
   Flo(f64),
   Tup,
   Box_(VMBoxVal),
@@ -314,6 +315,10 @@ impl VMStore {
 pub struct MState {
   // TODO
   pub rng:      ChaChaRng,
+}
+
+pub struct MSeqState {
+  // TODO
 }
 
 #[derive(Clone)]
@@ -653,7 +658,7 @@ impl VMachine {
           }
           (&LTerm::IntLit(x), _) => {
             println!("TRACE: vm:   expr: intlit");
-            let mval = VMValRef::new(VMVal::Int(x));
+            let mval = VMValRef::new(VMVal::Int(Checked(x)));
             let next_ctrl = VMReg::MVal(mval);
             let next_env = env;
             let next_kont = kont;

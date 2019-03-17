@@ -5,6 +5,11 @@ else
   Q :=
 endif
 
+#CARGO := cargo
+#RUSTC := rustc
+CARGO := cargo +nightly
+RUSTC := rustc +nightly
+
 .PHONY: all pre versions debug release test test-lang test-ir test-vm test-vmad
 
 all: release
@@ -12,29 +17,29 @@ all: release
 pre: versions
 
 versions:
-	$(Q)cargo --version > cargo.version
-	$(Q)rustc --version > rustc.version
+	$(Q)$(CARGO) --version > cargo.version
+	$(Q)$(RUSTC) --version > rustc.version
 
 debug: pre
-	cargo build
+	$(CARGO) build
 
 release: pre
-	cargo build --release
+	$(CARGO) build --release
 
 test: pre
-	RUST_TEST_THREADS=1 cargo test --release -- --nocapture
+	RUST_TEST_THREADS=1 $(CARGO) test --release -- --nocapture
 
 test-lang: pre
-	RUST_TEST_THREADS=1 cargo test --test lang --release -- --nocapture
+	RUST_TEST_THREADS=1 $(CARGO) test --test lang --release -- --nocapture
 
 test-ir: pre
-	RUST_TEST_THREADS=1 cargo test --test ir --release -- --nocapture
+	RUST_TEST_THREADS=1 $(CARGO) test --test ir --release -- --nocapture
 
 test-vm: pre
-	RUST_TEST_THREADS=1 cargo test --test vm --release -- --nocapture
+	RUST_TEST_THREADS=1 $(CARGO) test --test vm --release -- --nocapture
 
 test-vmad: pre
-	RUST_TEST_THREADS=1 cargo test --test vmad --release -- --nocapture
+	RUST_TEST_THREADS=1 $(CARGO) test --test vmad --release -- --nocapture
 
 test-vmfix: pre
-	RUST_TEST_THREADS=1 cargo test --test vmfix --release -- --nocapture
+	RUST_TEST_THREADS=1 $(CARGO) test --test vmfix --release -- --nocapture

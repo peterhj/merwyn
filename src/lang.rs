@@ -17,12 +17,14 @@ lexer! {
   r#"intern"#       => HLToken::Intern,
   r#"lambda"#       => HLToken::Lambda,
   r#"λ"#            => HLToken::Lambda,
+  r#"\\seq"#        => HLToken::LambdaSeq,
   r#"adj"#          => HLToken::Adj,
   r#"dyn"#          => HLToken::Dyn,
   r#"pub"#          => HLToken::Pub,
   r#"let"#          => HLToken::Let,
   r#"alt"#          => HLToken::Alt,
   r#"rec"#          => HLToken::Rec,
+  r#"seq"#          => HLToken::Seq,
   r#"in"#           => HLToken::In,
   r#"letmemo"#      => HLToken::LetMemo,
   r#"where"#        => HLToken::Where,
@@ -92,12 +94,14 @@ pub enum HLToken {
   Extern,
   Intern,
   Lambda,
+  LambdaSeq,
   Adj,
   Dyn,
   Pub,
   Let,
   Alt,
   Rec,
+  Seq,
   In,
   LetMemo,
   Where,
@@ -207,6 +211,7 @@ pub struct HLetAttrs {
   pub pub_: bool,
   //pub alt:  bool,
   pub rec:  bool,
+  pub seq:  bool,
 }
 
 #[derive(Clone, Debug)]
@@ -343,6 +348,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::Let |
       &HLToken::Alt |
       &HLToken::Rec |
+      &HLToken::Seq |
       &HLToken::In |
       &HLToken::Where |
       &HLToken::Switch |
@@ -451,6 +457,12 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
           HLToken::Rec => {
             let mut attrs = maybe_attrs.unwrap_or_default();
             attrs.rec = true;
+            maybe_attrs = Some(attrs);
+            self.advance();
+          }
+          HLToken::Seq => {
+            let mut attrs = maybe_attrs.unwrap_or_default();
+            attrs.seq = true;
             maybe_attrs = Some(attrs);
             self.advance();
           }

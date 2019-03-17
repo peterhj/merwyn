@@ -75,13 +75,14 @@ fn test_lang_literal_logical_tee() {
   println!("{:?}", ast);
 }
 
-#[test]
+// TODO: deprecated logical syntax.
+/*#[test]
 fn test_lang_logical() {
   let lexer = HLexer::new("let y = p[x] | q[x] ^ r[x] | s[x]; 0");
   let parser = HParser::new(lexer);
   let ast = parser.parse();
   println!("{:?}", ast);
-}
+}*/
 
 #[test]
 fn test_lang_logical_short() {

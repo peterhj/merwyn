@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use crate::num_util::*;
 use crate::vm::{VMBoxCode, VMLam, VMLamCode, VMVal, VMValRef};
 
 use std::rc::{Rc};
@@ -10,7 +11,7 @@ pub fn make_bc_pi100() -> VMBoxCode {
   let bc = VMBoxCode{
     ifun: Rc::new(|args| {
       assert_eq!(0, args.len());
-      let mval = VMValRef::new(VMVal::Int(314));
+      let mval = VMValRef::new(VMVal::Int(Checked(314)));
       mval
     }),
     ladj: None,

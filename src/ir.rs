@@ -169,6 +169,7 @@ pub struct LExprInfo {
 
 #[derive(Clone, Debug)]
 pub struct LExpr {
+  //pub gen:      u64,
   pub label:    LLabel,
   pub term:     LTermRef,
   pub info:     LExprInfo,
@@ -402,6 +403,7 @@ impl LLabelBuilder {
 }
 
 pub struct LBuilder {
+  gen_ctr:  u64,
   labels:   LLabelBuilder,
   hashes:   LHashBuilder,
   vars:     LVarBuilder,
@@ -413,6 +415,7 @@ impl LBuilder {
     let hashes = LHashBuilder::default();
     let vars = LVarBuilder::default();
     LBuilder{
+      gen_ctr: 0,
       labels,
       hashes,
       vars,
