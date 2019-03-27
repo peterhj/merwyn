@@ -4,7 +4,7 @@
 
 use crate::cfg::{GlobalConfig};
 use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar, LTermVMExt, LTermRef};
-use crate::num_util::{Checked};
+use crate::num_util::{Checked, checked};
 use crate::rngs::{HwRng};
 
 use rand::prelude::*;
@@ -658,7 +658,7 @@ impl VMachine {
           }
           (&LTerm::IntLit(x), _) => {
             println!("TRACE: vm:   expr: intlit");
-            let mval = VMValRef::new(VMVal::Int(Checked(x)));
+            let mval = VMValRef::new(VMVal::Int(checked(x)));
             let next_ctrl = VMReg::MVal(mval);
             let next_env = env;
             let next_kont = kont;

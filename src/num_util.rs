@@ -6,7 +6,17 @@ use std::ops::{Add, Sub, Mul, Div, Rem, Neg};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 #[repr(transparent)]
-pub struct Checked<T>(pub T);
+pub struct Checked<T>(T);
+
+pub fn checked<T>(val: T) -> Checked<T> {
+  Checked::from(val)
+}
+
+impl<T> From<T> for Checked<T> {
+  fn from(val: T) -> Checked<T> {
+    Checked(val)
+  }
+}
 
 impl Add for Checked<i64> {
   type Output = Checked<i64>;
