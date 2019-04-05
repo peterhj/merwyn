@@ -7,6 +7,7 @@
 
 extern crate envy;
 extern crate fixedbitset;
+//extern crate lazycell;
 //#[macro_use] extern crate lazy_static;
 //extern crate parking_lot;
 extern crate plex;

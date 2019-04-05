@@ -23,3 +23,26 @@ fn test_ir_1() {
   println!("DEBUG: ltree pretty printed:");
   ltree._pretty_print();
 }
+
+#[test]
+fn test_ir_2() {
+  println!();
+  //let lexer = HLexer::new("let x = 1; let y = 2; let z = x + y; z");
+  let lexer = HLexer::new("let x = 1; let y = let w = 2 in w; let z = x[y[y]]; y");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::new();
+  let ltree = builder.lower(htree);
+  println!("DEBUG: ltree: {:?}", ltree);
+  println!("DEBUG: ltree, pretty printed:");
+  ltree._pretty_print();
+  /*let ltree = builder._ltree_env_info_pass(ltree);
+  println!("DEBUG: ltree + env info: {:?}", ltree);
+  let ltree = builder._ltree_freeuse_info_pass(ltree);
+  println!("DEBUG: ltree + env + freeuse info: {:?}", ltree);*/
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: a-normalized ltree: {:?}", ltree);
+  println!("DEBUG: a-normalized ltree, pretty printed:");
+  ltree._pretty_print();
+}

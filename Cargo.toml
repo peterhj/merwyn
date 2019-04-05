@@ -13,6 +13,7 @@ gpu = []
 [dependencies]
 envy = "^0.3"
 fixedbitset = "^0.1"
+#lazycell = "^1.2"
 #lazy_static = "*"
 #num-traits = "^0.2"
 #parking_lot = { version = "*", features = ["nightly"] }

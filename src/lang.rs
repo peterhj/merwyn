@@ -17,13 +17,13 @@ lexer! {
   r#"intern"#       => HLToken::Intern,
   r#"lambda"#       => HLToken::Lambda,
   r#"λ"#            => HLToken::Lambda,
-  r#"\\seq"#        => HLToken::LambdaSeq,
   r#"adj"#          => HLToken::Adj,
   r#"dyn"#          => HLToken::Dyn,
   r#"pub"#          => HLToken::Pub,
   r#"let"#          => HLToken::Let,
   r#"alt"#          => HLToken::Alt,
   r#"rec"#          => HLToken::Rec,
+  r#"rnd"#          => HLToken::Rnd,
   r#"seq"#          => HLToken::Seq,
   r#"in"#           => HLToken::In,
   r#"letmemo"#      => HLToken::LetMemo,
@@ -94,13 +94,13 @@ pub enum HLToken {
   Extern,
   Intern,
   Lambda,
-  LambdaSeq,
   Adj,
   Dyn,
   Pub,
   Let,
   Alt,
   Rec,
+  Rnd,
   Seq,
   In,
   LetMemo,
@@ -211,6 +211,7 @@ pub struct HLetAttrs {
   pub pub_: bool,
   //pub alt:  bool,
   pub rec:  bool,
+  pub rnd:  bool,
   pub seq:  bool,
 }
 
@@ -247,6 +248,8 @@ pub enum HExpr {
   Div(Rc<HExpr>, Rc<HExpr>),
   Infix(String, Rc<HExpr>, Rc<HExpr>),
   Neg(Rc<HExpr>),
+  Cons(Rc<HExpr>, Rc<HExpr>),
+  Concat(Rc<HExpr>, Rc<HExpr>),
   NoRet,
   NonSmooth,
   UnitLit,
@@ -348,6 +351,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::Let |
       &HLToken::Alt |
       &HLToken::Rec |
+      &HLToken::Rnd |
       &HLToken::Seq |
       &HLToken::In |
       &HLToken::Where |
@@ -377,6 +381,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::Star |
       &HLToken::Slash => 520,
       &HLToken::InfixIdent(_) => 600,
+      &HLToken::PlusPlus => 700,
+      &HLToken::ColonColon => 720,
       &HLToken::Dot => 800,
       &HLToken::RParen => 0,
       &HLToken::LBrack => 800,
@@ -457,6 +463,12 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
           HLToken::Rec => {
             let mut attrs = maybe_attrs.unwrap_or_default();
             attrs.rec = true;
+            maybe_attrs = Some(attrs);
+            self.advance();
+          }
+          HLToken::Rnd => {
+            let mut attrs = maybe_attrs.unwrap_or_default();
+            attrs.rnd = true;
             maybe_attrs = Some(attrs);
             self.advance();
           }
@@ -704,6 +716,14 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
           }
           _ => panic!(),
         }
+      }
+      HLToken::ColonColon => {
+        let right = self.expression(self.lbp(&tok) - 1, -1)?;
+        Ok(HExpr::Cons(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::PlusPlus => {
+        let right = self.expression(self.lbp(&tok) - 1, -1)?;
+        Ok(HExpr::Concat(Rc::new(left), Rc::new(right)))
       }
       HLToken::BarBar => {
         let right = self.expression(self.lbp(&tok) - 1, -1)?;
