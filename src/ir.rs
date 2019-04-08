@@ -21,19 +21,13 @@ use std::ops::{Deref};
 use std::rc::{Rc};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
-pub struct LLIdx(pub usize);
+pub struct LLDepth(pub usize);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
-pub struct LRIdx(pub usize);
+pub struct LDBIdx(pub usize);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
 pub struct LVar(pub u64);
-
-/*#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
-pub struct LIdxVar {
-  pub idx:  LIdx,
-  pub var:  LVar,
-}*/
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
 pub struct LHash(pub u64);
@@ -119,6 +113,8 @@ pub enum LTerm<E=LExpr, X=LTermVMExt> {
   Let(LVar, E, E),
   Fix(LVar, E),
   Switch(E, E, E),
+  Cons(E, E),
+  Concat(E, E),
   BitLit(bool),
   IntLit(i64),
   FloLit(f64),
@@ -201,7 +197,7 @@ pub enum LDef {
 
 /*#[derive(Clone, Default)]
 pub struct LEnvNew {
-  pub bindings: VertreapMap<LVar, (LLIdx, LHash, LDef)>,
+  pub bindings: VertreapMap<LVar, (LLDepth, LHash, LDef)>,
   pub hashes:   VertreapMap<LHash, LVar>,
   pub vars:     VertreapMap<usize, LVar>,
 }*/
@@ -209,7 +205,7 @@ pub struct LEnvNew {
 #[derive(Clone, Default, Debug)]
 pub struct LEnv {
   //pub bindings: HashMap<LVar, (usize, Rc<LExpr>)>,
-  pub bindings: HashMap<LVar, (LLIdx, LDef)>,
+  pub bindings: HashMap<LVar, (LLDepth, LDef)>,
   //pub vars:     Vec<(LVar, usize)>,
   pub vars:     Vec<LVar>,
   pub names:    HashMap<String, LVar>,
@@ -217,20 +213,20 @@ pub struct LEnv {
 
 impl LEnv {
   pub fn _bind(&mut self, var: LVar, code: LExpr) {
-    let left_idx = self.vars.len();
-    self.bindings.insert(var.clone(), (LLIdx(left_idx), LDef::Code(code)));
+    let left_depth = self.vars.len();
+    self.bindings.insert(var.clone(), (LLDepth(left_depth), LDef::Code(code)));
     self.vars.push(var);
   }
 
   pub fn _bind_fixed(&mut self, label: LLabel, fixvar: LVar, fixbody: LTermRef, env: Option<LEnv>) {
-    let left_idx = self.vars.len();
-    self.bindings.insert(fixvar.clone(), (LLIdx(left_idx), LDef::Fixpoint(label, fixvar.clone(), fixbody, env)));
+    let left_depth = self.vars.len();
+    self.bindings.insert(fixvar.clone(), (LLDepth(left_depth), LDef::Fixpoint(label, fixvar.clone(), fixbody, env)));
     self.vars.push(fixvar);
   }
 
   pub fn _bind_named(&mut self, name: String, var: LVar, body: LExpr) {
-    let left_idx = self.vars.len();
-    self.bindings.insert(var.clone(), (LLIdx(left_idx), LDef::Code(body)));
+    let left_depth = self.vars.len();
+    self.bindings.insert(var.clone(), (LLDepth(left_depth), LDef::Code(body)));
     self.names.insert(name, var.clone());
     self.vars.push(var);
   }
@@ -470,19 +466,40 @@ impl LBuilder {
   }
 
   pub fn _include_stdlib_and_lower(&mut self, htree: Rc<HExpr>) -> LExpr {
-    let (_, var_pi100, label_pi100, bc_pi100) = self._alloc_bclambda("pi100", make_bc_pi100());
-    let (_, var_neg, label_neg, bc_neg) = self._alloc_bclambda("neg", make_bc_neg());
-    let (_, var_add, label_add, bc_add) = self._alloc_bclambda("add", make_bc_add());
-    let (_, var_mul, label_mul, bc_mul) = self._alloc_bclambda("mul", make_bc_mul());
-    let ltree = self._htree_to_ltree_lower_pass(htree);
     fn bind(gen: u64, label: LLabel, var: LVar, body: LExpr, rest: LExpr) -> LExpr {
       LExpr{gen, label: label, term: LTermRef::new(LTerm::Let(var, body, rest)), info: LExprInfo::default()}
     }
-    let ltree = (bind)(self._gen(), label_mul, var_mul, bc_mul, ltree);
-    let ltree = (bind)(self._gen(), label_add, var_add, bc_add, ltree);
-    let ltree = (bind)(self._gen(), label_neg, var_neg, bc_neg, ltree);
-    let ltree = (bind)(self._gen(), label_pi100, var_pi100, bc_pi100, ltree);
+    fn bind_next<B: Iterator<Item=(&'static str, Box<dyn Fn() -> VMBoxCode>)>, R: FnOnce() -> Rc<HExpr>>(this: &mut LBuilder, mut bindings: B, rest: R) -> LExpr {
+      match bindings.next() {
+        None => this._htree_to_ltree_lower_pass((rest)()),
+        Some((name, bc_builder)) => {
+          let (_, var, label, bc) = this._alloc_bclambda(name, bc_builder());
+          let ltree = (bind_next)(this, bindings, rest);
+          let ltree = (bind)(this._gen(), label, var, bc, ltree);
+          ltree
+        }
+      }
+    }
+    let stdlib_bindings: Vec<(&'static str, Box<dyn Fn() -> VMBoxCode>)> = vec![
+      ("eq",  Box::new(|| make_bc_eq())),
+      ("add", Box::new(|| make_bc_add())),
+      ("sub", Box::new(|| make_bc_sub())),
+      ("mul", Box::new(|| make_bc_mul())),
+      ("div", Box::new(|| make_bc_div())),
+      ("neg", Box::new(|| make_bc_neg())),
+      ("pi100", Box::new(|| make_bc_pi100())),
+    ];
+    let ltree = bind_next(
+        self,
+        stdlib_bindings.into_iter(),
+        move || htree
+    );
     ltree
+  }
+
+  pub fn lower_with_stdlib(&mut self, htree: Rc<HExpr>) -> LExpr {
+    self.gen_ctr += 1;
+    self._include_stdlib_and_lower(htree)
   }
 
   pub fn _htree_to_ltree_lower_pass(&mut self, htree: Rc<HExpr>) -> LExpr {
@@ -692,48 +709,6 @@ impl LBuilder {
     self.gen_ctr += 1;
     self._htree_to_ltree_lower_pass(htree)
   }
-/*}
-
-pub struct LTransformer {
-}
-
-impl LTransformer {
-  pub fn new() -> LTransformer {
-    LTransformer{}
-  }*/
-
-  pub fn _ltree_normalize_pass_check(&self, ltree: LExpr) -> bool {
-    // TODO
-    match &*ltree.term {
-      &LTerm::Apply(ref head, ref args) => {
-        // FIXME
-        self._ltree_normalize_pass_check(head.clone()) &&
-        args.iter().all(|arg| self._ltree_normalize_pass_check(arg.clone()))
-      }
-      &LTerm::Let(ref _name, ref body, ref rest) => {
-        // FIXME
-        self._ltree_normalize_pass_check(body.clone()) &&
-        self._ltree_normalize_pass_check(rest.clone())
-      }
-      &LTerm::Switch(ref pred, ref top, ref bot) => {
-        // FIXME
-        self._ltree_normalize_pass_check(pred.clone()) &&
-        self._ltree_normalize_pass_check(top.clone()) &&
-        self._ltree_normalize_pass_check(bot.clone())
-      }
-      &LTerm::IntLit(_) => {
-        true
-      }
-      &LTerm::Lookup(_) => {
-        true
-      }
-      _ => unimplemented!(),
-    }
-  }
-
-  pub fn is_normalized(&self, ltree: LExpr) -> bool {
-    self._ltree_normalize_pass_check(ltree)
-  }
 
   pub fn _ltree_normalize_pass_kont(&mut self, ltree: LExpr, kont: &mut dyn FnMut(&mut Self, LExpr) -> LExpr) -> LExpr {
     // TODO
@@ -760,6 +735,21 @@ impl LTransformer {
           _ => unimplemented!(),
         }
       }
+      &LTerm::Lambda(ref bvars, ref body) => {
+        let new_lambda_expr = LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Lambda(
+              bvars.clone(),
+              self._ltree_normalize_pass_kont_term(body.clone()),
+          )),
+          info:   LExprInfo::default(),
+        };
+        kont(self, new_lambda_expr)
+      }
+      &LTerm::VMExt(LTermVMExt::BcLambda(..)) => {
+        kont(self, ltree)
+      }
       &LTerm::Let(ref name, ref body, ref rest) => {
         let saved_name = name.clone();
         let saved_rest = rest.clone();
@@ -779,25 +769,34 @@ impl LTransformer {
         let saved_top = top.clone();
         let saved_bot = bot.clone();
         self._ltree_normalize_pass_kont_name(pred.clone(), &mut |this, e| {
-          LExpr{
+          let new_top = this._ltree_normalize_pass_kont_term(saved_top.clone());
+          let new_bot = this._ltree_normalize_pass_kont_term(saved_bot.clone());
+          let new_switch_expr = LExpr{
             gen:    this._gen(),
             label:  this.labels.fresh(),
             term:   LTermRef::new(LTerm::Switch(
                 e,
-                // FIXME
-                saved_top.clone(),
-                saved_bot.clone(),
+                new_top,
+                new_bot,
             )),
             info:   LExprInfo::default(),
+          };
+          kont(this, new_switch_expr)
         })
       }
+      &LTerm::BitLit(_) => {
+        kont(self, ltree)
+      }
       &LTerm::IntLit(_) => {
+        kont(self, ltree)
+      }
+      &LTerm::FloLit(_) => {
         kont(self, ltree)
       }
       &LTerm::Lookup(ref var) => {
         kont(self, ltree)
       }
-      _ => unimplemented!(),
+      e => panic!("normalize: unimplemented lexpr term: {:?}", e),
     }
   }
 
@@ -819,7 +818,13 @@ impl LTransformer {
   pub fn _ltree_normalize_pass_kont_name(&mut self, ltree: LExpr, kont: &mut dyn FnMut(&mut Self, LExpr) -> LExpr) -> LExpr {
     self._ltree_normalize_pass_kont(ltree, &mut |this, new_ltree| {
       match &*new_ltree.term {
+        &LTerm::BitLit(_) => {
+          kont(this, new_ltree)
+        }
         &LTerm::IntLit(_) => {
+          kont(this, new_ltree)
+        }
+        &LTerm::FloLit(_) => {
           kont(this, new_ltree)
         }
         &LTerm::Lookup(_) => {
@@ -848,74 +853,6 @@ impl LTransformer {
         }
       }
     })
-  }
-
-  pub fn _ltree_normalize_pass(&mut self, ltree: LExpr) -> LExpr {
-    // TODO
-    /*if self._ltree_normalize_pass_check(ltree.clone()) {
-      return ltree;
-    }*/
-    match &*ltree.term {
-      &LTerm::Apply(ref head, ref args) => {
-        let head = self._ltree_normalize_pass(head.clone());
-        let args = args.iter().map(|arg| self._ltree_normalize_pass(arg.clone())).collect();
-        LExpr{
-          gen:      self._gen(),
-          label:    ltree.label.clone(),
-          term:     LTermRef::new(LTerm::Apply(
-              head,
-              args,
-          )),
-          info:     ltree.info,
-        }
-      }
-      &LTerm::Let(ref name, ref body, ref rest) => {
-        let body = self._ltree_normalize_pass(body.clone());
-        let rest = self._ltree_normalize_pass(rest.clone());
-        LExpr{
-          gen:      self._gen(),
-          label:    ltree.label.clone(),
-          term:     LTermRef::new(LTerm::Let(
-              name.clone(),
-              body,
-              rest,
-          )),
-          info:     ltree.info,
-        }
-      }
-      &LTerm::Switch(ref pred, ref top, ref bot) => {
-        let pred = self._ltree_normalize_pass(pred.clone());
-        let top = self._ltree_normalize_pass(top.clone());
-        let bot = self._ltree_normalize_pass(bot.clone());
-        LExpr{
-          gen:      self._gen(),
-          label:    ltree.label.clone(),
-          term:     LTermRef::new(LTerm::Switch(
-              pred,
-              top,
-              bot,
-          )),
-          info:     ltree.info,
-        }
-      }
-      &LTerm::IntLit(x) => {
-        LExpr{
-          gen:      self._gen(),
-          label:    ltree.label.clone(),
-          term:     LTermRef::new(LTerm::IntLit(x)),
-          info:     ltree.info,
-        }
-      }
-      &LTerm::Lookup(ref var) => {
-        LExpr{
-          gen:      self._gen(),
-          label:    ltree.label.clone(),
-          term:     LTermRef::new(LTerm::Lookup(var.clone())),
-          info:     ltree.info,
-        }
-      }
-      _ => unimplemented!(),
-    }
   }
 
   pub fn normalize(&mut self, ltree: LExpr) -> LExpr {
@@ -1496,10 +1433,13 @@ impl LPrettyPrinter {
         // TODO
         let apply_toks = "apply ";
         write!(writer, "{}", apply_toks).unwrap();
-        self._write(head.clone(), indent + apply_toks.len(), false, writer);
+        self._write(head.clone(), indent + apply_toks.len() + 2, false, writer);
         writeln!(writer, "").unwrap();
         for arg in args.iter() {
-          self._write(arg.clone(), indent + apply_toks.len(), true, writer);
+          for _ in 0 .. indent + apply_toks.len() {
+            write!(writer, " ").unwrap();
+          }
+          self._write(arg.clone(), indent + apply_toks.len() + 2, false, writer);
           writeln!(writer, "").unwrap();
         }
         false

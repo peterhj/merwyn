@@ -68,7 +68,6 @@ lexer! {
   r#"\]"#           => HLToken::RBrack,
 
   r#"_"#            => HLToken::WildPat,
-
   r#"noret"#        => HLToken::NoRet,
   r#"nonsmooth"#    => HLToken::NonSmooth,
   r#"unit"#         => HLToken::UnitLit,

@@ -22,12 +22,16 @@ pub fn make_bc_pi100() -> VMBoxCode {
 pub fn make_bc_neg() -> VMBoxCode {
   let bc = VMBoxCode{
     ifun: Rc::new(|args| {
-      // TODO
       assert_eq!(1, args.len());
       match &*args[0] {
         &VMVal::Int(x) => {
           let r = -x;
           let mval = VMValRef::new(VMVal::Int(r));
+          mval
+        }
+        &VMVal::Flo(x) => {
+          let r = -x;
+          let mval = VMValRef::new(VMVal::Flo(r));
           mval
         }
         _ => panic!("neg: unsupported operand type"),
@@ -41,7 +45,6 @@ pub fn make_bc_neg() -> VMBoxCode {
 pub fn make_bc_eq() -> VMBoxCode {
   let bc = VMBoxCode{
     ifun: Rc::new(|args| {
-      // TODO
       assert_eq!(2, args.len());
       match (&*args[0], &*args[1]) {
         (&VMVal::Int(x0), &VMVal::Int(x1)) => {
@@ -60,12 +63,16 @@ pub fn make_bc_eq() -> VMBoxCode {
 pub fn make_bc_add() -> VMBoxCode {
   let bc = VMBoxCode{
     ifun: Rc::new(|args| {
-      // TODO
       assert_eq!(2, args.len());
       match (&*args[0], &*args[1]) {
         (&VMVal::Int(x0), &VMVal::Int(x1)) => {
           let r = x0 + x1;
           let mval = VMValRef::new(VMVal::Int(r));
+          mval
+        }
+        (&VMVal::Flo(x0), &VMVal::Flo(x1)) => {
+          let r = x0 + x1;
+          let mval = VMValRef::new(VMVal::Flo(r));
           mval
         }
         _ => panic!("add: unsupported operand types"),
@@ -76,10 +83,32 @@ pub fn make_bc_add() -> VMBoxCode {
   bc
 }
 
+pub fn make_bc_sub() -> VMBoxCode {
+  let bc = VMBoxCode{
+    ifun: Rc::new(|args| {
+      assert_eq!(2, args.len());
+      match (&*args[0], &*args[1]) {
+        (&VMVal::Int(x0), &VMVal::Int(x1)) => {
+          let r = x0 - x1;
+          let mval = VMValRef::new(VMVal::Int(r));
+          mval
+        }
+        (&VMVal::Flo(x0), &VMVal::Flo(x1)) => {
+          let r = x0 - x1;
+          let mval = VMValRef::new(VMVal::Flo(r));
+          mval
+        }
+        _ => panic!("sub: unsupported operand types"),
+      }
+    }),
+    ladj: None,
+  };
+  bc
+}
+
 pub fn make_bc_mul() -> VMBoxCode {
   let bc = VMBoxCode{
     ifun: Rc::new(|args| {
-      // TODO
       assert_eq!(2, args.len());
       match (&*args[0], &*args[1]) {
         (&VMVal::Int(x0), &VMVal::Int(x1)) => {
@@ -87,7 +116,35 @@ pub fn make_bc_mul() -> VMBoxCode {
           let mval = VMValRef::new(VMVal::Int(r));
           mval
         }
+        (&VMVal::Flo(x0), &VMVal::Flo(x1)) => {
+          let r = x0 * x1;
+          let mval = VMValRef::new(VMVal::Flo(r));
+          mval
+        }
         _ => panic!("mul: unsupported operand types"),
+      }
+    }),
+    ladj: None,
+  };
+  bc
+}
+
+pub fn make_bc_div() -> VMBoxCode {
+  let bc = VMBoxCode{
+    ifun: Rc::new(|args| {
+      assert_eq!(2, args.len());
+      match (&*args[0], &*args[1]) {
+        (&VMVal::Int(x0), &VMVal::Int(x1)) => {
+          let r = x0 / x1;
+          let mval = VMValRef::new(VMVal::Int(r));
+          mval
+        }
+        (&VMVal::Flo(x0), &VMVal::Flo(x1)) => {
+          let r = x0 / x1;
+          let mval = VMValRef::new(VMVal::Flo(r));
+          mval
+        }
+        _ => panic!("div: unsupported operand types"),
       }
     }),
     ladj: None,

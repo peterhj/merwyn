@@ -16,6 +16,7 @@ fn test_vm_1() {
   let mut builder = LBuilder::new();
   //let ltree = builder._htree_to_ltree_lower_pass(htree);
   let ltree = builder.lower(htree);
+  let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
   //let letree = builder._ltree_env_pass(ltree);
@@ -41,6 +42,7 @@ fn test_vm_2() {
   let mut builder = LBuilder::new();
   //let ltree = builder._htree_to_ltree_lower_pass(htree);
   let ltree = builder.lower(htree);
+  //let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
   //let letree = builder._ltree_env_pass(ltree);
@@ -66,7 +68,8 @@ fn test_vm_3() {
   let mut builder = LBuilder::new();
   //let ltree = builder._htree_to_ltree_lower_pass(htree);
   //let ltree = builder.lower(htree);
-  let ltree = builder._include_stdlib_and_lower(htree);
+  let ltree = builder.lower_with_stdlib(htree);
+  //let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
   //let letree = builder._ltree_env_pass(ltree);
@@ -93,7 +96,8 @@ fn test_vm_4() {
   let mut builder = LBuilder::new();
   //let ltree = builder._htree_to_ltree_lower_pass(htree);
   //let ltree = builder.lower(htree);
-  let ltree = builder._include_stdlib_and_lower(htree);
+  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
   //let letree = builder._ltree_env_pass(ltree);
@@ -118,7 +122,8 @@ fn test_vm_5() {
   let mut builder = LBuilder::new();
   //let ltree = builder._htree_to_ltree_lower_pass(htree);
   //let ltree = builder.lower(htree);
-  let ltree = builder._include_stdlib_and_lower(htree);
+  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
   //let letree = builder._ltree_env_pass(ltree);
