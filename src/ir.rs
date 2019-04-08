@@ -87,6 +87,27 @@ impl LVarSet {
   }
 }
 
+#[derive(Debug)]
+pub struct LPat {
+  pub term: LPatTermRef,
+}
+
+pub type LPatTermRef = Rc<LPatTerm>;
+
+#[derive(Debug)]
+pub enum LPatTerm {
+  Cons(LPat, LPat),
+  Concat(LPat, LPat),
+  Tuple(Vec<LPat>),
+  Wild,
+  UnitLit,
+  BitLit(bool),
+  IntLit(i64),
+  FloLit(f64),
+  Var(LVar),
+  Alias(LPat, LVar),
+}
+
 pub enum LTermVMExt {
   BcLambda(Vec<LVar>, VMBoxCode),
 }
@@ -113,8 +134,11 @@ pub enum LTerm<E=LExpr, X=LTermVMExt> {
   Let(LVar, E, E),
   Fix(LVar, E),
   Switch(E, E, E),
+  Match(E, Vec<(LPat, E)>),
   Cons(E, E),
   Concat(E, E),
+  Tuple(Vec<E>),
+  UnitLit,
   BitLit(bool),
   IntLit(i64),
   FloLit(f64),
@@ -502,6 +526,11 @@ impl LBuilder {
     self._include_stdlib_and_lower(htree)
   }
 
+  pub fn _htree_to_ltree_lower_pass_pat(&mut self, htree: Rc<HExpr>) -> LPat {
+    // FIXME
+    unimplemented!();
+  }
+
   pub fn _htree_to_ltree_lower_pass(&mut self, htree: Rc<HExpr>) -> LExpr {
     // TODO
     match &*htree {
@@ -510,6 +539,7 @@ impl LBuilder {
         let bvars: Vec<_> = args.iter().map(|arg| {
           let a = self._htree_to_ltree_lower_pass(arg.clone());
           match &*a.term {
+            // FIXME: allow wildcard pattern in param position.
             &LTerm::Lookup(ref v) => v.clone(),
             _ => panic!(),
           }
@@ -523,6 +553,12 @@ impl LBuilder {
           self._htree_to_ltree_lower_pass(arg.clone())
         }).collect();
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Apply(lhs, args)), info: LExprInfo::default()}
+      }
+      &HExpr::Tuple(ref args) => {
+        let args: Vec<_> = args.iter().map(|arg| {
+          self._htree_to_ltree_lower_pass(arg.clone())
+        }).collect();
+        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Tuple(args)), info: LExprInfo::default()}
       }
       &HExpr::Adj(ref sink) => {
         // TODO
@@ -669,16 +705,19 @@ impl LBuilder {
       &HExpr::NonSmooth => {
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::NonSmooth), info: LExprInfo::default()}
       }
+      &HExpr::UnitLit => {
+        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::UnitLit), info: LExprInfo::default()}
+      }
       &HExpr::BotLit => {
-        // TODO: special varbol key for literal constants.
+        // TODO: special var key for literal constants.
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::BitLit(false)), info: LExprInfo::default()}
       }
       &HExpr::TeeLit => {
-        // TODO: special varbol key for literal constants.
+        // TODO: special var key for literal constants.
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::BitLit(true)), info: LExprInfo::default()}
       }
       &HExpr::IntLit(x) => {
-        // TODO: special varbol key for literal constants.
+        // TODO: special var key for literal constants.
         //let var = self.vars.int_lit(x);
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::IntLit(x)), info: LExprInfo::default()}
       }

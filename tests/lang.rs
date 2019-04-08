@@ -125,6 +125,14 @@ fn test_lang_let_lam0() {
 }
 
 #[test]
+fn test_lang_let_match() {
+  let lexer = HLexer::new("let match (a, b) = x; 0");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
 fn test_lang_let_pub() {
   let lexer = HLexer::new("pub let asdf[x] = 1; 0");
   let parser = HParser::new(lexer);
@@ -207,6 +215,22 @@ fn test_lang_let_if_2() {
 #[test]
 fn test_lang_let_for_if() {
   let lexer = HLexer::new("let asdf[x] for y, z :- p[x,y], q[x,z]; 0");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_match() {
+  let lexer = HLexer::new("match x | 1 => a | tee => b[1,a] | () => \\c. 2*c | _ => \\y, z. match y | 1 => 2 | _ => 1");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_tuple() {
+  let lexer = HLexer::new("(1, 2, x, y)");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);
