@@ -19,6 +19,7 @@ fn test_vm_1() {
   let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
+  ltree._pretty_print();
   //let letree = builder._ltree_env_pass(ltree);
   //println!("DEBUG: letree: {:?}", letree);
   let mut vm = VMachine::new();
@@ -45,6 +46,7 @@ fn test_vm_2() {
   //let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
+  ltree._pretty_print();
   //let letree = builder._ltree_env_pass(ltree);
   //println!("DEBUG: letree: {:?}", letree);
   let mut vm = VMachine::new();
@@ -72,6 +74,7 @@ fn test_vm_3() {
   //let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
+  ltree._pretty_print();
   //let letree = builder._ltree_env_pass(ltree);
   //println!("DEBUG: letree: {:?}", letree);
   let mut vm = VMachine::new();
@@ -100,6 +103,7 @@ fn test_vm_4() {
   let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
+  ltree._pretty_print();
   //let letree = builder._ltree_env_pass(ltree);
   //println!("DEBUG: letree: {:?}", letree);
   let mut vm = VMachine::new();
@@ -126,8 +130,28 @@ fn test_vm_5() {
   let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
+  ltree._pretty_print();
   //let letree = builder._ltree_env_pass(ltree);
   //println!("DEBUG: letree: {:?}", letree);
+  let mut vm = VMachine::new();
+  vm._reset(ltree);
+  vm._eval();
+  vm._debug_dump_ctrl();
+}
+
+#[test]
+fn test_vm_6() {
+  println!();
+  let lexer = HLexer::new("let x = switch bot -: 1 | -2; (0, x, -x)");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::new();
+  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.normalize(ltree);
+  builder._debug_dump_vars();
+  println!("DEBUG: ltree: {:?}", ltree);
+  ltree._pretty_print();
   let mut vm = VMachine::new();
   vm._reset(ltree);
   vm._eval();

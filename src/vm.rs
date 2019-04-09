@@ -124,10 +124,10 @@ pub enum VMVal {
   Env(VMEnvRef),
   DEnv(LEnv),
   Clo(VMClosure),
+  Tup(Vec<VMValRef>),
   Bit(bool),
   Int(Checked<i64>),
   Flo(f64),
-  Tup,
   Box_(VMBoxVal),
   State(MState),
 }
@@ -138,11 +138,11 @@ impl VMVal {
       &VMVal::Env(_) => "Env",
       &VMVal::DEnv(_) => "DEnv",
       &VMVal::Clo(_) => "Clo",
-      &VMVal::Box_(_) => "Box_",
+      &VMVal::Tup(_) => "Tup",
       &VMVal::Bit(_) => "Bit",
       &VMVal::Int(_) => "Int",
       &VMVal::Flo(_) => "Flo",
-      &VMVal::Tup => "Tup",
+      &VMVal::Box_(_) => "Box_",
       &VMVal::State(_) => "State",
     }
   }
@@ -214,6 +214,7 @@ pub enum VMKont {
   Call(VMEnvRef, VMKontRef),
   Swch(LExpr, LExpr, VMEnvRef, VMKontRef),
   //Frc(LVar, VMEnvRef, VMKontRef),
+  Tup(Vec<LExpr>, Vec<VMValRef>, VMEnvRef, VMKontRef),
   // TODO: "ret" kont may be unnecessary.
   //Ret(VMValRef, VMKontRef),
 }
@@ -235,6 +236,7 @@ impl VMKont {
       &VMKont::App(..) => "App",
       &VMKont::Call(..) => "Call",
       &VMKont::Swch(..) => "Swch",
+      &VMKont::Tup(..) => "Tup",
     }
   }
 
@@ -401,6 +403,7 @@ impl VMachine {
       &VMReg::MVal(ref mval) => {
         match &**mval {
           VMVal::Clo(_) => println!("DEBUG: vm: ctrl: mval: closure"),
+          VMVal::Tup(elems) => println!("DEBUG: vm: ctrl: mval: tuple (num elems: {})", elems.len()),
           VMVal::Bit(x) => println!("DEBUG: vm: ctrl: mval: bit: {:?}", x),
           VMVal::Int(x) => println!("DEBUG: vm: ctrl: mval: int: {:?}", x),
           _ => println!("DEBUG: vm: ctrl: mval: other"),
@@ -441,6 +444,10 @@ impl VMachine {
           kont = prev_kont.clone();
         }
         &VMKont::Swch(.., ref prev_kont) => {
+          depth += 1;
+          kont = prev_kont.clone();
+        }
+        &VMKont::Tup(.., ref prev_kont) => {
           depth += 1;
           kont = prev_kont.clone();
         }
@@ -647,6 +654,21 @@ impl VMachine {
             let next_kont = VMKontRef::new(VMKont::Swch(top.clone(), bot.clone(), env.clone(), kont));
             let next_env = env;
             (next_ctrl, next_env, next_kont)
+          }
+          (&LTerm::Tuple(ref args), _) => {
+            println!("TRACE: vm:   expr: tuple");
+            if args.is_empty() {
+              let mval = VMValRef::new(VMVal::Tup(vec![]));
+              let next_ctrl = VMReg::MVal(mval);
+              let next_env = env;
+              let next_kont = kont;
+              (next_ctrl, next_env, next_kont)
+            } else {
+              let next_ctrl = VMReg::Code(args[0].clone());
+              let next_kont = VMKontRef::new(VMKont::Tup(args.clone(), vec![], env.clone(), kont));
+              let next_env = env;
+              (next_ctrl, next_env, next_kont)
+            }
           }
           (&LTerm::BitLit(x), _) => {
             println!("TRACE: vm:   expr: bitlit");
@@ -900,6 +922,25 @@ impl VMachine {
           (_, &VMKont::Swch(..)) => {
             // TODO: runtime panic if the reg is not a bit.
             panic!();
+          }
+          (_, &VMKont::Tup(ref elem_codes, ref elem_mvals, ref saved_env, ref saved_kont)) => {
+            let mut elem_mvals = elem_mvals.clone();
+            elem_mvals.push(mval);
+            if elem_codes.len() < elem_mvals.len() {
+              panic!();
+            } else if elem_codes.len() == elem_mvals.len() {
+              let next_ctrl = VMReg::MVal(VMValRef::new(VMVal::Tup(elem_mvals)));
+              let next_env = saved_env.clone();
+              let next_kont = saved_kont.clone();
+              (next_ctrl, next_env, next_kont)
+            } else if elem_codes.len() > elem_mvals.len() {
+              let next_ctrl = VMReg::Code(elem_codes[elem_mvals.len()].clone());
+              let next_kont = VMKontRef::new(VMKont::Tup(elem_codes.clone(), elem_mvals, saved_env.clone(), saved_kont.clone()));
+              let next_env = env.clone();
+              (next_ctrl, next_env, next_kont)
+            } else {
+              unreachable!();
+            }
           }
           _ => {
             panic!("unimpl: mval: {} kont: {}", mval._mval_name(), kont._kont_name());

@@ -5,9 +5,11 @@ else
   Q :=
 endif
 
+CARGO_FLAGS ?=
+
 #CARGO := cargo
 #RUSTC := rustc
-CARGO := cargo +nightly
+CARGO := cargo +nightly $(CARGO_FLAGS)
 RUSTC := rustc +nightly
 
 .PHONY: all pre versions debug release test test-lang test-ir test-vm test-vmad

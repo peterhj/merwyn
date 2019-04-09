@@ -7,6 +7,7 @@ use crate::stdlib::*;
 use crate::vm::{VMBoxCode};
 
 use fixedbitset::{FixedBitSet};
+use lazycell::{LazyCell};
 use serde::{Serialize, Serializer};
 //use serde::ser::{SerializeStruct};
 use vertreap::{VertreapMap};
@@ -32,7 +33,7 @@ pub struct LVar(pub u64);
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
 pub struct LHash(pub u64);
 
-#[derive(Clone, Default, Debug, Serialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
 pub struct LLabel(pub u64);
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -205,11 +206,16 @@ impl LExpr {
 }
 
 #[derive(Clone, Debug)]
+pub struct LTreeInfo {
+  // FIXME: also track gen for lazy updating.
+  env: LazyCell<HashMap<LLabel, LEnv>>,
+  freeuses: LazyCell<HashMap<LLabel, LVarSet>>,
+}
+
+#[derive(Clone, Debug)]
 pub struct LTree {
-  pub gen:  u64,
-  // FIXME
   pub root: LExpr,
-  //pub info: LTreeInfo,
+  pub info: LTreeInfo,
 }
 
 #[derive(Clone, Debug)]
@@ -554,11 +560,11 @@ impl LBuilder {
         }).collect();
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Apply(lhs, args)), info: LExprInfo::default()}
       }
-      &HExpr::Tuple(ref args) => {
-        let args: Vec<_> = args.iter().map(|arg| {
+      &HExpr::Tuple(ref elems) => {
+        let elems: Vec<_> = elems.iter().map(|arg| {
           self._htree_to_ltree_lower_pass(arg.clone())
         }).collect();
-        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Tuple(args)), info: LExprInfo::default()}
+        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Tuple(elems)), info: LExprInfo::default()}
       }
       &HExpr::Adj(ref sink) => {
         // TODO
@@ -708,6 +714,9 @@ impl LBuilder {
       &HExpr::UnitLit => {
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::UnitLit), info: LExprInfo::default()}
       }
+      &HExpr::NilTupLit => {
+        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Tuple(vec![])), info: LExprInfo::default()}
+      }
       &HExpr::BotLit => {
         // TODO: special var key for literal constants.
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::BitLit(false)), info: LExprInfo::default()}
@@ -823,6 +832,19 @@ impl LBuilder {
           kont(this, new_switch_expr)
         })
       }
+      &LTerm::Tuple(ref args) => {
+        // FIXME: should really use `kont_name` below; solution to this is same
+        // as for normalizing lambda applications.
+        let new_tuple_expr = LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Tuple(
+              args.iter().map(|arg| self._ltree_normalize_pass_kont_term(arg.clone())).collect(),
+          )),
+          info:   LExprInfo::default(),
+        };
+        kont(self, new_tuple_expr)
+      }
       &LTerm::BitLit(_) => {
         kont(self, ltree)
       }
@@ -857,6 +879,31 @@ impl LBuilder {
   pub fn _ltree_normalize_pass_kont_name(&mut self, ltree: LExpr, kont: &mut dyn FnMut(&mut Self, LExpr) -> LExpr) -> LExpr {
     self._ltree_normalize_pass_kont(ltree, &mut |this, new_ltree| {
       match &*new_ltree.term {
+        &LTerm::Tuple(ref elems) => {
+          if elems.is_empty() {
+            kont(this, new_ltree)
+          } else {
+            let new_var = this.vars.fresh();
+            LExpr{
+              gen:    this._gen(),
+              label:  this.labels.fresh(),
+              term:   LTermRef::new(LTerm::Let(
+                  new_var.clone(),
+                  new_ltree,
+                  {
+                    let new_var_expr = LExpr{
+                      gen:    this._gen(),
+                      label:  this.labels.fresh(),
+                      term:   LTermRef::new(LTerm::Lookup(new_var)),
+                      info:   LExprInfo::default(),
+                    };
+                    kont(this, new_var_expr)
+                  }
+              )),
+              info:   LExprInfo::default(),
+            }
+          }
+        }
         &LTerm::BitLit(_) => {
           kont(this, new_ltree)
         }
@@ -1483,9 +1530,23 @@ impl LPrettyPrinter {
         }
         false
       }
-      &LTerm::Lambda(ref bvars, ref body) => {
-        // TODO
-        unimplemented!();
+      &LTerm::Lambda(ref params, ref body) => {
+        // FIXME
+        write!(writer, "\\").unwrap();
+        for (param_idx, param) in params.iter().enumerate() {
+          if param_idx == 0 {
+            write!(writer, "${}", param.0).unwrap();
+          } else {
+            write!(writer, ", ${}", param.0).unwrap();
+          }
+        }
+        write!(writer, ". <lam.body>").unwrap();
+        false
+      }
+      &LTerm::VMExt(LTermVMExt::BcLambda(..)) => {
+        // FIXME
+        write!(writer, "<bclam>").unwrap();
+        false
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
         // TODO
@@ -1514,7 +1575,34 @@ impl LPrettyPrinter {
         writeln!(writer, " in").unwrap();
         self._write(rest.clone(), indent, true, writer)
       }
+      &LTerm::Switch(ref query, ref top, ref bot) => {
+        let switch_toks = format!("switch ");
+        write!(writer, "{}", switch_toks).unwrap();
+        let query_indent = indent + switch_toks.len();
+        if self._write(query.clone(), query_indent, false, writer) {
+          writeln!(writer, "").unwrap();
+        }
+        writeln!(writer, " then").unwrap();
+        self._write(top.clone(), indent + 4, true, writer);
+        writeln!(writer, " |").unwrap();
+        self._write(bot.clone(), indent + 4, true, writer)
+      }
+      &LTerm::Tuple(ref _elems) => {
+        // FIXME
+        write!(writer, "<tup>").unwrap();
+        false
+      }
+      &LTerm::BitLit(x) => {
+        // TODO
+        write!(writer, "{}", if x { "tee" } else { "bot" }).unwrap();
+        false
+      }
       &LTerm::IntLit(x) => {
+        // TODO
+        write!(writer, "{}", x).unwrap();
+        false
+      }
+      &LTerm::FloLit(x) => {
         // TODO
         write!(writer, "{}", x).unwrap();
         false
@@ -1524,7 +1612,9 @@ impl LPrettyPrinter {
         write!(writer, "${}", lookup_var.0).unwrap();
         false
       }
-      _ => unimplemented!(),
+      e => {
+        panic!("pretty print: unimplemented ltree expr: {:?}", e);
+      }
     }
   }
 

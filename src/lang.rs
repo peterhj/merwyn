@@ -63,7 +63,7 @@ lexer! {
   r#"-"#            => HLToken::Dash,
   r#"\*"#           => HLToken::Star,
   r#"/"#            => HLToken::Slash,
-  r#"\(\)"#         => HLToken::UnitLit,
+  r#"\(\)"#         => HLToken::NilTupLit,
   r#"\("#           => HLToken::LParen,
   r#"\)"#           => HLToken::RParen,
   r#"\["#           => HLToken::LBrack,
@@ -149,6 +149,7 @@ pub enum HLToken {
   NoRet,
   NonSmooth,
   UnitLit,
+  NilTupLit,
   BotLit,
   TeeLit,
   IntLit(i64),
@@ -258,6 +259,7 @@ pub enum HExpr {
   NonSmooth,
   WildPat,
   UnitLit,
+  NilTupLit,
   BotLit,
   TeeLit,
   IntLit(i64),
@@ -397,6 +399,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::NoRet |
       &HLToken::NonSmooth |
       &HLToken::UnitLit |
+      &HLToken::NilTupLit |
       &HLToken::BotLit |
       &HLToken::TeeLit |
       &HLToken::IntLit(_) |
@@ -730,8 +733,9 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         self.advance();
         match self.current_token() {
           HLToken::RParen => {
+            // FIXME: should warn on this case.
             /*self.advance();
-            Ok(HExpr::UnitLit)*/
+            Ok(HExpr::NilTupLit)*/
             panic!();
           }
           _ => {
@@ -774,6 +778,9 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       }
       HLToken::UnitLit => {
         Ok(HExpr::UnitLit)
+      }
+      HLToken::NilTupLit => {
+        Ok(HExpr::NilTupLit)
       }
       HLToken::BotLit => {
         Ok(HExpr::BotLit)
