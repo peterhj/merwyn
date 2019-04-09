@@ -26,7 +26,7 @@ lexer! {
   r#"rnd"#          => HLToken::Rnd,
   r#"seq"#          => HLToken::Seq,
   r#"in"#           => HLToken::In,
-  r#"letmemo"#      => HLToken::LetMemo,
+  r#"as"#           => HLToken::As,
   r#"where"#        => HLToken::Where,
   r#"for"#          => HLToken::For,
   r#"switch"#       => HLToken::Switch,
@@ -104,7 +104,7 @@ pub enum HLToken {
   Rnd,
   Seq,
   In,
-  LetMemo,
+  As,
   Where,
   For,
   Switch,
@@ -237,6 +237,7 @@ pub enum HExpr {
   WhereLet(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   Switch(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   Match(Rc<HExpr>, Vec<(Rc<HExpr>, Rc<HExpr>)>),
+  Alias(Rc<HExpr>, Rc<HExpr>),
   ShortOr(Rc<HExpr>, Rc<HExpr>),
   ShortAnd(Rc<HExpr>, Rc<HExpr>),
   Eq(Rc<HExpr>, Rc<HExpr>),
@@ -374,6 +375,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::Then |
       &HLToken::RDArrow |
       &HLToken::Bar => 0,
+      &HLToken::ColonColon => 180,
+      &HLToken::PlusPlus => 200,
       &HLToken::BarBar => 300,
       &HLToken::HatHat => 320,
       &HLToken::EqEquals |
@@ -390,8 +393,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::Star |
       &HLToken::Slash => 520,
       &HLToken::InfixIdent(_) => 600,
-      &HLToken::PlusPlus => 700,
-      &HLToken::ColonColon => 720,
+      &HLToken::As => 700,
       &HLToken::Dot => 800,
       &HLToken::RParen => 0,
       &HLToken::LBrack => 800,
@@ -815,13 +817,17 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
           _ => panic!(),
         }
       }
-      HLToken::ColonColon => {
-        let right = self.expression(self.lbp(&tok) - 1, -1)?;
-        Ok(HExpr::Cons(Rc::new(left), Rc::new(right)))
+      HLToken::As => {
+        let right = self.expression(self.lbp(&tok), -1)?;
+        Ok(HExpr::Alias(Rc::new(left), Rc::new(right)))
       }
       HLToken::PlusPlus => {
         let right = self.expression(self.lbp(&tok) - 1, -1)?;
         Ok(HExpr::Concat(Rc::new(left), Rc::new(right)))
+      }
+      HLToken::ColonColon => {
+        let right = self.expression(self.lbp(&tok) - 1, -1)?;
+        Ok(HExpr::Cons(Rc::new(left), Rc::new(right)))
       }
       HLToken::BarBar => {
         let right = self.expression(self.lbp(&tok) - 1, -1)?;

@@ -131,6 +131,8 @@ pub enum LTerm<E=LExpr, X=LTermVMExt> {
   TailApply(E, Vec<E>),
   Env,
   DynEnv(LEnv),
+  Adj(E),
+  AdjDyn(E),
   Lambda(Vec<LVar>, E),
   Let(LVar, E, E),
   Fix(LVar, E),
@@ -148,8 +150,6 @@ pub enum LTerm<E=LExpr, X=LTermVMExt> {
   DynEnvLookup(E, String),
   //DynEnvLookupStr(E, String),
   //DynEnvLookup(E, LHash),
-  Adj(LVar),
-  AdjDyn(E),
   VMExt(X),
 }
 
@@ -567,14 +567,12 @@ impl LBuilder {
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Tuple(elems)), info: LExprInfo::default()}
       }
       &HExpr::Adj(ref sink) => {
-        // TODO
-        //let body = self._htree_to_ltree_lower_pass(body.clone());
         let sink = self._htree_to_ltree_lower_pass(sink.clone());
-        let sink_var = match &*sink.term {
+        /*let sink_var = match &*sink.term {
           &LTerm::Lookup(ref v) => v.clone(),
           _ => panic!(),
-        };
-        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Adj(sink_var)), info: LExprInfo::default()}
+        };*/
+        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Adj(sink)), info: LExprInfo::default()}
       }
       &HExpr::AdjDyn(ref body) => {
         // TODO
@@ -783,6 +781,17 @@ impl LBuilder {
           _ => unimplemented!(),
         }
       }
+      &LTerm::Adj(ref sink) => {
+        self._ltree_normalize_pass_kont_name(sink.clone(), &mut |this, sink| {
+          let new_adj_expr = LExpr{
+            gen:    this._gen(),
+            label:  this.labels.fresh(),
+            term:   LTermRef::new(LTerm::Adj(sink)),
+            info:   LExprInfo::default(),
+          };
+          kont(this, new_adj_expr)
+        })
+      }
       &LTerm::Lambda(ref bvars, ref body) => {
         let new_lambda_expr = LExpr{
           gen:    self._gen(),
@@ -854,7 +863,7 @@ impl LBuilder {
       &LTerm::FloLit(_) => {
         kont(self, ltree)
       }
-      &LTerm::Lookup(ref var) => {
+      &LTerm::Lookup(_) => {
         kont(self, ltree)
       }
       e => panic!("normalize: unimplemented lexpr term: {:?}", e),
@@ -879,6 +888,18 @@ impl LBuilder {
   pub fn _ltree_normalize_pass_kont_name(&mut self, ltree: LExpr, kont: &mut dyn FnMut(&mut Self, LExpr) -> LExpr) -> LExpr {
     self._ltree_normalize_pass_kont(ltree, &mut |this, new_ltree| {
       match &*new_ltree.term {
+        &LTerm::BitLit(_) => {
+          kont(this, new_ltree)
+        }
+        &LTerm::IntLit(_) => {
+          kont(this, new_ltree)
+        }
+        &LTerm::FloLit(_) => {
+          kont(this, new_ltree)
+        }
+        &LTerm::Lookup(_) => {
+          kont(this, new_ltree)
+        }
         &LTerm::Tuple(ref elems) => {
           if elems.is_empty() {
             kont(this, new_ltree)
@@ -903,18 +924,6 @@ impl LBuilder {
               info:   LExprInfo::default(),
             }
           }
-        }
-        &LTerm::BitLit(_) => {
-          kont(this, new_ltree)
-        }
-        &LTerm::IntLit(_) => {
-          kont(this, new_ltree)
-        }
-        &LTerm::FloLit(_) => {
-          kont(this, new_ltree)
-        }
-        &LTerm::Lookup(_) => {
-          kont(this, new_ltree)
         }
         _ => {
           let new_var = this.vars.fresh();
@@ -942,6 +951,7 @@ impl LBuilder {
   }
 
   pub fn normalize(&mut self, ltree: LExpr) -> LExpr {
+    self.gen_ctr += 1;
     self._ltree_normalize_pass_kont_term(ltree)
   }
 
@@ -1078,7 +1088,9 @@ impl LBuilder {
           None => panic!(),
         }*/
       }
-      _ => unimplemented!(),
+      e => {
+        panic!("env info pass: unimplemented ltree expr: {:?}", e);
+      }
     }
   }
 
@@ -1102,6 +1114,19 @@ impl LBuilder {
           term:     LTermRef::new(LTerm::Apply(
               head,
               args,
+          )),
+          info,
+        }
+      }
+      &LTerm::Adj(ref sink) => {
+        let sink = self._ltree_freeuse_info_pass_init(sink.clone());
+        let mut info = ltree.info;
+        info.freeuses = Some(LVarSet::empty());
+        LExpr{
+          gen:      self._gen(),
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Adj(
+              sink,
           )),
           info,
         }
@@ -1172,6 +1197,24 @@ impl LBuilder {
       &LTerm::Apply(ref head, ref args) => {
         // TODO
         unimplemented!();
+      }
+      &LTerm::Adj(ref sink) => {
+        let (sink, sink_changed) = self._ltree_freeuse_info_pass_step(sink.clone());
+        let sink_freeuses = sink.info.freeuses.clone().unwrap();
+        let this_freeuses = ltree.info.freeuses.clone().unwrap();
+        let this_freeuses_new = this_freeuses.union(&sink_freeuses);
+        let this_changed = this_freeuses_new != this_freeuses;
+        let mut info = ltree.info.clone();
+        info.freeuses = Some(this_freeuses_new);
+        let changed = sink_changed || this_changed;
+        (LExpr{
+          gen:      self._gen(),
+          label:    ltree.label.clone(),
+          term:     LTermRef::new(LTerm::Adj(
+              sink,
+          )),
+          info,
+        }, changed)
       }
       &LTerm::Lambda(ref bvars, ref body) => {
         // NOTE: Equation: this.freeuses U= body.freeuses \ bindvars.
@@ -1529,6 +1572,28 @@ impl LPrettyPrinter {
           writeln!(writer, "").unwrap();
         }
         false
+      }
+      &LTerm::Adj(ref sink) => {
+        if let Some(ref freeuses) = ltree.info.freeuses {
+          write!(writer, "# INFO: freeuses: [").unwrap();
+          let mut first_it = true;
+          for v in freeuses.inner.ones() {
+            if first_it {
+              write!(writer, "{}", v).unwrap();
+              first_it = false;
+            } else {
+              write!(writer, ", ${}", v).unwrap();
+            }
+          }
+          writeln!(writer, "]").unwrap();
+          for _ in 0 .. indent {
+            write!(writer, " ").unwrap();
+          }
+        }
+        let adj_toks = format!("adj ");
+        write!(writer, "{}", adj_toks).unwrap();
+        let sink_indent = indent + adj_toks.len();
+        self._write(sink.clone(), sink_indent, false, writer)
       }
       &LTerm::Lambda(ref params, ref body) => {
         // FIXME

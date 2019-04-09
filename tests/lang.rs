@@ -36,8 +36,8 @@ fn test_lang() {
 }
 
 #[test]
-fn test_lang_cons() {
-  let lexer = HLexer::new("x :: y");
+fn test_lang_alias() {
+  let lexer = HLexer::new("(x[0] + 1, 2) as y");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);
@@ -52,7 +52,31 @@ fn test_lang_concat() {
 }
 
 #[test]
-fn test_lang_lexeme_ident_infix() {
+fn test_lang_concat_2() {
+  let lexer = HLexer::new("(x, y, z) as w ++ _");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_cons() {
+  let lexer = HLexer::new("x :: y");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_cons_2() {
+  let lexer = HLexer::new("x :: y :: z :: _");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_ident_infix() {
   let lexer = HLexer::new("1 `add 2");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
@@ -60,7 +84,7 @@ fn test_lang_lexeme_ident_infix() {
 }
 
 #[test]
-fn test_lang_lexeme_ident_prime() {
+fn test_lang_ident_prime() {
   let lexer = HLexer::new("asdf'");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
@@ -68,7 +92,7 @@ fn test_lang_lexeme_ident_prime() {
 }
 
 #[test]
-fn test_lang_lexeme_ident_prime_2() {
+fn test_lang_ident_prime_2() {
   let lexer = HLexer::new("asdf''");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
