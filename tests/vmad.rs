@@ -16,6 +16,7 @@ fn test_vmad_1() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   let ltree = builder.lower(htree);
+  let ltree = ltree.root;
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
   let ltree = builder._ltree_env_info_pass(ltree);

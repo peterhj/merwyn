@@ -768,6 +768,7 @@ impl VMachine {
               None => panic!(),
             };
             let lk_code = match tg_lenv.bindings.get(&lk_var) {
+              Some(&(_, LDef::BVar)) => unimplemented!(),
               Some(&(_, LDef::Code(ref lk_code))) => lk_code.clone(),
               Some(&(_, LDef::Fixpoint(..))) => {
                 // FIXME
