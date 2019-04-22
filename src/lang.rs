@@ -464,50 +464,52 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       }
       HLToken::Let => {
         let mut maybe_attrs: Option<HLetAttrs> = None;
-        match self.current_token() {
-          HLToken::Match => {
-            self.advance();
-            let pat_e = self.expression(0, -1)?;
-            match self.current_token() {
-              HLToken::Equals => {}
-              _ => panic!(),
+        loop {
+          match self.current_token() {
+            HLToken::Match => {
+              self.advance();
+              let pat_e = self.expression(0, -1)?;
+              match self.current_token() {
+                HLToken::Equals => {}
+                _ => panic!(),
+              }
+              self.advance();
+              let query_e = self.expression(0, -1)?;
+              match self.current_token() {
+                HLToken::In | HLToken::Semi => {}
+                _ => panic!(),
+              }
+              self.advance();
+              let rest_e = self.expression(0, -1)?;
+              return Ok(HExpr::LetMatch(Rc::new(pat_e), Rc::new(query_e), Rc::new(rest_e)));
             }
-            self.advance();
-            let query_e = self.expression(0, -1)?;
-            match self.current_token() {
-              HLToken::In | HLToken::Semi => {}
-              _ => panic!(),
+            /*// TODO
+            HLToken::Alt => {
+              let mut attrs = maybe_attrs.unwrap_or_default();
+              attrs.alt = true;
+              maybe_attrs = Some(attrs);
+              self.advance();
+            }*/
+            HLToken::Rec => {
+              let mut attrs = maybe_attrs.unwrap_or_default();
+              attrs.rec = true;
+              maybe_attrs = Some(attrs);
+              self.advance();
             }
-            self.advance();
-            let rest_e = self.expression(0, -1)?;
-            return Ok(HExpr::LetMatch(Rc::new(pat_e), Rc::new(query_e), Rc::new(rest_e)));
+            HLToken::Rnd => {
+              let mut attrs = maybe_attrs.unwrap_or_default();
+              attrs.rnd = true;
+              maybe_attrs = Some(attrs);
+              self.advance();
+            }
+            HLToken::Seq => {
+              let mut attrs = maybe_attrs.unwrap_or_default();
+              attrs.seq = true;
+              maybe_attrs = Some(attrs);
+              self.advance();
+            }
+            _ => break,
           }
-          /*// TODO
-          HLToken::Alt => {
-            let mut attrs = maybe_attrs.unwrap_or_default();
-            attrs.alt = true;
-            maybe_attrs = Some(attrs);
-            self.advance();
-          }*/
-          HLToken::Rec => {
-            let mut attrs = maybe_attrs.unwrap_or_default();
-            attrs.rec = true;
-            maybe_attrs = Some(attrs);
-            self.advance();
-          }
-          HLToken::Rnd => {
-            let mut attrs = maybe_attrs.unwrap_or_default();
-            attrs.rnd = true;
-            maybe_attrs = Some(attrs);
-            self.advance();
-          }
-          HLToken::Seq => {
-            let mut attrs = maybe_attrs.unwrap_or_default();
-            attrs.seq = true;
-            maybe_attrs = Some(attrs);
-            self.advance();
-          }
-          _ => {}
         }
         let e1_lhs = self.expression(0, -1)?;
         match self.current_token() {

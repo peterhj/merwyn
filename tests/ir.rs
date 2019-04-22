@@ -18,7 +18,7 @@ fn test_ir_1() {
   let ltree = ltree.with_env_info();
   let ltree = ltree.with_free_env_info();
   println!("DEBUG: ltree pretty printed:");
-  ltree._pretty_print();
+  builder.pretty_print(ltree);
 }
 
 #[test]
@@ -35,13 +35,15 @@ fn test_ir_2() {
   let ltree = ltree.with_free_env_info();
   //println!("DEBUG: ltree: {:?}", ltree);
   println!("DEBUG: ltree, pretty printed:");
-  ltree._pretty_print();
+  //ltree._pretty_print();
+  builder.pretty_print(ltree.clone());
   let ltree = builder.normalize(ltree);
   let ltree = ltree.with_env_info();
   let ltree = ltree.with_free_env_info();
   //println!("DEBUG: a-normalized ltree: {:?}", ltree);
   println!("DEBUG: a-normalized ltree, pretty printed:");
-  ltree._pretty_print();
+  //ltree._pretty_print();
+  builder.pretty_print(ltree.clone());
 }
 
 #[test]
@@ -58,11 +60,13 @@ fn test_ir_adj() {
   let ltree = ltree.with_free_env_info();
   //println!("DEBUG: ltree: {:?}", ltree);
   println!("DEBUG: ltree, pretty printed:");
-  ltree._pretty_print();
+  //ltree._pretty_print();
+  builder.pretty_print(ltree.clone());
   let ltree = builder.normalize(ltree);
   let ltree = ltree.with_env_info();
   let ltree = ltree.with_free_env_info();
   //println!("DEBUG: a-normalized ltree: {:?}", ltree);
   println!("DEBUG: a-normalized ltree, pretty printed:");
-  ltree._pretty_print();
+  //ltree._pretty_print();
+  builder.pretty_print(ltree.clone());
 }

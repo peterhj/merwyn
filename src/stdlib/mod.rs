@@ -14,7 +14,7 @@ pub fn make_bc_pi100() -> VMBoxCode {
       let mval = VMValRef::new(VMVal::Int(checked(314)));
       mval
     }),
-    ladj: None,
+    //ladj: None,
   };
   bc
 }
@@ -37,7 +37,7 @@ pub fn make_bc_neg() -> VMBoxCode {
         _ => panic!("neg: unsupported operand type"),
       }
     }),
-    ladj: None,
+    //ladj: None,
   };
   bc
 }
@@ -55,7 +55,7 @@ pub fn make_bc_eq() -> VMBoxCode {
         _ => panic!("eq: unsupported operand types"),
       }
     }),
-    ladj: None,
+    //ladj: None,
   };
   bc
 }
@@ -78,7 +78,7 @@ pub fn make_bc_add() -> VMBoxCode {
         _ => panic!("add: unsupported operand types"),
       }
     }),
-    ladj: None,
+    //ladj: None,
   };
   bc
 }
@@ -101,7 +101,7 @@ pub fn make_bc_sub() -> VMBoxCode {
         _ => panic!("sub: unsupported operand types"),
       }
     }),
-    ladj: None,
+    //ladj: None,
   };
   bc
 }
@@ -124,7 +124,7 @@ pub fn make_bc_mul() -> VMBoxCode {
         _ => panic!("mul: unsupported operand types"),
       }
     }),
-    ladj: None,
+    //ladj: None,
   };
   bc
 }
@@ -147,7 +147,7 @@ pub fn make_bc_div() -> VMBoxCode {
         _ => panic!("div: unsupported operand types"),
       }
     }),
-    ladj: None,
+    //ladj: None,
   };
   bc
 }

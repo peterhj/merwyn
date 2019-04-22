@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::cfg::{GlobalConfig};
-use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar, LTermVMExt, LTermRef};
+use crate::ir::{LDef, LEnv, LExpr, LTerm, LVar, LTermRef, LVMExt};
 use crate::num_util::{Checked, checked};
 use crate::rngs::{HwRng};
 
@@ -30,7 +30,7 @@ pub struct VMBoxVal {
 pub struct VMBoxCode {
   // TODO
   pub ifun: Rc<dyn Fn(Vec<VMValRef>) -> VMValRef>,
-  pub ladj: Option<Rc<dyn Fn(usize, LExpr) -> LTermRef>>,
+  //pub ladj: Option<Rc<dyn Fn(usize, LExpr) -> LTermRef>>,
 }
 
 pub struct VMModule {
@@ -46,7 +46,6 @@ pub enum VMLamCode {
 #[derive(Clone)]
 pub struct VMLam {
   //pub bind: Vec<LVar>,
-  //pub code: LExpr,
   pub code: VMLamCode,
 }
 
@@ -121,8 +120,8 @@ pub type VMValRef = Rc<VMVal>;
 
 //#[derive(Debug)]
 pub enum VMVal {
+  //DEnv(LEnv),
   Env(VMEnvRef),
-  DEnv(LEnv),
   Clo(VMClosure),
   Tup(Vec<VMValRef>),
   Bit(bool),
@@ -135,8 +134,8 @@ pub enum VMVal {
 impl VMVal {
   pub fn _mval_name(&self) -> &'static str {
     match self {
+      //&VMVal::DEnv(_) => "DEnv",
       &VMVal::Env(_) => "Env",
-      &VMVal::DEnv(_) => "DEnv",
       &VMVal::Clo(_) => "Clo",
       &VMVal::Tup(_) => "Tup",
       &VMVal::Bit(_) => "Bit",
@@ -202,7 +201,8 @@ pub type VMKontRef = Rc<VMKont>;
 pub enum VMKont {
   Halt,
   //Next(VMKontRef),
-  Lkd(String, VMEnvRef, VMKontRef),
+  //Lkd(String, VMEnvRef, VMKontRef),
+  ELku(LVar, VMLam, VMEnvRef, VMKontRef),
   Thk0(VMAddr, VMLam, VMEnvRef, VMKontRef),
   App0(VMEnvRef, VMKontRef),
   //App1(VMClosure, VMKontRef),
@@ -229,7 +229,8 @@ impl VMKont {
   pub fn _kont_name(&self) -> &'static str {
     match self {
       &VMKont::Halt => "Halt",
-      &VMKont::Lkd(..) => "Lkd",
+      //&VMKont::Lkd(..) => "Lkd",
+      &VMKont::ELku(..) => "ELku",
       &VMKont::Thk0(..) => "Thk0",
       &VMKont::App0(..) => "App0",
       &VMKont::App1(..) => "App1",
@@ -419,7 +420,11 @@ impl VMachine {
     loop {
       match &*kont {
         &VMKont::Halt => break,
-        &VMKont::Lkd(.., ref prev_kont) => {
+        /*&VMKont::Lkd(.., ref prev_kont) => {
+          depth += 1;
+          kont = prev_kont.clone();
+        }*/
+        &VMKont::ELku(.., ref prev_kont) => {
           depth += 1;
           kont = prev_kont.clone();
         }
@@ -549,11 +554,15 @@ impl VMachine {
               _ => unimplemented!("apply with 2 or more args"),
             }
           }
-          (&LTerm::Env, _) => {
+          /*(&LTerm::ApplyEnv(ref closed_head, ref args), _) => {
             // TODO
             unimplemented!();
-          }
-          (&LTerm::DynEnv(ref lenv), _) => {
+          }*/
+          /*(&LTerm::Env, _) => {
+            // TODO
+            unimplemented!();
+          }*/
+          /*(&LTerm::DynEnv(ref lenv), _) => {
             // TODO
             println!("TRACE: vm:   capturing dyn env...");
             for kv in env.addr_map.iter() {
@@ -564,8 +573,8 @@ impl VMachine {
             let next_env = env;
             let next_kont = kont;
             (next_ctrl, next_env, next_kont)
-          }
-          (&LTerm::Lambda(ref bvars, ref body), _) => {
+          }*/
+          (&LTerm::Lambda(ref params, ref body), _) => {
             // TODO
             println!("TRACE: vm:   capturing lambda...");
             for kv in env.addr_map.iter() {
@@ -574,7 +583,7 @@ impl VMachine {
             let mval = VMValRef::new(VMVal::Clo(VMClosure{
               env: env.clone(),
               lam: VMLam{
-                //bind: bvars.clone(),
+                //bind: params.clone(),
                 code: VMLamCode::Expr(body.clone()),
               },
             }));
@@ -583,7 +592,11 @@ impl VMachine {
             let next_kont = kont;
             (next_ctrl, next_env, next_kont)
           }
-          (&LTerm::VMExt(LTermVMExt::BcLambda(ref bvars, ref body)), _) => {
+          (&LTerm::LambdaEnv(ref closed_env, ref env_param, ref params, ref body), _) => {
+            // TODO
+            unimplemented!();
+          }
+          /*(&LTerm::VMExt(LTermVMExt::BCLambda(ref bvars, ref body)), _) => {
             // TODO
             println!("TRACE: vm:   capturing bc lambda...");
             for kv in env.addr_map.iter() {
@@ -594,6 +607,27 @@ impl VMachine {
               lam: VMLam{
                 //bind: bvars.clone(),
                 code: VMLamCode::Box_(body.clone()),
+              },
+            }));
+            let next_ctrl = VMReg::MVal(mval);
+            let next_env = env;
+            let next_kont = kont;
+            (next_ctrl, next_env, next_kont)
+          }*/
+          (&LTerm::VMExt(LVMExt::BCLambda(ref _params, ref bcdef)), _) => {
+            // TODO
+            println!("TRACE: vm:   capturing bc lambda...");
+            for kv in env.addr_map.iter() {
+              println!("TRACE: vm:     kv: {:?}, _", kv.k);
+            }
+            let mval = VMValRef::new(VMVal::Clo(VMClosure{
+              env: env.clone(),
+              lam: VMLam{
+                //bind: bvars.clone(),
+                code: VMLamCode::Box_(match bcdef.cg {
+                  None => panic!(),
+                  Some(ref cg) => (cg)(),
+                }),
               },
             }));
             let next_ctrl = VMReg::MVal(mval);
@@ -732,13 +766,23 @@ impl VMachine {
               }
             }
           }
-          (&LTerm::DynEnvLookup(ref target, ref name), _) => {
-            // TODO
+          (&LTerm::EnvLookup(ref target, ref name), _) => {
+            println!("TRACE: vm:   expr: env lookup");
+            let lookup_mlam = VMLam{
+              code: VMLamCode::Expr(ltree.clone()),
+            };
             let next_ctrl = VMReg::Code(target.clone());
-            let next_kont = VMKontRef::new(VMKont::Lkd(name.clone(), env.clone(), kont));
+            let next_kont = VMKontRef::new(VMKont::ELku(name.clone(), lookup_mlam, env.clone(), kont));
             let next_env = env.clone();
             (next_ctrl, next_env, next_kont)
           }
+          /*(&LTerm::DynEnvLookup(ref target, ref name_s), _) => {
+            // TODO
+            let next_ctrl = VMReg::Code(target.clone());
+            let next_kont = VMKontRef::new(VMKont::Lkd(name_s.clone(), env.clone(), kont));
+            let next_env = env.clone();
+            (next_ctrl, next_env, next_kont)
+          }*/
           _ => unimplemented!(),
         }
       }
@@ -760,7 +804,7 @@ impl VMachine {
       }
       VMReg::MVal(mval) => {
         match (&*mval, &*kont) {
-          (&VMVal::DEnv(ref tg_lenv), &VMKont::Lkd(ref name, ref env, ref kont)) => {
+          /*(&VMVal::DEnv(ref tg_lenv), &VMKont::Lkd(ref name, ref env, ref kont)) => {
             // TODO
             println!("TRACE: vm:   kont: lkd");
             let lk_var = match tg_lenv.names.get(name) {
@@ -782,6 +826,52 @@ impl VMachine {
             (next_ctrl, next_env, next_kont)
           }
           (_, &VMKont::Lkd(..)) => {
+            panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
+          }*/
+          (&VMVal::Env(ref tg_env), &VMKont::ELku(ref name, ref lookup_mlam, ref saved_env, ref saved_kont)) => {
+            // TODO
+            println!("TRACE: vm:   kont: elku");
+            let thk_a = tg_env.lookup(name.clone());
+            let mthk = self.store.lookup(thk_a);
+            match mthk.state() {
+              VMThunkState::Emp => {
+                println!("TRACE: vm:   expr:   emp...");
+                // NB: Must explicitly transition the thunk to a "black hole"
+                // state using `_prep_update`.
+                mthk._prep_update();
+                let next_ctrl = match mthk.lam.code.clone() {
+                  VMLamCode::Expr(e) => VMReg::Code(e),
+                  VMLamCode::Box_(bc) => VMReg::BCode(bc),
+                };
+                let next_kont = VMKontRef::new(VMKont::Thk0(thk_a, lookup_mlam.clone(), saved_env.clone(), saved_kont.clone()));
+                let next_env = mthk.env.clone();
+                println!("TRACE: vm:   expr:     end emp");
+                (next_ctrl, next_env, next_kont)
+              }
+              VMThunkState::Blk => {
+                panic!("invalid thunk state (blkhole)");
+              }
+              VMThunkState::Ret => {
+                println!("TRACE: vm:   kont:   ret...");
+                let mval = match &*mthk.slot.borrow() {
+                  &VMThunkSlot::Ret(ref mval) => mval.clone(),
+                  _ => panic!("bug"),
+                };
+                /*// TODO: this basically overwrites the current env if the mval
+                // is a closure... is this the correct behavior?
+                let next_env = match &*mval {
+                  &VMVal::Clo(ref mclosure) => mclosure.env.clone(),
+                  _ => env,
+                };*/
+                let next_ctrl = VMReg::MVal(mval);
+                let next_env = saved_env.clone();
+                let next_kont = saved_kont.clone();
+                println!("TRACE: vm:   kont:     end ret");
+                (next_ctrl, next_env, next_kont)
+              }
+            }
+          }
+          (_, &VMKont::ELku(..)) => {
             panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
           }
           (_, &VMKont::Thk0(ref thk_a, ref rest_mlam, ref env, ref kont)) => {
