@@ -107,7 +107,7 @@ pub type LTyRef = Rc<LTy>;
 pub enum LTermPat {
   Cons(LPat, LPat),
   Concat(LPat, LPat),
-  Tuple(Vec<LPat>),
+  Tup(Vec<LPat>),
   Wild,
   UnitLit,
   BitLit(bool),
@@ -120,6 +120,12 @@ pub enum LTermPat {
 #[derive(Debug)]
 pub struct LTermPatRef {
   inner:    Rc<LTermPat>,
+}
+
+impl LTermPatRef {
+  pub fn new(pat: LTermPat) -> LTermPatRef {
+    LTermPatRef{inner: Rc::new(pat)}
+  }
 }
 
 impl Clone for LTermPatRef {
@@ -153,7 +159,7 @@ impl LTermPat {
         lhs.term._vars(vars_set, vars_buf);
         rhs.term._vars(vars_set, vars_buf);
       }
-      &LTermPat::Tuple(ref elems) => {
+      &LTermPat::Tup(ref elems) => {
         for e in elems.iter() {
           e.term._vars(vars_set, vars_buf);
         }
@@ -1058,9 +1064,48 @@ impl LBuilder {
     }
   }
 
-  pub fn _htree_to_ltree_lower_pass_pat(&mut self, htree: Rc<HExpr>) -> LPat {
-    // FIXME
-    unimplemented!();
+  pub fn _htree_to_ltree_lower_pass_pat_rec(&mut self, htree: Rc<HExpr>, bindings: &mut Vec<(LHash, LVar, Option<LVar>)>) -> LPat {
+    match &*htree {
+      &HExpr::Tuple(ref elems) => {
+        let elems: Vec<_> = elems.iter().map(|elem| {
+          self._htree_to_ltree_lower_pass_pat_rec(elem.clone(), bindings)
+        }).collect();
+        LPat{term: LTermPatRef::new(LTermPat::Tup(elems))}
+      }
+      &HExpr::WildPat => {
+        LPat{term: LTermPatRef::new(LTermPat::Wild)}
+      }
+      &HExpr::UnitLit => {
+        LPat{term: LTermPatRef::new(LTermPat::UnitLit)}
+      }
+      &HExpr::TeeLit => {
+        LPat{term: LTermPatRef::new(LTermPat::BitLit(true))}
+      }
+      &HExpr::BotLit => {
+        LPat{term: LTermPatRef::new(LTermPat::BitLit(false))}
+      }
+      &HExpr::IntLit(x) => {
+        LPat{term: LTermPatRef::new(LTermPat::IntLit(x))}
+      }
+      &HExpr::FloatLit(x) => {
+        LPat{term: LTermPatRef::new(LTermPat::FloLit(x))}
+      }
+      &HExpr::Ident(ref name) => {
+        let name_hash = self.hashes.lookup(name.to_string());
+        let (name_hash, name_var, name_old_var) = self.vars.bind(name_hash);
+        bindings.push((name_hash, name_var.clone(), name_old_var));
+        LPat{term: LTermPatRef::new(LTermPat::Var(name_var))}
+      }
+      _ => {
+        panic!();
+      }
+    }
+  }
+
+  pub fn _htree_to_ltree_lower_pass_pat(&mut self, htree: Rc<HExpr>) -> (LPat, Vec<(LHash, LVar, Option<LVar>)>) {
+    let mut bindings = vec![];
+    let pat = self._htree_to_ltree_lower_pass_pat_rec(htree, &mut bindings);
+    (pat, bindings)
   }
 
   pub fn _htree_to_ltree_lower_pass(&mut self, htree: Rc<HExpr>) -> LExpr {
@@ -1087,8 +1132,8 @@ impl LBuilder {
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Apply(lhs, args)), /*info: LExprInfo::default()*/}
       }
       &HExpr::Tuple(ref elems) => {
-        let elems: Vec<_> = elems.iter().map(|arg| {
-          self._htree_to_ltree_lower_pass(arg.clone())
+        let elems: Vec<_> = elems.iter().map(|elem| {
+          self._htree_to_ltree_lower_pass(elem.clone())
         }).collect();
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Tuple(elems)), /*info: LExprInfo::default()*/}
       }
@@ -1178,10 +1223,13 @@ impl LBuilder {
       }
       &HExpr::LetMatch(ref lhs, ref body, ref rest) => {
         // FIXME
-        let pat = self._htree_to_ltree_lower_pass_pat(lhs.clone());
         let body = self._htree_to_ltree_lower_pass(body.clone());
+        let (pat, pat_bindings) = self._htree_to_ltree_lower_pass_pat(lhs.clone());
         let rest = self._htree_to_ltree_lower_pass(rest.clone());
-        unimplemented!();
+        for (p_hash, p_var, p_old_var) in pat_bindings.into_iter().rev() {
+          self.vars.unbind(p_hash, p_var, p_old_var);
+        }
+        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Match(body, vec![(pat, rest)]))}
       }
       &HExpr::Switch(ref pred, ref top, ref bot) => {
         let pred = self._htree_to_ltree_lower_pass(pred.clone());

@@ -8,13 +8,31 @@ use std::ops::{Add, Sub, Mul, Div, Rem, Neg};
 #[repr(transparent)]
 pub struct Checked<T>(T);
 
-pub fn checked<T>(val: T) -> Checked<T> {
+pub fn checked<T>(val: T) -> Checked<T> where Checked<T>: From<T> {
   Checked::from(val)
 }
 
-impl<T> From<T> for Checked<T> {
+/*impl<T> From<T> for Checked<T> {
   fn from(val: T) -> Checked<T> {
     Checked(val)
+  }
+}*/
+
+/*impl<T> Into<T> for Checked<T> {
+  fn into(self) -> T {
+    self.0
+  }
+}*/
+
+impl From<i64> for Checked<i64> {
+  fn from(val: i64) -> Checked<i64> {
+    Checked(val)
+  }
+}
+
+impl Into<i64> for Checked<i64> {
+  fn into(self) -> i64 {
+    self.0
   }
 }
 

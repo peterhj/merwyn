@@ -163,3 +163,23 @@ fn test_vm_6() {
   vm._eval();
   vm._debug_dump_ctrl();
 }
+
+#[test]
+fn test_vm_6_1() {
+  println!();
+  let lexer = HLexer::new("let x = switch bot -: 1 | -2; let y = (0, x, -x); let match (_, _, z) = y; -z");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::new();
+  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.normalize(ltree);
+  builder._debug_dump_vars();
+  println!("DEBUG: ltree: {:?}", ltree);
+  //builder.pretty_print(ltree.clone());
+  let ltree = ltree.root;
+  let mut vm = VMachine::new();
+  vm._reset(ltree);
+  vm._eval();
+  vm._debug_dump_ctrl();
+}
