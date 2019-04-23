@@ -1411,6 +1411,7 @@ impl LBuilder {
                 body,
                 rest,
             )),
+          }
         })
       }
       &LTerm::Switch(ref pred, ref top, ref bot) => {
