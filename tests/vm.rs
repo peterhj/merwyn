@@ -176,7 +176,7 @@ fn test_vm_6_1() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   let ltree = builder.lower_with_stdlib(htree);
-  //let ltree = builder.normalize(ltree);
+  let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
   //builder.pretty_print(ltree.clone());

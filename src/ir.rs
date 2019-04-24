@@ -13,7 +13,7 @@ use serde::{Serialize, Serializer};
 use vertreap::{VertreapMap};
 
 //use std::cell::{RefCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 //use std::collections::hash_map::{Entry};
 use std::fmt::{self, Debug};
 use std::io::{Write, stdout};
@@ -1354,23 +1354,17 @@ impl LBuilder {
     match &*ltree.term {
       &LTerm::Apply(ref head, ref args) => {
         self._ltree_normalize_pass_kont_name(head.clone(), &mut |this, head| {
-          // FIXME: normalize non-1 args.
-          match args.len() {
-            1 => {
-              this._ltree_normalize_pass_kont_name(args[0].clone(), &mut |this, arg1| {
-                let new_apply_expr = LExpr{
-                  gen:    this._gen(),
-                  label:  this.labels.fresh(),
-                  term:   LTermRef::new(LTerm::Apply(
-                      head.clone(),
-                      vec![arg1],
-                  )),
-                };
-                kont(this, new_apply_expr)
-              })
-            }
-            _ => unimplemented!(),
-          }
+          this._ltree_normalize_pass_kont_names(VecDeque::from(args.clone()), Vec::new(), &mut |this, args| {
+            let new_apply_expr = LExpr{
+              gen:    this._gen(),
+              label:  this.labels.fresh(),
+              term:   LTermRef::new(LTerm::Apply(
+                  head.clone(),
+                  args,
+              )),
+            };
+            kont(this, new_apply_expr)
+          })
         })
       }
       &LTerm::Adj(ref sink) => {
@@ -1483,16 +1477,21 @@ impl LBuilder {
     self._ltree_normalize_pass_kont(ltree, &mut |this, new_ltree| new_ltree)
   }
 
-  /*pub fn _ltree_normalize_pass_kont_names(&mut self, mut ltrees: Vec<LExpr>, kont: &mut dyn FnMut(&mut Self, Vec<LExpr>) -> LExpr) -> LExpr {
-    if ltrees.len() == 0 {
-      vec![]
-    } else if ltrees.len() == 1 {
-      let ltree = ltrees.pop().unwrap();
-      vec![self._ltree_normalize_pass_kont_name(ltree, &mut |this, e| e)]
-    } else {
-      unimplemented!();
+  pub fn _ltree_normalize_pass_kont_names(&mut self, mut pre_ltrees: VecDeque<LExpr>, post_ltrees: Vec<LExpr>, kont: &mut dyn FnMut(&mut Self, Vec<LExpr>) -> LExpr) -> LExpr {
+    match pre_ltrees.pop_front() {
+      Some(ltree) => {
+        self._ltree_normalize_pass_kont_name(ltree, &mut |this, ltree| {
+          let pre_ltrees = pre_ltrees.clone();
+          let mut post_ltrees = post_ltrees.clone();
+          post_ltrees.push(ltree);
+          this._ltree_normalize_pass_kont_names(pre_ltrees, post_ltrees, kont)
+        })
+      }
+      None => {
+        kont(self, post_ltrees)
+      }
     }
-  }*/
+  }
 
   pub fn _ltree_normalize_pass_kont_name(&mut self, ltree: LExpr, kont: &mut dyn FnMut(&mut Self, LExpr) -> LExpr) -> LExpr {
     self._ltree_normalize_pass_kont(ltree, &mut |this, new_ltree| {
