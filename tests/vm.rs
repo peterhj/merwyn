@@ -2,7 +2,7 @@ extern crate hebb;
 
 use hebb::ir::{LBuilder, LVar};
 use hebb::lang::{HLexer, HParser};
-use hebb::vm::{VMachine};
+use hebb::vm::{VMachine, VMUnpack};
 
 #[test]
 fn test_vm_1() {
@@ -159,27 +159,33 @@ fn test_vm_6() {
   builder.pretty_print(ltree.clone());
   let ltree = ltree.root;
   let mut vm = VMachine::new();
-  vm._reset(ltree);
-  vm._eval();
-  vm._debug_dump_ctrl();
+  //vm._reset(ltree);
+  //vm._eval();
+  //vm._debug_dump_ctrl();
+  let halt_mval = vm.eval(ltree);
+  let v: Option<(i64, i64, i64)> = halt_mval.try_unpack();
+  println!("DEBUG: halt value: {:?}", v);
 }
 
 #[test]
 fn test_vm_6_1() {
   println!();
-  let lexer = HLexer::new("let x = switch bot -: 1 | -2; let y = (0, x, -x); let match (_, _, z) = y; -z");
+  let lexer = HLexer::new("let x = switch bot -: 1 | -2; let y = (0, x, -x); let match (_, _, z) = y; -(z + z * z)");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   let ltree = builder.lower_with_stdlib(htree);
-  let ltree = builder.normalize(ltree);
+  //let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
   //builder.pretty_print(ltree.clone());
   let ltree = ltree.root;
   let mut vm = VMachine::new();
-  vm._reset(ltree);
-  vm._eval();
-  vm._debug_dump_ctrl();
+  //vm._reset(ltree);
+  //vm._eval();
+  //vm._debug_dump_ctrl();
+  let halt_mval = vm.eval(ltree);
+  let v: Option<i64> = halt_mval.try_unpack();
+  println!("DEBUG: halt value: {:?}", v);
 }
