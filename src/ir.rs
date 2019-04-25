@@ -232,7 +232,6 @@ pub enum LTerm<E=LExpr, X=LVMExt> {
   Apply(E, Vec<E>),
   TailApply(E, Vec<E>),
   Env(Vec<(Option<LHash>, LVar)>),
-  //DynEnv(LEnv),
   Lambda(Vec<LVar>, E),
   LambdaEnv(Vec<(Option<LHash>, LVar)>, LVar, Vec<LVar>, E),
   Adj(E),
@@ -252,7 +251,7 @@ pub enum LTerm<E=LExpr, X=LVMExt> {
   Lookup(LVar),
   EnvHashLookup(E, LHash),
   EnvLookup(E, LVar),
-  //DynEnvLookup(E, String),
+  Reclaim(LVar, E),
   VMExt(X),
 }
 
@@ -1368,7 +1367,7 @@ impl LBuilder {
         })
       }
       &LTerm::Adj(ref sink) => {
-        self._ltree_normalize_pass_kont_name(sink.clone(), &mut |this, sink| {
+        self._ltree_normalize_pass_kont(sink.clone(), &mut |this, sink| {
           let new_adj_expr = LExpr{
             gen:    this._gen(),
             label:  this.labels.fresh(),
@@ -1393,15 +1392,13 @@ impl LBuilder {
         kont(self, ltree)
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
-        let saved_name = name.clone();
-        let saved_rest = rest.clone();
         self._ltree_normalize_pass_kont(body.clone(), &mut |this, body| {
-          let rest = this._ltree_normalize_pass_kont(saved_rest.clone(), kont);
+          let rest = this._ltree_normalize_pass_kont(rest.clone(), kont);
           LExpr{
             gen:    this._gen(),
             label:  this.labels.fresh(),
             term:   LTermRef::new(LTerm::Let(
-                saved_name.clone(),
+                name.clone(),
                 body,
                 rest,
             )),
@@ -1409,11 +1406,9 @@ impl LBuilder {
         })
       }
       &LTerm::Switch(ref pred, ref top, ref bot) => {
-        let saved_top = top.clone();
-        let saved_bot = bot.clone();
         self._ltree_normalize_pass_kont_name(pred.clone(), &mut |this, pred| {
-          let top = this._ltree_normalize_pass_kont_term(saved_top.clone());
-          let bot = this._ltree_normalize_pass_kont_term(saved_bot.clone());
+          let top = this._ltree_normalize_pass_kont_term(top.clone());
+          let bot = this._ltree_normalize_pass_kont_term(bot.clone());
           let new_switch_expr = LExpr{
             gen:    this._gen(),
             label:  this.labels.fresh(),
@@ -1428,9 +1423,8 @@ impl LBuilder {
         })
       }
       &LTerm::Match(ref query, ref pat_arms) => {
-        let saved_pat_arms = pat_arms.clone();
         self._ltree_normalize_pass_kont_name(query.clone(), &mut |this, query| {
-          let pat_arms: Vec<_> = saved_pat_arms.iter().map(|(p, a)| {
+          let pat_arms: Vec<_> = pat_arms.iter().map(|(p, a)| {
             (p.clone(), this._ltree_normalize_pass_kont_term(a.clone()))
           }).collect();
           let new_match_expr = LExpr{
@@ -1444,18 +1438,17 @@ impl LBuilder {
           kont(this, new_match_expr)
         })
       }
-      &LTerm::Tuple(ref args) => {
-        // FIXME: should really use `kont_name` below; solution to this is same
-        // as for normalizing lambda applications.
-        let args: Vec<_> = args.iter().map(|arg| self._ltree_normalize_pass_kont_term(arg.clone())).collect();
-        let new_tuple_expr = LExpr{
-          gen:    self._gen(),
-          label:  self.labels.fresh(),
-          term:   LTermRef::new(LTerm::Tuple(
-              args,
-          )),
-        };
-        kont(self, new_tuple_expr)
+      &LTerm::Tuple(ref elems) => {
+        self._ltree_normalize_pass_kont_names(VecDeque::from(elems.clone()), Vec::new(), &mut |this, elems| {
+          let new_tuple_expr = LExpr{
+            gen:    this._gen(),
+            label:  this.labels.fresh(),
+            term:   LTermRef::new(LTerm::Tuple(
+                elems,
+            )),
+          };
+          kont(this, new_tuple_expr)
+        })
       }
       &LTerm::BitLit(_) => {
         kont(self, ltree)
