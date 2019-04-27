@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use crate::ir::{LBuilder, LExpr, LVar};
 use crate::num_util::{checked};
 use crate::vm::{VMBoxCode, VMLam, VMLamCode, VMVal, VMValRef};
 
@@ -83,6 +84,24 @@ pub fn make_bc_add() -> VMBoxCode {
   bc
 }
 
+pub fn make_adj_add(builder: &mut LBuilder, params: Vec<LVar>) -> Vec<LExpr> {
+  let adj0 = {
+    let v = builder.vars.fresh();
+    builder.lambda_term(
+        vec![v.clone()],
+        &mut |builder| builder.lookup_term(v.clone()),
+    )
+  };
+  let adj1 = {
+    let v = builder.vars.fresh();
+    builder.lambda_term(
+        vec![v.clone()],
+        &mut |builder| builder.lookup_term(v.clone()),
+    )
+  };
+  vec![adj0, adj1]
+}
+
 pub fn make_bc_sub() -> VMBoxCode {
   let bc = VMBoxCode{
     ifun: Rc::new(|args| {
@@ -127,6 +146,38 @@ pub fn make_bc_mul() -> VMBoxCode {
     //ladj: None,
   };
   bc
+}
+
+pub fn make_adj_mul(builder: &mut LBuilder, params: Vec<LVar>) -> Vec<LExpr> {
+  let op_hash = builder.hashes.lookup("mul".to_owned());
+  let op = builder.vars.lookup(op_hash);
+  let adj0 = {
+    let v = builder.vars.fresh();
+    builder.lambda_term(
+        vec![v.clone()],
+        &mut |builder| builder.apply_term(
+            &mut |builder| builder.lookup_term(op.clone()),
+            vec![
+              &mut |builder| builder.lookup_term(params[1].clone()),
+              &mut |builder| builder.lookup_term(v.clone()),
+            ]
+        ),
+    )
+  };
+  let adj1 = {
+    let v = builder.vars.fresh();
+    builder.lambda_term(
+        vec![v.clone()],
+        &mut |builder| builder.apply_term(
+            &mut |builder| builder.lookup_term(op.clone()),
+            vec![
+              &mut |builder| builder.lookup_term(params[0].clone()),
+              &mut |builder| builder.lookup_term(v.clone()),
+            ]
+        ),
+    )
+  };
+  vec![adj0, adj1]
 }
 
 pub fn make_bc_div() -> VMBoxCode {

@@ -289,21 +289,21 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     }
   }
 
-  fn save(&self) -> HParser<Toks> {
+  /*fn save(&self) -> HParser<Toks> {
     HParser{
       toks: self.toks.clone(),
       curr: self.curr.clone(),
       prev: self.prev.clone(),
       bt:   self.bt,
     }
-  }
+  }*/
 
-  fn restore(&mut self, saved: HParser<Toks>) {
+  /*fn restore(&mut self, saved: HParser<Toks>) {
     self.toks = saved.toks;
     self.curr = saved.curr;
     self.prev = saved.prev;
     self.bt = saved.bt;
-  }
+  }*/
 
   /*fn lookahead(&self) -> HParser<Toks> {
     HParser{

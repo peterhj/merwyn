@@ -189,3 +189,26 @@ fn test_vm_6_1() {
   let v: Option<i64> = halt_mval.try_unpack();
   println!("DEBUG: halt value: {:?}", v);
 }
+
+#[test]
+fn test_vm_tail_call() {
+  println!();
+  let lexer = HLexer::new("let x = \\. 1; let y = \\. x[]; y[]");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::new();
+  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.normalize(ltree);
+  builder._debug_dump_vars();
+  println!("DEBUG: ltree: {:?}", ltree);
+  builder.pretty_print(ltree.clone());
+  let ltree = ltree.root;
+  let mut vm = VMachine::new();
+  //vm._reset(ltree);
+  //vm._eval();
+  //vm._debug_dump_ctrl();
+  let halt_mval = vm.eval(ltree);
+  let v: Option<i64> = halt_mval.try_unpack();
+  println!("DEBUG: halt value: {:?}", v);
+}

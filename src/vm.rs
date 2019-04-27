@@ -725,6 +725,13 @@ impl VMachine {
       }
       VMReg::Code(ltree) => {
         match (&*ltree.term, &*kont) {
+          (&LTerm::Apply(ref head, ref args), &VMKont::Ret(ref saved_env, ref saved_kont)) => {
+            println!("TRACE: vm:   expr: apply (tail)");
+            let next_ctrl = VMReg::Code(head.clone());
+            let next_kont = VMKontRef::new(VMKont::App(None, Vec::new(), VecDeque::from_iter(args.iter().map(|a| a.clone())), saved_env.clone(), saved_kont.clone()));
+            let next_env = env;
+            (next_ctrl, next_env, next_kont)
+          }
           (&LTerm::Apply(ref head, ref args), _) => {
             println!("TRACE: vm:   expr: apply");
             let next_ctrl = VMReg::Code(head.clone());
