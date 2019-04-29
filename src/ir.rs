@@ -2053,17 +2053,21 @@ impl LBuilder {
                 label:  self.labels.fresh(),
                 term:   LTermRef::new(LTerm::FloLit(x)),
               },
-              /*LExpr{
-                gen:    self._gen(),
-                label:  self.labels.fresh(),
-                term:   LTermRef::new(LTerm::Tuple(vec![*/
-                  LExpr{
-                    gen:    self._gen(),
-                    label:  self.labels.fresh(),
-                    term:   LTermRef::new(LTerm::EnvAdj(Vec::new())),
-                  }
-                /*])),
-              },*/
+              {
+                let tmp_adj_var = self.vars.fresh();
+                LExpr{
+                  gen:    self._gen(),
+                  label:  self.labels.fresh(),
+                  term:   LTermRef::new(LTerm::Lambda(
+                    vec![tmp_adj_var.clone()],
+                    LExpr{
+                      gen:    self._gen(),
+                      label:  self.labels.fresh(),
+                      term:   LTermRef::new(LTerm::EnvAdj(Vec::new())),
+                    }
+                  )),
+                }
+              }
           ])),
         }
       }
@@ -2079,49 +2083,52 @@ impl LBuilder {
                 label:  self.labels.fresh(),
                 term:   LTermRef::new(LTerm::Lookup(var.clone())),
               },
-              /*LExpr{
-                gen:    self._gen(),
-                label:  self.labels.fresh(),
-                //term:   LTermRef::new(LTerm::Lookup(var_adj)),
-                term:   LTermRef::new(LTerm::Tuple(vec![*/
-                  LExpr{
-                    gen:    self._gen(),
-                    label:  self.labels.fresh(),
-                    //term:   LTermRef::new(LTerm::EnvAdj(Vec::new())),
-                    term:   LTermRef::new(LTerm::Concat(
-                      LExpr{
-                        gen:    self._gen(),
-                        label:  self.labels.fresh(),
-                        term:   LTermRef::new(LTerm::EnvAdj(vec![
-                          (var.clone(),
-                          {
-                            let tmp_adj_var = self.vars.fresh();
+              {
+                let tmp_adj_var = self.vars.fresh();
+                LExpr{
+                  gen:    self._gen(),
+                  label:  self.labels.fresh(),
+                  term:   LTermRef::new(LTerm::Lambda(
+                    vec![tmp_adj_var.clone()],
+                    LExpr{
+                      gen:    self._gen(),
+                      label:  self.labels.fresh(),
+                      term:   LTermRef::new(LTerm::Concat(
+                        LExpr{
+                          gen:    self._gen(),
+                          label:  self.labels.fresh(),
+                          term:   LTermRef::new(LTerm::EnvAdj(vec![
+                            (
+                              var.clone(),
+                              LExpr{
+                                gen:    self._gen(),
+                                label:  self.labels.fresh(),
+                                term:   LTermRef::new(LTerm::Lookup(tmp_adj_var.clone())),
+                              }
+                            )
+                          ])),
+                        },
+                        LExpr{
+                          gen:    self._gen(),
+                          label:  self.labels.fresh(),
+                          term:   LTermRef::new(LTerm::Apply(
                             LExpr{
                               gen:    self._gen(),
                               label:  self.labels.fresh(),
-                              term:   LTermRef::new(LTerm::Lambda(
-                                  vec![tmp_adj_var.clone()],
-                                  LExpr{
-                                    gen:    self._gen(),
-                                    label:  self.labels.fresh(),
-                                    // FIXME: should not be a constant 1.
-                                    //term:   LTermRef::new(LTerm::FloLit(1.0)),
-                                    term:   LTermRef::new(LTerm::Lookup(tmp_adj_var)),
-                                  }
-                              )),
-                            }
-                          })
-                        ])),
-                      },
-                      LExpr{
-                        gen:    self._gen(),
-                        label:  self.labels.fresh(),
-                        term:   LTermRef::new(LTerm::Lookup(var_adj)),
-                      },
-                    )),
-                  }
-                /*])),
-              },*/
+                              term:   LTermRef::new(LTerm::Lookup(var_adj)),
+                            },
+                            vec![LExpr{
+                              gen:    self._gen(),
+                              label:  self.labels.fresh(),
+                              term:   LTermRef::new(LTerm::Lookup(tmp_adj_var)),
+                            }],
+                          )),
+                        },
+                      )),
+                    },
+                  )),
+                }
+              }
           ])),
         }
       }
@@ -2765,28 +2772,8 @@ impl<'a> LTreePrettyPrinter2<'a> {
         write!(writer, "<bclam>").unwrap();
       }
       &LTerm::Adj(ref sink) => {
-        /*if let Some(ref free_env) = ltree.maybe_free_env(lroot) {
-          write!(writer, "# INFO: free env: [").unwrap();
-          let mut first_it = true;
-          for v in free_env.inner.ones() {
-            if first_it {
-              write!(writer, "${}", v).unwrap();
-              first_it = false;
-            } else {
-              write!(writer, ", ${}", v).unwrap();
-            }
-          }
-          writeln!(writer, "]").unwrap();
-          for _ in 0 .. indent {
-            write!(writer, " ").unwrap();
-          }
-        }
-        let adj_toks = format!("adj ");
-        write!(writer, "{}", adj_toks).unwrap();
-        let sink_indent = indent + adj_toks.len();
-        self._write(lroot, sink.clone(), sink_indent, false, writer)*/
-        // FIXME
-        write!(writer, "<adj>").unwrap();
+        write!(writer, "adj ").unwrap();
+        self._write(lroot, sink.clone(), writer);
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
         // TODO
