@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::cfg::{GlobalConfig};
-use crate::ir::{LDef, LEnv, LExpr, LPat, LTerm, LTermPat, LVar, LTermRef, LVMExt};
+use crate::ir::{LDef, LEnv, LExpr, LPat, LTerm, LTermRef, LVar, LVMExt};
 use crate::num_util::{Checked, checked};
 use crate::rngs::{HwRng};
 
@@ -272,43 +272,43 @@ impl VMVal {
     }
   }
 
-  fn _pattern_match_bind(this: VMValRef, pat: LPat, pat_env: &mut Vec<(LVar, VMValRef)>) -> bool {
-    match (&*this, &*pat.term) {
-      (&VMVal::Tup(ref es), &LTermPat::Tup(ref esp)) => {
+  fn _pattern_match_bind(this: VMValRef, pat: &LPat, pat_env: &mut Vec<(LVar, VMValRef)>) -> bool {
+    match (&*this, pat) {
+      (&VMVal::Tup(ref es), &LPat::Tup(ref esp)) => {
         if es.len() == esp.len() {
           let mut pm = true;
           for (e, ep) in es.iter().zip(esp.iter()) {
-            pm &= VMVal::_pattern_match_bind(e.clone(), ep.clone(), pat_env);
+            pm &= VMVal::_pattern_match_bind(e.clone(), &*ep, pat_env);
           }
           pm
         } else {
           false
         }
       }
-      (_, &LTermPat::Tup(_)) => {
+      (_, &LPat::Tup(_)) => {
         panic!("vm: runtime error: tried to match a tup pattern, but mval is not a tup: {}", this._mval_name());
       }
-      (&VMVal::Bit(x), &LTermPat::BitLit(xp)) => {
+      (&VMVal::Bit(x), &LPat::BitLit(xp)) => {
         if x == xp { true }
         else { false }
       }
-      (&VMVal::Int(x), &LTermPat::IntLit(xp)) => {
+      (&VMVal::Int(x), &LPat::IntLit(xp)) => {
         let x: i64 = x.into();
         if x == xp { true }
         else { false }
       }
-      (_, &LTermPat::IntLit(_)) => {
+      (_, &LPat::IntLit(_)) => {
         panic!("vm: runtime error: tried to match a int pattern, but mval is not a int: {}", this._mval_name());
       }
-      (&VMVal::Flo(x), &LTermPat::FloLit(xp)) => {
+      (&VMVal::Flo(x), &LPat::FloLit(xp)) => {
         if x == xp { true }
         else { false }
       }
-      (_, &LTermPat::Var(ref vp)) => {
+      (_, &LPat::Var(ref vp)) => {
         pat_env.push((vp.clone(), this));
         true
       }
-      (_, &LTermPat::Wild) => {
+      (_, &LPat::Wild) => {
         true
       }
       _ => unimplemented!(),
@@ -317,7 +317,7 @@ impl VMVal {
 
   pub fn _pattern_match(this: VMValRef, pat: LPat) -> Option<Vec<(LVar, VMValRef)>> {
     let mut pat_env = vec![];
-    if VMVal::_pattern_match_bind(this, pat, &mut pat_env) {
+    if VMVal::_pattern_match_bind(this, &pat, &mut pat_env) {
       Some(pat_env)
     } else {
       None
