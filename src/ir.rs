@@ -2133,6 +2133,7 @@ impl LBuilder {
         }
       }
       &LTerm::Apply(ref head, ref args) => {
+        // FIXME
         unimplemented!();
       }
       &LTerm::Lambda(ref params, ref body) => {
@@ -2171,16 +2172,19 @@ impl LBuilder {
       }
       &LTerm::Apply(ref head, ref args) => {
         // FIXME
-        self._ltree_rewrite_adj_pass_kont(lroot, head.clone(), sink_adj_vars, post_sink_adj_vars, (), &mut |this, lroot, head, sink_adj_vars, post_sink_adj_vars, _| {
+        unimplemented!();
+        //kont(self, lroot, ltree.with_gen_rec(self._gen()), sink_adj_vars, post_sink_adj_vars, ())
+        /*self._ltree_rewrite_adj_pass_kont(lroot, head.clone(), sink_adj_vars, post_sink_adj_vars, (), &mut |this, lroot, head, sink_adj_vars, post_sink_adj_vars, _| {
           unimplemented!();
-        })
-        //unimplemented!();
+        })*/
       }
       &LTerm::Lambda(ref params, ref body) => {
         // FIXME
-        self._ltree_rewrite_adj_pass_kont(lroot, body.clone(), sink_adj_vars, post_sink_adj_vars, (), &mut |this, lroot, body, sink_adj_vars, post_sink_adj_vars, _| {
+        unimplemented!();
+        //kont(self, lroot, ltree.with_gen_rec(self._gen()), sink_adj_vars, post_sink_adj_vars, ())
+        /*self._ltree_rewrite_adj_pass_kont(lroot, body.clone(), sink_adj_vars, post_sink_adj_vars, (), &mut |this, lroot, body, sink_adj_vars, post_sink_adj_vars, _| {
           unimplemented!();
-        })
+        })*/
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
         // TODO
@@ -2287,19 +2291,26 @@ impl LBuilder {
     }
   }
 
-  pub fn _ltree_expand_adj_pass<'root>(&mut self, lroot: &'root LTree, ltree: LExpr) -> LExpr {
+  pub fn _ltree_expand_adj_pass<'root>(&mut self, lroot: &'root LTree, ltree: LExpr) -> Option<LExpr> {
     let mut sink_adj_vars = HashMap::new();
     self._ltree_search_adj_pass(lroot, ltree.clone(), &mut sink_adj_vars);
+    if sink_adj_vars.is_empty() {
+      return None;
+    }
     let mut post_sink_adj_vars = HashMap::new();
     self.gen_ctr += 1;
-    self._ltree_rewrite_adj_pass_kont(lroot, ltree, &mut sink_adj_vars, &mut post_sink_adj_vars, (), &mut |_, _, ltree, _, _, _| ltree)
+    Some(self._ltree_rewrite_adj_pass_kont(lroot, ltree, &mut sink_adj_vars, &mut post_sink_adj_vars, (), &mut |_, _, ltree, _, _, _| ltree))
   }
 
   pub fn expand_adj(&mut self, ltree: LTree) -> LTree {
-    let root = self._ltree_expand_adj_pass(&ltree, ltree.root.clone());
-    LTree{
-      info: LTreeInfo::default(),
-      root,
+    match self._ltree_expand_adj_pass(&ltree, ltree.root.clone()) {
+      None => ltree,
+      Some(root) => {
+        LTree{
+          info: LTreeInfo::default(),
+          root,
+        }
+      }
     }
   }
 
@@ -2653,15 +2664,6 @@ pub struct LTreePrettyPrinter2<'a> {
   //v: LTreePrettyPrinterVerbosity,
 }
 
-struct LTermBlock {
-}
-
-impl Drop for LTermBlock {
-  fn drop(&mut self) {
-    // TODO
-  }
-}
-
 impl<'a> LTreePrettyPrinter2<'a> {
   fn _write_pat<W: Write>(&mut self, pat: &LPat, writer: &mut W) {
     // TODO
@@ -2724,7 +2726,7 @@ impl<'a> LTreePrettyPrinter2<'a> {
         for (arg_idx, arg) in args.iter().enumerate() {
           self._write(lroot, arg.clone(), writer);
           if arg_idx + 1 < args.len() {
-            writeln!(writer, ", ").unwrap();
+            write!(writer, ", ").unwrap();
           }
         }
         write!(writer, "]").unwrap();
@@ -2789,6 +2791,14 @@ impl<'a> LTreePrettyPrinter2<'a> {
         writeln!(writer, " in ").unwrap();
         self._write(lroot, rest.clone(), writer);
       }
+      &LTerm::Switch(ref pred, ref top, ref bot) => {
+        write!(writer, "switch ").unwrap();
+        self._write(lroot, pred.clone(), writer);
+        write!(writer, " -: ").unwrap();
+        self._write(lroot, top.clone(), writer);
+        write!(writer, " | ").unwrap();
+        self._write(lroot, bot.clone(), writer);
+      }
       &LTerm::Match(ref query, ref pat_arms) => {
         write!(writer, "match ").unwrap();
         self._write(lroot, query.clone(), writer);
@@ -2803,9 +2813,11 @@ impl<'a> LTreePrettyPrinter2<'a> {
         }
       }
       &LTerm::Concat(ref lhs, ref rhs) => {
+        write!(writer, "(").unwrap();
         self._write(lroot, lhs.clone(), writer);
         write!(writer, " ++ ").unwrap();
         self._write(lroot, rhs.clone(), writer);
+        write!(writer, ")").unwrap();
       }
       &LTerm::Tuple(ref elems) => {
         write!(writer, "(").unwrap();

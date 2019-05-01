@@ -261,6 +261,22 @@ fn test_lang_tuple() {
 }
 
 #[test]
+fn test_lang_tylam() {
+  let lexer = HLexer::new("let x[y,z]: ['a, 'b] -> 'c = 0 in 0");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_tyvar() {
+  let lexer = HLexer::new("let x: 'a = 0 in 0");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
 fn test_lang_where_let() {
   let lexer = HLexer::new("where let asdf[x] = 1; 0");
   let parser = HParser::new(lexer);
