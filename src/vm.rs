@@ -921,8 +921,8 @@ impl VMachine {
               }
             }
           }
-          (&LTerm::EnvLookup(ref target, ref name), _) => {
-            println!("TRACE: vm:   expr: env lookup");
+          (&LTerm::EnvSelect(ref target, ref name), _) => {
+            println!("TRACE: vm:   expr: env select");
             let lookup_mlam = VMLam{
               code: VMLamCode::LamTerm(Vec::new(), ltree.clone()),
             };

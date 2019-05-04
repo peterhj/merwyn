@@ -98,6 +98,37 @@ fn test_ir_adj_2() {
 }
 
 #[test]
+fn test_ir_adj_3() {
+  println!();
+  //let lexer = HLexer::new("let x = 3.14; let y = let w = \\t. x in w; let z = adj y; z");
+  //let lexer = HLexer::new("let x = 3.14; let y = \\. x; let z = adj y; z");
+  let lexer = HLexer::new("let x = 3.14; let y = \\t. x; let z = adj y; z");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::new();
+  let ltree = builder.lower(htree);
+  //let ltree = builder.lower_with_stdlib(htree);
+  let ltree = ltree.with_env_info();
+  let ltree = ltree.with_free_env_info();
+  //println!("DEBUG: ltree: {:?}", ltree.root);
+  println!("DEBUG: ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.expand_adj(ltree);
+  //let ltree = ltree.with_env_info();
+  //let ltree = ltree.with_free_env_info();
+  //println!("DEBUG: adj-expanded ltree: {:?}", ltree.root);
+  println!("DEBUG: adj-expanded ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+}
+
+#[test]
 #[should_panic]
 fn test_ir_adj_3_fails() {
   println!();
