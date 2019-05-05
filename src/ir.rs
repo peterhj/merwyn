@@ -111,8 +111,8 @@ pub type LTyRef = Rc<LTy>;
 pub enum LPat {
   Cons(LPatRef, LPatRef),
   Concat(LPatRef, LPatRef),
-  Tup(Vec<LPatRef>),
-  Wild,
+  Tuple(Vec<LPatRef>),
+  Place,
   UnitLit,
   BitLit(bool),
   IntLit(i64),
@@ -163,7 +163,7 @@ impl LPat {
         lhs._vars(vars_set, vars_buf);
         rhs._vars(vars_set, vars_buf);
       }
-      &LPat::Tup(ref elems) => {
+      &LPat::Tuple(ref elems) => {
         for e in elems.iter() {
           e._vars(vars_set, vars_buf);
         }
@@ -200,9 +200,16 @@ pub struct LPat {
 impl LPat {
 }
 
+#[derive(Debug)]
+pub enum LEnvKey {
+  Var(LVar),
+  Param(usize),
+}
+
 pub struct LVMBCLambdaDef {
-  pub cg:   Option<Rc<dyn Fn() -> VMBoxCode>>,
-  pub adj:  Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>) -> LExpr>>,
+  pub arity:    usize,
+  pub cg:       Option<Rc<dyn Fn() -> VMBoxCode>>,
+  pub adj:      Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>,
 }
 
 pub enum LVMExt {
@@ -235,12 +242,17 @@ pub enum LTerm<E=LExpr, X=LVMExt> {
   NoRet,
   NonSmooth,
   Apply(E, Vec<E>),
-  Env(Vec<(Option<LHash>, LVar, E)>),
-  EnvAdj(Vec<(LVar, E)>),
+  OldEnv(Vec<(Option<LHash>, LVar, E)>),
+  AdjEnv(Vec<(LVar, E)>),
+  AEnv(Vec<(LEnvKey, E)>),
+  AECons(LEnvKey, E, E),
+  AEConcat(E, E),
+  AEApp(Vec<(usize, LVar)>, E),
+  ERet(Vec<(LVar, usize)>, E),
   Lambda(Vec<LVar>, E),
   LambdaEnv(Vec<(Option<LHash>, LVar)>, LVar, Vec<LVar>, E),
   Adj(E),
-  AdjEnv(Vec<(Option<LHash>, LVar)>, E),
+  //AdjEnv(Vec<(Option<LHash>, LVar)>, E),
   Let(LVar, E, E),
   Fix(LVar, E),
   Switch(E, E, E),
@@ -1302,17 +1314,23 @@ impl LBuilder {
     self.gen_ctr
   }
 
-  pub fn _make_bclambda(&mut self, bc: VMBoxCode) -> LExpr {
+  //pub fn _make_bclambda(&mut self, bc: VMBoxCode) -> LExpr {
+  pub fn _make_bclambda(&mut self, arity: usize, cg: Rc<dyn Fn() -> VMBoxCode>, adj: Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>) -> LExpr {
     let bcdef = LVMBCLambdaDef{
-      cg:   Some(Rc::new(move || { bc.clone() })),
-      adj:  None,
+      arity,
+      //cg:   Some(Rc::new(move || { bc.clone() })),
+      cg:   Some(cg),
+      //adj:  None,
+      //adj:  Some(Rc::new(move || {  })),
+      adj:  adj,
     };
     LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::VMExt(LVMExt::BCLambda(vec![], bcdef))), /*info: LExprInfo::default()*/}
   }
 
-  pub fn _alloc_bclambda(&mut self, name: &str, bc: VMBoxCode) -> (LHash, LVar, LLabel, LExpr) {
+  //pub fn _alloc_bclambda(&mut self, name: &str, bc: VMBoxCode) -> (LHash, LVar, LLabel, LExpr) {
+  pub fn _alloc_bclambda(&mut self, name: &str, arity: usize, cg: Rc<dyn Fn() -> VMBoxCode>, adj: Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>) -> (LHash, LVar, LLabel, LExpr) {
     let (hash, var, label) = self._alloc_name(name);
-    let bclam = self._make_bclambda(bc);
+    let bclam = self._make_bclambda(arity, cg, adj);
     (hash, var, label, bclam)
   }
 
@@ -1320,25 +1338,25 @@ impl LBuilder {
     fn bind(gen: u64, label: LLabel, var: LVar, body: LExpr, rest: LExpr) -> LExpr {
       LExpr{gen, label: label, term: LTermRef::new(LTerm::Let(var, body, rest)), /*info: LExprInfo::default()*/}
     }
-    fn bind_next<B: Iterator<Item=(&'static str, Box<dyn Fn() -> VMBoxCode>)>, R: FnOnce() -> Rc<HExpr>>(this: &mut LBuilder, mut bindings: B, rest: R) -> LExpr {
+    fn bind_next<B: Iterator<Item=(&'static str, usize, Rc<dyn Fn() -> VMBoxCode>, Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>)>, R: FnOnce() -> Rc<HExpr>>(this: &mut LBuilder, mut bindings: B, rest: R) -> LExpr {
       match bindings.next() {
         None => this._htree_to_ltree_lower_pass((rest)()),
-        Some((name, bc_builder)) => {
-          let (_, var, label, bc) = this._alloc_bclambda(name, bc_builder());
+        Some((name, arity, cg, adj)) => {
+          let (_, var, label, bc) = this._alloc_bclambda(name, arity, cg, adj);
           let ltree = (bind_next)(this, bindings, rest);
           let ltree = (bind)(this._gen(), label, var, bc, ltree);
           ltree
         }
       }
     }
-    let stdlib_bindings: Vec<(&'static str, Box<dyn Fn() -> VMBoxCode>)> = vec![
-      ("eq",  Box::new(|| make_bc_eq())),
-      ("add", Box::new(|| make_bc_add())),
-      ("sub", Box::new(|| make_bc_sub())),
-      ("mul", Box::new(|| make_bc_mul())),
-      ("div", Box::new(|| make_bc_div())),
-      ("neg", Box::new(|| make_bc_neg())),
-      ("pi100", Box::new(|| make_bc_pi100())),
+    let stdlib_bindings: Vec<(_, _, Rc<dyn Fn() -> VMBoxCode>, Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>)> = vec![
+      ("eq",  2, Rc::new(|| make_bc_eq()), None),
+      ("add", 2, Rc::new(|| make_bc_add()), Some(Rc::new(|lb, args, sink| make_adj_add(lb, args, sink)))),
+      ("sub", 2, Rc::new(|| make_bc_sub()), None),
+      ("mul", 2, Rc::new(|| make_bc_mul()), None),
+      ("div", 2, Rc::new(|| make_bc_div()), None),
+      ("neg", 1, Rc::new(|| make_bc_neg()), None),
+      ("pi100", 0, Rc::new(|| make_bc_pi100()), None),
     ];
     let ltree = bind_next(
         self,
@@ -1363,10 +1381,10 @@ impl LBuilder {
         let elems: Vec<_> = elems.iter().map(|elem| {
           LPatRef::new(self._htree_to_ltree_lower_pass_pat_rec(elem.clone(), bindings))
         }).collect();
-        LPat::Tup(elems)
+        LPat::Tuple(elems)
       }
-      &HExpr::WildPat => {
-        LPat::Wild
+      &HExpr::PlacePat => {
+        LPat::Place
       }
       &HExpr::UnitLit => {
         LPat::UnitLit
@@ -1679,6 +1697,32 @@ impl LBuilder {
             term:   LTermRef::new(LTerm::Adj(sink)),
           };
           kont(this, new_adj_expr)
+        })
+      }
+      &LTerm::AEApp(ref idx_args, ref env) => {
+        self._ltree_normalize_pass_kont_name(env.clone(), &mut |this, env| {
+          let new_ltree = LExpr{
+            gen:    this._gen(),
+            label:  this.labels.fresh(),
+            term:   LTermRef::new(LTerm::AEApp(
+                idx_args.clone(),
+                env,
+            ))
+          };
+          kont(this, new_ltree)
+        })
+      }
+      &LTerm::ERet(ref param_idxs, ref env) => {
+        self._ltree_normalize_pass_kont_name(env.clone(), &mut |this, env| {
+          let new_ltree = LExpr{
+            gen:    this._gen(),
+            label:  this.labels.fresh(),
+            term:   LTermRef::new(LTerm::ERet(
+                param_idxs.clone(),
+                env,
+            ))
+          };
+          kont(this, new_ltree)
         })
       }
       &LTerm::Lambda(ref params, ref body) => {
@@ -2045,286 +2089,6 @@ impl LBuilder {
       root,
     }
   }
-
-  pub fn _ltree_rewrite_adj_pass_kont_binding<'root>(&mut self, lroot: &'root LTree, ltree: LExpr, sink_adj_vars: &mut HashMap<LVar, LVar>, post_sink_adj_vars: &mut HashMap<LVar, LVar>, env_adj: (), /*kont: &mut dyn FnMut(&mut Self, &'root LTree, LExpr, &mut HashMap<LVar, LVar>, &mut HashMap<LVar, LVar>, ()) -> LExpr*/) -> LExpr {
-    // FIXME
-    match &*ltree.term {
-      &LTerm::UnitLit |
-      &LTerm::BitLit(_) |
-      &LTerm::IntLit(_) => {
-        panic!("bug: adj of nonsmooth literal");
-      }
-      &LTerm::FloLit(x) => {
-        // TODO
-        LExpr{
-          gen:      self._gen(),
-          label:    self.labels.fresh(),
-          term:     LTermRef::new(LTerm::Tuple(vec![
-              LExpr{
-                gen:    self._gen(),
-                label:  self.labels.fresh(),
-                term:   LTermRef::new(LTerm::FloLit(x)),
-              },
-              {
-                let tmp_adj_var = self.vars.fresh();
-                LExpr{
-                  gen:    self._gen(),
-                  label:  self.labels.fresh(),
-                  term:   LTermRef::new(LTerm::Lambda(
-                    vec![tmp_adj_var.clone()],
-                    LExpr{
-                      gen:    self._gen(),
-                      label:  self.labels.fresh(),
-                      term:   LTermRef::new(LTerm::EnvAdj(Vec::new())),
-                    }
-                  )),
-                }
-              }
-          ])),
-        }
-      }
-      &LTerm::Lookup(ref var) => {
-        // TODO
-        let var_adj = sink_adj_vars.entry(var.clone()).or_insert_with(|| self.vars.fresh()).clone();
-        LExpr{
-          gen:      self._gen(),
-          label:    self.labels.fresh(),
-          term:     LTermRef::new(LTerm::Tuple(vec![
-              LExpr{
-                gen:    self._gen(),
-                label:  self.labels.fresh(),
-                term:   LTermRef::new(LTerm::Lookup(var.clone())),
-              },
-              {
-                let tmp_adj_var = self.vars.fresh();
-                LExpr{
-                  gen:    self._gen(),
-                  label:  self.labels.fresh(),
-                  term:   LTermRef::new(LTerm::Lambda(
-                    vec![tmp_adj_var.clone()],
-                    LExpr{
-                      gen:    self._gen(),
-                      label:  self.labels.fresh(),
-                      term:   LTermRef::new(LTerm::Concat(
-                        LExpr{
-                          gen:    self._gen(),
-                          label:  self.labels.fresh(),
-                          term:   LTermRef::new(LTerm::EnvAdj(vec![
-                            (
-                              var.clone(),
-                              LExpr{
-                                gen:    self._gen(),
-                                label:  self.labels.fresh(),
-                                term:   LTermRef::new(LTerm::Lookup(tmp_adj_var.clone())),
-                              }
-                            )
-                          ])),
-                        },
-                        LExpr{
-                          gen:    self._gen(),
-                          label:  self.labels.fresh(),
-                          term:   LTermRef::new(LTerm::Apply(
-                            LExpr{
-                              gen:    self._gen(),
-                              label:  self.labels.fresh(),
-                              term:   LTermRef::new(LTerm::Lookup(var_adj)),
-                            },
-                            vec![LExpr{
-                              gen:    self._gen(),
-                              label:  self.labels.fresh(),
-                              term:   LTermRef::new(LTerm::Lookup(tmp_adj_var)),
-                            }],
-                          )),
-                        },
-                      )),
-                    },
-                  )),
-                }
-              }
-          ])),
-        }
-      }
-      &LTerm::Apply(ref head, ref args) => {
-        // FIXME
-        unimplemented!();
-      }
-      &LTerm::Lambda(ref params, ref body) => {
-        unimplemented!();
-      }
-      _ => unimplemented!(),
-    }
-  }
-
-  pub fn _ltree_rewrite_adj_pass_kont<'root>(&mut self, lroot: &'root LTree, ltree: LExpr, sink_adj_vars: &mut HashMap<LVar, LVar>, post_sink_adj_vars: &mut HashMap<LVar, LVar>, env_adj: (), kont: &mut dyn FnMut(&mut Self, &'root LTree, LExpr, &mut HashMap<LVar, LVar>, &mut HashMap<LVar, LVar>, ()) -> LExpr) -> LExpr {
-    match &*ltree.term {
-      &LTerm::Adj(ref sink) => {
-        let new_ltree = match &*sink.term {
-          &LTerm::UnitLit |
-          &LTerm::BitLit(_) |
-          &LTerm::IntLit(_) => {
-            panic!("bug: adj of nonsmooth literal");
-          }
-          &LTerm::FloLit(_) => {
-            LExpr{
-              gen:    self._gen(),
-              label:  self.labels.fresh(),
-              term:   LTermRef::new(LTerm::FloLit(0.0)),
-            }
-          }
-          &LTerm::Lookup(ref sink_var) => {
-            LExpr{
-              gen:    self._gen(),
-              label:  self.labels.fresh(),
-              term:   LTermRef::new(LTerm::Lookup(sink_adj_vars.get(sink_var).unwrap().clone())),
-            }
-          }
-          _ => panic!("bug: adj rewrite must follow normalization pass"),
-        };
-        kont(self, lroot, new_ltree, sink_adj_vars, post_sink_adj_vars, ())
-      }
-      &LTerm::Apply(ref head, ref args) => {
-        // FIXME
-        unimplemented!();
-        //kont(self, lroot, ltree.with_gen_rec(self._gen()), sink_adj_vars, post_sink_adj_vars, ())
-        /*self._ltree_rewrite_adj_pass_kont(lroot, head.clone(), sink_adj_vars, post_sink_adj_vars, (), &mut |this, lroot, head, sink_adj_vars, post_sink_adj_vars, _| {
-          unimplemented!();
-        })*/
-      }
-      &LTerm::Lambda(ref params, ref body) => {
-        // FIXME
-        unimplemented!();
-        //kont(self, lroot, ltree.with_gen_rec(self._gen()), sink_adj_vars, post_sink_adj_vars, ())
-        /*self._ltree_rewrite_adj_pass_kont(lroot, body.clone(), sink_adj_vars, post_sink_adj_vars, (), &mut |this, lroot, body, sink_adj_vars, post_sink_adj_vars, _| {
-          unimplemented!();
-        })*/
-      }
-      &LTerm::Let(ref name, ref body, ref rest) => {
-        // TODO
-        self._ltree_rewrite_adj_pass_kont(lroot, body.clone(), sink_adj_vars, post_sink_adj_vars, (), &mut |this, lroot, body, sink_adj_vars, post_sink_adj_vars, _| {
-          this._ltree_rewrite_adj_pass_kont(lroot, rest.clone(), sink_adj_vars, post_sink_adj_vars, (), &mut |this, lroot, rest, sink_adj_vars, post_sink_adj_vars, _| {
-            let new_lroot = if sink_adj_vars.contains_key(name) {
-              if post_sink_adj_vars.contains_key(name) {
-                panic!("bug");
-              }
-              let name_adj = sink_adj_vars.get(name).unwrap().clone();
-              post_sink_adj_vars.insert(name.clone(), name_adj.clone());
-              LExpr{
-                gen:    this._gen(),
-                label:  this.labels.fresh(),
-                term:   LTermRef::new(LTerm::Match(
-                    this._ltree_rewrite_adj_pass_kont_binding(lroot, body.clone(), sink_adj_vars, post_sink_adj_vars, ()),
-                    vec![(
-                      LPat::Tup(vec![
-                        LPatRef::new(LPat::Var(name.clone())),
-                        LPatRef::new(LPat::Var(name_adj)),
-                      ]),
-                      rest,
-                    )],
-                )),
-              }
-            } else {
-              LExpr{
-                gen:    this._gen(),
-                label:  this.labels.fresh(),
-                term:   LTermRef::new(LTerm::Let(
-                    name.clone(),
-                    body.clone(),
-                    rest,
-                )),
-              }
-            };
-            kont(this, lroot, new_lroot, sink_adj_vars, post_sink_adj_vars, ())
-          })
-        })
-      }
-      &LTerm::FloLit(x) => {
-        let new_lroot = LExpr{
-          gen:    self._gen(),
-          label:  self.labels.fresh(),
-          term:   LTermRef::new(LTerm::FloLit(x)),
-        };
-        kont(self, lroot, new_lroot, sink_adj_vars, post_sink_adj_vars, ())
-      }
-      &LTerm::Lookup(ref var) => {
-        let new_lroot = LExpr{
-          gen:    self._gen(),
-          label:  self.labels.fresh(),
-          term:   LTermRef::new(LTerm::Lookup(var.clone())),
-        };
-        kont(self, lroot, new_lroot, sink_adj_vars, post_sink_adj_vars, ())
-      }
-      _ => unimplemented!(),
-    }
-  }
-
-  pub fn _ltree_search_adj_pass<'root>(&mut self, lroot: &'root LTree, ltree: LExpr, sink_adj_vars: &mut HashMap<LVar, LVar>) {
-    // TODO
-    match &*ltree.term {
-      &LTerm::Adj(ref sink) => {
-        match &*sink.term {
-          &LTerm::UnitLit |
-          &LTerm::BitLit(_) |
-          &LTerm::IntLit(_) => {
-            panic!("bug: adj of nonsmooth literal");
-          }
-          &LTerm::FloLit(_) => {}
-          &LTerm::Lookup(ref sink_var) => {
-            sink_adj_vars.entry(sink_var.clone())
-              .or_insert_with(|| self.vars.fresh());
-          }
-          _ => panic!("bug: adj search must follow normalization pass"),
-        }
-      }
-      &LTerm::Apply(ref head, ref args) => {
-        self._ltree_search_adj_pass(lroot, head.clone(), sink_adj_vars);
-        for a in args.iter() {
-          self._ltree_search_adj_pass(lroot, a.clone(), sink_adj_vars);
-        }
-      }
-      &LTerm::Lambda(ref params, ref body) => {
-        self._ltree_search_adj_pass(lroot, body.clone(), sink_adj_vars);
-      }
-      &LTerm::Let(ref name, ref body, ref rest) => {
-        self._ltree_search_adj_pass(lroot, body.clone(), sink_adj_vars);
-        self._ltree_search_adj_pass(lroot, rest.clone(), sink_adj_vars);
-      }
-      &LTerm::Match(ref query, ref pat_arms) => {
-        self._ltree_search_adj_pass(lroot, query.clone(), sink_adj_vars);
-        for &(_, ref a) in pat_arms.iter() {
-          self._ltree_search_adj_pass(lroot, a.clone(), sink_adj_vars);
-        }
-      }
-      &LTerm::UnitLit |
-      &LTerm::BitLit(_) |
-      &LTerm::IntLit(_) |
-      &LTerm::FloLit(_) |
-      &LTerm::Lookup(_) => {}
-      _ => unimplemented!(),
-    }
-  }
-
-  pub fn _ltree_expand_adj_pass<'root>(&mut self, lroot: &'root LTree, ltree: LExpr) -> Option<LExpr> {
-    let mut sink_adj_vars = HashMap::new();
-    self._ltree_search_adj_pass(lroot, ltree.clone(), &mut sink_adj_vars);
-    if sink_adj_vars.is_empty() {
-      return None;
-    }
-    let mut post_sink_adj_vars = HashMap::new();
-    self.gen_ctr += 1;
-    Some(self._ltree_rewrite_adj_pass_kont(lroot, ltree, &mut sink_adj_vars, &mut post_sink_adj_vars, (), &mut |_, _, ltree, _, _, _| ltree))
-  }
-
-  /*pub fn expand_adj(&mut self, ltree: LTree) -> LTree {
-    match self._ltree_expand_adj_pass(&ltree, ltree.root.clone()) {
-      None => ltree,
-      Some(root) => {
-        LTree{
-          info: LTreeInfo::default(),
-          root,
-        }
-      }
-    }
-  }*/
 }
 
 #[derive(Default)]
@@ -2335,6 +2099,474 @@ struct AdjPassCtx {
 }
 
 impl LBuilder {
+  fn _ltree_search_adj_sink_pass_binding<'root>(&mut self, lroot: &'root LTree, ctx: &mut AdjPassCtx, name: LVar, adj_name: LVar, body: LExpr, rest: LExpr) -> LExpr {
+    match &*body.term {
+      &LTerm::FloLit(_) => {
+        let new_body = LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Tuple(
+              vec![
+                body.with_gen_rec(self._gen()),
+                LExpr{
+                  gen:    self._gen(),
+                  label:  self.labels.fresh(),
+                  term:   LTermRef::new(LTerm::AEnv(vec![]))
+                },
+              ]
+          ))
+        };
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Match(
+              new_body,
+              vec![(
+                LPat::Tuple(vec![
+                  LPatRef::new(LPat::Var(name.clone())),
+                  LPatRef::new(LPat::Var(adj_name)),
+                ]),
+                rest,
+              )],
+          ))
+        }
+      }
+      &LTerm::Lookup(ref var) => {
+        if !ctx.marked.contains(var) {
+          let adj_var = self.vars.fresh();
+          ctx.adj_map.insert(var.clone(), adj_var);
+          ctx.marked.insert(var.clone());
+        }
+        let adj_var = ctx.adj_map.get(var).unwrap().clone();
+        let sink_param = self.vars.fresh();
+        let new_body = LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Tuple(
+              vec![
+                body.with_gen_rec(self._gen()),
+                LExpr{
+                  gen:    self._gen(),
+                  label:  self.labels.fresh(),
+                  term:   LTermRef::new(LTerm::Lambda(
+                      vec![sink_param.clone()],
+                      LExpr{
+                        gen:    self._gen(),
+                        label:  self.labels.fresh(),
+                        //term:   LTermRef::new(LTerm::AECons(
+                        term:   LTermRef::new(LTerm::AEConcat(
+                            LExpr{
+                              gen:    self._gen(),
+                              label:  self.labels.fresh(),
+                              term:   LTermRef::new(LTerm::AEnv(
+                                  vec![(
+                                    LEnvKey::Var(var.clone()),
+                                    LExpr{
+                                      gen:    self._gen(),
+                                      label:  self.labels.fresh(),
+                                      term:   LTermRef::new(LTerm::Lookup(sink_param.clone()))
+                                    },
+                                  )]
+                              ))
+                            },
+                            LExpr{
+                              gen:    self._gen(),
+                              label:  self.labels.fresh(),
+                              term:   LTermRef::new(LTerm::Apply(
+                                  LExpr{
+                                    gen:    self._gen(),
+                                    label:  self.labels.fresh(),
+                                    term:   LTermRef::new(LTerm::Lookup(adj_var))
+                                  },
+                                  vec![
+                                    LExpr{
+                                      gen:    self._gen(),
+                                      label:  self.labels.fresh(),
+                                      term:   LTermRef::new(LTerm::Lookup(sink_param))
+                                    },
+                                  ]
+                              ))
+                            },
+                        ))
+                      },
+                  ))
+                },
+              ]
+          ))
+        };
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Match(
+              new_body,
+              vec![(
+                LPat::Tuple(vec![
+                  LPatRef::new(LPat::Var(name.clone())),
+                  LPatRef::new(LPat::Var(adj_name)),
+                ]),
+                rest,
+              )],
+          ))
+        }
+      }
+      /*&LTerm::Lambda(ref params, ref lam_body) => {
+        let new_lam_body_name = self.vars.fresh();
+        let new_lam_body = LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Let(
+              new_lam_body_name.clone(),
+              lam_body.clone(),
+              LExpr{
+                gen:    self._gen(),
+                label:  self.labels.fresh(),
+                term:   LTermRef::new(LTerm::Tuple(
+                    vec![
+                      LExpr{
+                        gen:    self._gen(),
+                        label:  self.labels.fresh(),
+                        term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
+                      },
+                      LExpr{
+                        gen:    self._gen(),
+                        label:  self.labels.fresh(),
+                        term:   LTermRef::new(LTerm::ERet(
+                            params.iter().enumerate().map(|(i, p)| {
+                              (p.clone(), i)
+                            }).collect(),
+                            LExpr{
+                              gen:    self._gen(),
+                              label:  self.labels.fresh(),
+                              term:   LTermRef::new(LTerm::Adj(
+                                  LExpr{
+                                    gen:    self._gen(),
+                                    label:  self.labels.fresh(),
+                                    term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
+                                  }
+                              ))
+                            },
+                        ))
+                      },
+                    ]
+                ))
+              }
+          ))
+        };
+        let new_lam = LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Lambda(
+              params.clone(),
+              new_lam_body,
+          ))
+        };
+        let new_lam = self._ltree_normalize_pass_kont_term(new_lam);
+        let new_lam = match self._ltree_search_adj_sink_pass_kont2(lroot, new_lam, ctx,
+            &mut |_, _, new_lam, _| new_lam) {
+          None => panic!("bug"),
+          Some(new_lam) => new_lam,
+        };
+        let new_lam_params = match &*new_lam.term {
+          &LTerm::Lambda(ref params, _) => params.clone(),
+          _ => panic!("bug"),
+        };
+        let mut new_adj_lam_params = Vec::with_capacity(new_lam_params.len());
+        for _ in 0 .. new_lam_params.len() {
+          new_adj_lam_params.push(self.vars.fresh());
+        }
+        let tmp_adj_part_name = self.vars.fresh();
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Let(
+              name.clone(),
+              new_lam,
+              LExpr{
+                gen:    self._gen(),
+                label:  self.labels.fresh(),
+                term:   LTermRef::new(LTerm::Let(
+                    adj_name,
+                    LExpr{
+                      gen:    self._gen(),
+                      label:  self.labels.fresh(),
+                      term:   LTermRef::new(LTerm::Lambda(
+                          new_adj_lam_params.clone(),
+                          LExpr{
+                            gen:    self._gen(),
+                            label:  self.labels.fresh(),
+                            term:   LTermRef::new(LTerm::Match(
+                                LExpr{
+                                  gen:    self._gen(),
+                                  label:  self.labels.fresh(),
+                                  term:   LTermRef::new(LTerm::Apply(
+                                      LExpr{
+                                        gen:    self._gen(),
+                                        label:  self.labels.fresh(),
+                                        term:   LTermRef::new(LTerm::Lookup(name.clone()))
+                                      },
+                                      new_adj_lam_params.iter().map(|p| {
+                                        LExpr{
+                                          gen:    self._gen(),
+                                          label:  self.labels.fresh(),
+                                          term:   LTermRef::new(LTerm::Lookup(p.clone()))
+                                        }
+                                      }).collect(),
+                                  ))
+                                },
+                                vec![(
+                                  LPat::Tuple(vec![
+                                    LPatRef::new(LPat::Place),
+                                    LPatRef::new(LPat::Var(tmp_adj_part_name.clone())),
+                                  ]),
+                                  LExpr{
+                                    gen:    self._gen(),
+                                    label:  self.labels.fresh(),
+                                    term:   LTermRef::new(LTerm::Lookup(tmp_adj_part_name))
+                                  }
+                                )]
+                            ))
+                          }
+                      ))
+                    },
+                    rest,
+                ))
+              }
+          ))
+        }
+      }*/
+      &LTerm::Lambda(ref params, ref lam_body) => {
+        // FIXME: preserve the original lam type (only introduce a new adj ty).
+        let new_lam_body_name = self.vars.fresh();
+        let new_lam_body = LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Let(
+              new_lam_body_name.clone(),
+              lam_body.clone(),
+              LExpr{
+                gen:    self._gen(),
+                label:  self.labels.fresh(),
+                term:   LTermRef::new(LTerm::Tuple(
+                    vec![
+                      LExpr{
+                        gen:    self._gen(),
+                        label:  self.labels.fresh(),
+                        term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
+                      },
+                      LExpr{
+                        gen:    self._gen(),
+                        label:  self.labels.fresh(),
+                        term:   LTermRef::new(LTerm::ERet(
+                            params.iter().enumerate().map(|(i, p)| {
+                              (p.clone(), i)
+                            }).collect(),
+                            LExpr{
+                              gen:    self._gen(),
+                              label:  self.labels.fresh(),
+                              term:   LTermRef::new(LTerm::Adj(
+                                  LExpr{
+                                    gen:    self._gen(),
+                                    label:  self.labels.fresh(),
+                                    term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
+                                  }
+                              ))
+                            },
+                        ))
+                      },
+                    ]
+                ))
+              }
+          ))
+        };
+        let new_lam = LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Lambda(
+              params.clone(),
+              new_lam_body,
+          ))
+        };
+        let new_lam = self._ltree_normalize_pass_kont_term(new_lam);
+        let new_lam = match self._ltree_search_adj_sink_pass_kont2(lroot, new_lam, ctx,
+            &mut |_, _, new_lam, _| new_lam) {
+          None => panic!("bug"),
+          Some(new_lam) => new_lam,
+        };
+        let new_lam_params = match &*new_lam.term {
+          &LTerm::Lambda(ref params, _) => params.clone(),
+          _ => panic!("bug"),
+        };
+        let mut new_adj_lam_params = Vec::with_capacity(new_lam_params.len());
+        for _ in 0 .. new_lam_params.len() {
+          new_adj_lam_params.push(self.vars.fresh());
+        }
+        let tmp_fst_part_name = self.vars.fresh();
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Let(
+              adj_name.clone(),
+              new_lam,
+              LExpr{
+                gen:    self._gen(),
+                label:  self.labels.fresh(),
+                term:   LTermRef::new(LTerm::Let(
+                    name,
+                    LExpr{
+                      gen:    self._gen(),
+                      label:  self.labels.fresh(),
+                      term:   LTermRef::new(LTerm::Lambda(
+                          new_adj_lam_params.clone(),
+                          LExpr{
+                            gen:    self._gen(),
+                            label:  self.labels.fresh(),
+                            term:   LTermRef::new(LTerm::Match(
+                                LExpr{
+                                  gen:    self._gen(),
+                                  label:  self.labels.fresh(),
+                                  term:   LTermRef::new(LTerm::Apply(
+                                      LExpr{
+                                        gen:    self._gen(),
+                                        label:  self.labels.fresh(),
+                                        term:   LTermRef::new(LTerm::Lookup(adj_name))
+                                      },
+                                      new_adj_lam_params.iter().map(|p| {
+                                        LExpr{
+                                          gen:    self._gen(),
+                                          label:  self.labels.fresh(),
+                                          term:   LTermRef::new(LTerm::Lookup(p.clone()))
+                                        }
+                                      }).collect(),
+                                  ))
+                                },
+                                vec![(
+                                  LPat::Tuple(vec![
+                                    LPatRef::new(LPat::Var(tmp_fst_part_name.clone())),
+                                    LPatRef::new(LPat::Place),
+                                  ]),
+                                  LExpr{
+                                    gen:    self._gen(),
+                                    label:  self.labels.fresh(),
+                                    term:   LTermRef::new(LTerm::Lookup(tmp_fst_part_name))
+                                  }
+                                )]
+                            ))
+                          }
+                      ))
+                    },
+                    rest,
+                ))
+              }
+          ))
+        }
+      }
+      &LTerm::VMExt(LVMExt::BCLambda(_, ref bcdef)) => {
+        // FIXME
+        unimplemented!();
+      }
+      &LTerm::Apply(ref head, ref args) => {
+        let head_var = match &*head.term {
+          &LTerm::Lookup(ref head_var) => head_var.clone(),
+          _ => unimplemented!(),
+        };
+        if !ctx.marked.contains(&head_var) {
+          let adj_head_var = self.vars.fresh();
+          ctx.adj_map.insert(head_var.clone(), adj_head_var);
+          ctx.marked.insert(head_var.clone());
+        }
+        let mut idx_arg_vars = Vec::with_capacity(args.len());
+        let mut args_adjs = Vec::with_capacity(args.len());
+        for (arg_idx, arg) in args.iter().enumerate() {
+          match &*arg.term {
+            // FIXME: literal args.
+            &LTerm::Lookup(ref arg_var) => {
+              idx_arg_vars.push((arg_idx, arg_var.clone()));
+              if !ctx.marked.contains(&arg_var) {
+                let adj_arg_var = self.vars.fresh();
+                ctx.adj_map.insert(arg_var.clone(), adj_arg_var);
+                ctx.marked.insert(arg_var.clone());
+              }
+              let arg_adj = ctx.adj_map.get(arg_var).unwrap().clone();
+              args_adjs.push((arg_var.clone(), arg_adj.clone()));
+            }
+            _ => unimplemented!(),
+          }
+        }
+        let adj_head_var = ctx.adj_map.get(&head_var).unwrap().clone();
+        let tmp_adj_part_name = self.vars.fresh();
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Match(
+              //body.with_gen_rec(self._gen()),
+              LExpr{
+                gen:    self._gen(),
+                label:  self.labels.fresh(),
+                term:   LTermRef::new(LTerm::Apply(
+                    LExpr{
+                      gen:    self._gen(),
+                      label:  self.labels.fresh(),
+                      term:   LTermRef::new(LTerm::Lookup(adj_head_var))
+                    },
+                    args_adjs.into_iter().map(|(arg_var, arg_adj)| {
+                      LExpr{
+                        gen:    self._gen(),
+                        label:  self.labels.fresh(),
+                        term:   LTermRef::new(LTerm::Tuple(
+                            vec![
+                              LExpr{
+                                gen:    self._gen(),
+                                label:  self.labels.fresh(),
+                                term:   LTermRef::new(LTerm::Lookup(arg_var))
+                              },
+                              LExpr{
+                                gen:    self._gen(),
+                                label:  self.labels.fresh(),
+                                term:   LTermRef::new(LTerm::Lookup(arg_adj))
+                              },
+                            ]
+                        ))
+                      }
+                    }).collect(),
+                ))
+              },
+              vec![(
+                LPat::Tuple(vec![
+                  LPatRef::new(LPat::Var(name.clone())),
+                  LPatRef::new(LPat::Var(tmp_adj_part_name.clone())),
+                ]),
+                LExpr{
+                  gen:    self._gen(),
+                  label:  self.labels.fresh(),
+                  term:   LTermRef::new(LTerm::Let(
+                      adj_name.clone(),
+                      LExpr{
+                        gen:    self._gen(),
+                        label:  self.labels.fresh(),
+                        term:   LTermRef::new(LTerm::AEApp(
+                            idx_arg_vars,
+                            LExpr{
+                              gen:    self._gen(),
+                              label:  self.labels.fresh(),
+                              term:   LTermRef::new(LTerm::Lookup(tmp_adj_part_name))
+                            },
+                        ))
+                      },
+                      rest,
+                  ))
+                }
+              )]
+          ))
+        }
+      }
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        // FIXME
+        unimplemented!();
+      }
+      _ => unimplemented!(),
+    }
+  }
+
   fn _ltree_search_adj_sink_pass_kont2<'root>(&mut self, lroot: &'root LTree, ltree: LExpr, ctx: &mut AdjPassCtx, kont: &mut FnMut(&mut Self, &'root LTree, LExpr, &mut AdjPassCtx) -> LExpr) -> Option<LExpr> {
     // TODO
     match &*ltree.term {
@@ -2346,6 +2578,7 @@ impl LBuilder {
             panic!("bug: adj of nonsmooth literal");
           }
           &LTerm::FloLit(_) => {
+            self.gen_ctr += 1;
             let new_ltree = LExpr{
               gen:      self._gen(),
               label:    self.labels.fresh(),
@@ -2354,6 +2587,7 @@ impl LBuilder {
             Some(kont(self, lroot, new_ltree, ctx))
           }
           &LTerm::Lookup(ref sink_var) => {
+            self.gen_ctr += 1;
             let sink_adj = if !ctx.marked.contains(sink_var) {
               let sink_adj = self.vars.fresh();
               ctx.adj_map.insert(sink_var.clone(), sink_adj.clone());
@@ -2374,7 +2608,10 @@ impl LBuilder {
       }
       &LTerm::Apply(ref head, ref args) => {
         // FIXME
-        unimplemented!();
+        //unimplemented!();
+        /*self._ltree_search_adj_sink_pass_kont2(lroot, head.clone(), ctx,
+            &mut |_, _, head, _| unimplemented!());*/
+        None
       }
       &LTerm::Lambda(ref params, ref body) => {
         self._ltree_search_adj_sink_pass_kont2(lroot, body.clone(), ctx,
@@ -2390,16 +2627,25 @@ impl LBuilder {
                   ctx.resolved.insert(p.clone());
                   let new_param = this.vars.fresh();
                   new_params.push(new_param.clone());
-                  new_matches.insert(new_param.clone(), (p.clone(), adj_param.clone()));
+                  new_matches.insert(new_param.clone(), (p.clone(), Some(adj_param.clone())));
                 } else {
-                  new_params.push(p.clone());
+                  if ctx.resolved.contains(p) {
+                    panic!("double bug");
+                  }
+                  let adj_param = this.vars.fresh();
+                  ctx.adj_map.insert(p.clone(), adj_param.clone());
+                  ctx.marked.insert(p.clone());
+                  ctx.resolved.insert(p.clone());
+                  let new_param = this.vars.fresh();
+                  new_params.push(new_param.clone());
+                  new_matches.insert(new_param.clone(), (p.clone(), None));
                 }
               }
               let mut new_body = body;
               for np in new_params.iter().rev() {
                 match new_matches.get(np) {
-                  None => {}
-                  Some(&(ref p, ref adj_p)) => {
+                  None => panic!(),
+                  Some(&(ref p, Some(ref adj_p))) => {
                     new_body = LExpr{
                       gen:      this._gen(),
                       label:    this.labels.fresh(),
@@ -2410,9 +2656,29 @@ impl LBuilder {
                             term:   LTermRef::new(LTerm::Lookup(np.clone()))
                           },
                           vec![(
-                            LPat::Tup(vec![
+                            LPat::Tuple(vec![
                               LPatRef::new(LPat::Var(p.clone())),
                               LPatRef::new(LPat::Var(adj_p.clone())),
+                            ]),
+                            new_body,
+                          )],
+                      ))
+                    };
+                  }
+                  Some(&(ref p, None)) => {
+                    new_body = LExpr{
+                      gen:      this._gen(),
+                      label:    this.labels.fresh(),
+                      term:     LTermRef::new(LTerm::Match(
+                          LExpr{
+                            gen:    this._gen(),
+                            label:  this.labels.fresh(),
+                            term:   LTermRef::new(LTerm::Lookup(np.clone()))
+                          },
+                          vec![(
+                            LPat::Tuple(vec![
+                              LPatRef::new(LPat::Var(p.clone())),
+                              LPatRef::new(LPat::Place),
                             ]),
                             new_body,
                           )],
@@ -2433,6 +2699,14 @@ impl LBuilder {
             }
         )
       }
+      &LTerm::VMExt(LVMExt::BCLambda(..)) => {
+        // FIXME
+        unimplemented!();
+        /*self._ltree_search_adj_sink_pass_kont2(lroot, body.clone(), ctx,
+            &mut |this, lroot, body, ctx| {
+            }
+        )*/
+      }
       &LTerm::Let(ref name, ref body, ref rest) => {
         match self._ltree_search_adj_sink_pass_kont2(lroot, body.clone(), ctx,
             &mut |this, lroot, body, ctx| {
@@ -2442,6 +2716,7 @@ impl LBuilder {
                 term:   LTermRef::new(LTerm::Let(
                     name.clone(),
                     body,
+                    //rest.with_gen_rec(this._gen()),
                     rest.clone(),
                 ))
               };
@@ -2459,205 +2734,15 @@ impl LBuilder {
                 }
                 let adj_name = ctx.adj_map.get(name).unwrap().clone();
                 ctx.resolved.insert(name.clone());
-                match &*body.term {
-                  &LTerm::FloLit(_) => {
-                    let new_body = LExpr{
-                      gen:    this._gen(),
-                      label:  this.labels.fresh(),
-                      term:   LTermRef::new(LTerm::Tuple(
-                          vec![
-                            body.with_gen_rec(this._gen()),
-                            LExpr{
-                              gen:    this._gen(),
-                              label:  this.labels.fresh(),
-                              term:   LTermRef::new(LTerm::UnitLit)
-                            },
-                          ]
-                      ))
-                    };
-                    LExpr{
-                      gen:    this._gen(),
-                      label:  this.labels.fresh(),
-                      term:   LTermRef::new(LTerm::Match(
-                          new_body,
-                          vec![(
-                            LPat::Tup(vec![
-                              LPatRef::new(LPat::Var(name.clone())),
-                              LPatRef::new(LPat::Var(adj_name)),
-                            ]),
-                            rest,
-                          )],
-                      ))
-                    }
-                  }
-                  &LTerm::Lookup(ref var) => {
-                    if !ctx.marked.contains(var) {
-                      let adj_var = this.vars.fresh();
-                      ctx.adj_map.insert(var.clone(), adj_var);
-                      ctx.marked.insert(var.clone());
-                    }
-                    let new_body = LExpr{
-                      gen:    this._gen(),
-                      label:  this.labels.fresh(),
-                      term:   LTermRef::new(LTerm::Tuple(
-                          vec![
-                            body.with_gen_rec(this._gen()),
-                            LExpr{
-                              gen:    this._gen(),
-                              label:  this.labels.fresh(),
-                              term:   LTermRef::new(LTerm::UnitLit)
-                            },
-                          ]
-                      ))
-                    };
-                    LExpr{
-                      gen:    this._gen(),
-                      label:  this.labels.fresh(),
-                      term:   LTermRef::new(LTerm::Match(
-                          new_body,
-                          vec![(
-                            LPat::Tup(vec![
-                              LPatRef::new(LPat::Var(name.clone())),
-                              LPatRef::new(LPat::Var(adj_name)),
-                            ]),
-                            rest,
-                          )],
-                      ))
-                    }
-                  }
-                  &LTerm::Lambda(ref params, ref lam_body) => {
-                    let new_lam_body_name = this.vars.fresh();
-                    let new_lam_body = LExpr{
-                      gen:    this._gen(),
-                      label:  this.labels.fresh(),
-                      term:   LTermRef::new(LTerm::Let(
-                          new_lam_body_name.clone(),
-                          lam_body.clone(),
-                          LExpr{
-                            gen:    this._gen(),
-                            label:  this.labels.fresh(),
-                            term:   LTermRef::new(LTerm::Tuple(
-                                vec![
-                                  LExpr{
-                                    gen:    this._gen(),
-                                    label:  this.labels.fresh(),
-                                    term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
-                                  },
-                                  LExpr{
-                                    gen:    this._gen(),
-                                    label:  this.labels.fresh(),
-                                    term:   LTermRef::new(LTerm::Adj(
-                                        LExpr{
-                                          gen:    this._gen(),
-                                          label:  this.labels.fresh(),
-                                          term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
-                                        }
-                                    ))
-                                  },
-                                ]
-                            ))
-                          }
-                      ))
-                    };
-                    let new_lam = LExpr{
-                      gen:    this._gen(),
-                      label:  this.labels.fresh(),
-                      term:   LTermRef::new(LTerm::Lambda(
-                          params.clone(),
-                          new_lam_body,
-                      ))
-                    };
-                    let new_lam = this._ltree_normalize_pass_kont_term(new_lam);
-                    let new_lam = match this._ltree_search_adj_sink_pass_kont2(lroot, new_lam, ctx,
-                        &mut |_, _, new_lam, _| new_lam) {
-                      None => panic!("bug"),
-                      Some(new_lam) => new_lam,
-                    };
-                    let new_lam_params = match &*new_lam.term {
-                      &LTerm::Lambda(ref params, _) => params.clone(),
-                      _ => panic!("bug"),
-                    };
-                    let mut new_adj_lam_params = Vec::with_capacity(new_lam_params.len());
-                    for _ in 0 .. new_lam_params.len() {
-                      new_adj_lam_params.push(this.vars.fresh());
-                    }
-                    let tmp_adj_part_name = this.vars.fresh();
-                    LExpr{
-                      gen:    this._gen(),
-                      label:  this.labels.fresh(),
-                      term:   LTermRef::new(LTerm::Let(
-                          name.clone(),
-                          new_lam,
-                          LExpr{
-                            gen:    this._gen(),
-                            label:  this.labels.fresh(),
-                            term:   LTermRef::new(LTerm::Let(
-                                adj_name,
-                                LExpr{
-                                  gen:    this._gen(),
-                                  label:  this.labels.fresh(),
-                                  term:   LTermRef::new(LTerm::Lambda(
-                                      new_adj_lam_params.clone(),
-                                      LExpr{
-                                        gen:    this._gen(),
-                                        label:  this.labels.fresh(),
-                                        term:   LTermRef::new(LTerm::Match(
-                                            LExpr{
-                                              gen:    this._gen(),
-                                              label:  this.labels.fresh(),
-                                              term:   LTermRef::new(LTerm::Apply(
-                                                  LExpr{
-                                                    gen:    this._gen(),
-                                                    label:  this.labels.fresh(),
-                                                    term:   LTermRef::new(LTerm::Lookup(name.clone()))
-                                                  },
-                                                  new_adj_lam_params.iter().map(|p| {
-                                                    LExpr{
-                                                      gen:    this._gen(),
-                                                      label:  this.labels.fresh(),
-                                                      term:   LTermRef::new(LTerm::Lookup(p.clone()))
-                                                    }
-                                                  }).collect(),
-                                              ))
-                                            },
-                                            vec![(
-                                              LPat::Tup(vec![
-                                                LPatRef::new(LPat::Wild),
-                                                LPatRef::new(LPat::Var(tmp_adj_part_name.clone())),
-                                              ]),
-                                              LExpr{
-                                                gen:    this._gen(),
-                                                label:  this.labels.fresh(),
-                                                term:   LTermRef::new(LTerm::Lookup(tmp_adj_part_name))
-                                              }
-                                            )]
-                                        ))
-                                      }
-                                  ))
-                                },
-                                rest,
-                            ))
-                          }
-                      ))
-                    }
-                  }
-                  &LTerm::VMExt(LVMExt::BCLambda(..)) => {
-                    // FIXME
-                    unimplemented!();
-                  }
-                  &LTerm::Apply(ref head, ref args) => {
-                    // FIXME
-                    unimplemented!();
-                  }
-                  _ => unimplemented!(),
-                }
+                this._ltree_search_adj_sink_pass_binding(lroot, ctx, name.clone(), adj_name, body.clone(), rest)
               } else {
                 LExpr{
                   gen:    this._gen(),
                   label:  this.labels.fresh(),
                   term:   LTermRef::new(LTerm::Let(
                       name.clone(),
-                      body.with_gen_rec(this._gen()),
+                      //body.with_gen_rec(this._gen()),
+                      body.clone(),
                       rest,
                   ))
                 }
@@ -2669,6 +2754,10 @@ impl LBuilder {
           Some(ltree) => return Some(ltree),
         }
         None
+      }
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        // FIXME
+        unimplemented!();
       }
       &LTerm::Match(ref query, ref pat_arms) => {
         // FIXME
@@ -2686,15 +2775,20 @@ impl LBuilder {
   }
 
   pub fn expand_adj(&mut self, ltree: LTree) -> LTree {
-    match self._ltree_search_adj_sink_pass_kont2(&ltree, ltree.root.clone(), &mut AdjPassCtx::default(), &mut |_, _, ltree, _| ltree) {
-      None => ltree,
-      Some(root) => {
-        LTree{
-          info: LTreeInfo::default(),
-          root,
+    let mut ltree = ltree;
+    // FIXME
+    //loop {
+      match self._ltree_search_adj_sink_pass_kont2(&ltree, ltree.root.clone(), &mut AdjPassCtx::default(), &mut |_, _, ltree, _| ltree) {
+        None => return ltree,
+        Some(root) => {
+          ltree = LTree{
+            info: LTreeInfo::default(),
+            root,
+          };
         }
       }
-    }
+    //}
+    ltree
   }
 
   pub fn pretty_print(&self, ltree: LTree) {
@@ -3061,7 +3155,7 @@ impl<'a> LTreePrettyPrinter2<'a> {
         write!(writer, " ++ ").unwrap();
         self._write_pat(&*rhs, writer);
       }
-      &LPat::Tup(ref elems) => {
+      &LPat::Tuple(ref elems) => {
         write!(writer, "(").unwrap();
         for (e_idx, elem) in elems.iter().enumerate() {
           self._write_pat(&*elem, writer);
@@ -3073,7 +3167,7 @@ impl<'a> LTreePrettyPrinter2<'a> {
         }
         write!(writer, ")").unwrap();
       }
-      &LPat::Wild => {
+      &LPat::Place => {
         write!(writer, "_").unwrap();
       }
       &LPat::UnitLit => {
@@ -3114,7 +3208,7 @@ impl<'a> LTreePrettyPrinter2<'a> {
         }
         write!(writer, "]").unwrap();
       }
-      &LTerm::Env(ref kvs) => {
+      &LTerm::OldEnv(ref kvs) => {
         write!(writer, "<env>{{").unwrap();
         for (kv_idx, &(_, ref k, ref v)) in kvs.iter().enumerate() {
           write!(writer, "${} => ", k.0).unwrap();
@@ -3127,8 +3221,8 @@ impl<'a> LTreePrettyPrinter2<'a> {
         }
         write!(writer, "}}").unwrap();
       }
-      &LTerm::EnvAdj(ref kvs) => {
-        write!(writer, "<env-adj>{{").unwrap();
+      &LTerm::AdjEnv(ref kvs) => {
+        write!(writer, "<adj-env>{{").unwrap();
         for (kv_idx, &(ref k, ref v)) in kvs.iter().enumerate() {
           write!(writer, "${} => ", k.0).unwrap();
           self._write(lroot, v.clone(), writer);
@@ -3139,6 +3233,67 @@ impl<'a> LTreePrettyPrinter2<'a> {
           }
         }
         write!(writer, "}}").unwrap();
+      }
+      &LTerm::AEnv(ref kvs) => {
+        write!(writer, "<a-env>{{").unwrap();
+        for (kv_idx, &(ref k, ref v)) in kvs.iter().enumerate() {
+          match k {
+            &LEnvKey::Var(ref var) => {
+              write!(writer, "${} => ", var.0).unwrap();
+            }
+            &LEnvKey::Param(ref pos) => {
+              write!(writer, "{} => ", pos).unwrap();
+            }
+          }
+          self._write(lroot, v.clone(), writer);
+          if kv_idx + 1 < kvs.len() {
+            write!(writer, ", ").unwrap();
+          } else {
+            write!(writer, ",").unwrap();
+          }
+        }
+        write!(writer, "}}").unwrap();
+      }
+      &LTerm::AECons(ref lhs_key, ref lhs_value, ref rhs) => {
+        write!(writer, "(").unwrap();
+        // FIXME
+        //self._write(lroot, lhs.clone(), writer);
+        write!(writer, " <ae>:: ").unwrap();
+        self._write(lroot, rhs.clone(), writer);
+        write!(writer, ")").unwrap();
+      }
+      &LTerm::AEConcat(ref lhs, ref rhs) => {
+        write!(writer, "(").unwrap();
+        self._write(lroot, lhs.clone(), writer);
+        write!(writer, " <ae>++ ").unwrap();
+        self._write(lroot, rhs.clone(), writer);
+        write!(writer, ")").unwrap();
+      }
+      &LTerm::AEApp(ref idx_args, ref env) => {
+        write!(writer, "<ae-app>({{").unwrap();
+        for (i, &(idx, ref arg)) in idx_args.iter().enumerate() {
+          if i < idx_args.len() - 1 {
+            write!(writer, "{} => ${}, ", idx, arg.0).unwrap();
+          } else {
+            write!(writer, "{} => ${},", idx, arg.0).unwrap();
+          }
+        }
+        write!(writer, "}}, ").unwrap();
+        self._write(lroot, env.clone(), writer);
+        write!(writer, ")").unwrap();
+      }
+      &LTerm::ERet(ref param_idxs, ref env) => {
+        write!(writer, "<e-ret>({{").unwrap();
+        for (i, &(ref param, idx)) in param_idxs.iter().enumerate() {
+          if i < param_idxs.len() - 1 {
+            write!(writer, "${} => {}, ", param.0, idx).unwrap();
+          } else {
+            write!(writer, "${} => {},", param.0, idx).unwrap();
+          }
+        }
+        write!(writer, "}}, ").unwrap();
+        self._write(lroot, env.clone(), writer);
+        write!(writer, ")").unwrap();
       }
       &LTerm::Lambda(ref params, ref body) => {
         write!(writer, "\\").unwrap();

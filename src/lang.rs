@@ -52,6 +52,7 @@ lexer! {
   r#";"#            => HLToken::Semi,
   r#"::"#           => HLToken::ColonColon,
   r#":"#            => HLToken::Colon,
+  r#"\|>"#          => HLToken::RPipe,
   r#"\|\|"#         => HLToken::BarBar,
   r#"\|"#           => HLToken::Bar,
   r#"^^"#           => HLToken::HatHat,
@@ -70,7 +71,7 @@ lexer! {
   r#"\["#           => HLToken::LBrack,
   r#"\]"#           => HLToken::RBrack,
 
-  r#"_"#            => HLToken::WildPat,
+  r#"_"#            => HLToken::PlacePat,
   r#"noret"#        => HLToken::NoRet,
   r#"nonsmooth"#    => HLToken::NonSmooth,
   r#"unit"#         => HLToken::UnitLit,
@@ -140,15 +141,16 @@ pub enum HLToken {
   PlusPlus,
   Dash,
   Then,
-  RDArrow,
   RArrow,
+  RDArrow,
+  RPipe,
   Star,
   Slash,
   LParen,
   RParen,
   LBrack,
   RBrack,
-  WildPat,
+  PlacePat,
   NoRet,
   NonSmooth,
   UnitLit,
@@ -270,7 +272,7 @@ pub enum HExpr {
   Concat(Rc<HExpr>, Rc<HExpr>),
   NoRet,
   NonSmooth,
-  WildPat,
+  PlacePat,
   UnitLit,
   NilTupLit,
   BotLit,
@@ -387,6 +389,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::Comma |
       &HLToken::Semi |
       &HLToken::Then |
+      &HLToken::RPipe |
       &HLToken::RDArrow |
       &HLToken::RArrow |
       &HLToken::Colon |
@@ -402,7 +405,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::Lt |
       &HLToken::LtEquals => 400,
       //&HLToken::Bar => 460,
-      &HLToken::BarBar => 460,
+      //&HLToken::BarBar => 460,
       &HLToken::Hat => 480,
       &HLToken::Plus |
       &HLToken::Dash => 500,
@@ -737,10 +740,10 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
           HLToken::Dot => {
             self.advance();
           }
-          HLToken::WildPat | HLToken::Ident(_) => {
+          HLToken::PlacePat | HLToken::Ident(_) => {
             loop {
               match self.current_token() {
-                HLToken::WildPat => {
+                HLToken::PlacePat => {
                   unimplemented!();
                 }
                 HLToken::Ident(param_name) => {
@@ -876,8 +879,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       HLToken::NonSmooth => {
         Ok(HExpr::NonSmooth)
       }
-      HLToken::WildPat => {
-        Ok(HExpr::WildPat)
+      HLToken::PlacePat => {
+        Ok(HExpr::PlacePat)
       }
       HLToken::UnitLit => {
         Ok(HExpr::UnitLit)
@@ -966,10 +969,10 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         Ok(HExpr::LtEq(Rc::new(left), Rc::new(right)))
       }
       //HLToken::Bar => {
-      HLToken::BarBar => {
+      /*HLToken::BarBar => {
         let right = self.expression(self.lbp(&tok), -1)?;
         Ok(HExpr::Or(Rc::new(left), Rc::new(right)))
-      }
+      }*/
       HLToken::Hat => {
         let right = self.expression(self.lbp(&tok), -1)?;
         Ok(HExpr::And(Rc::new(left), Rc::new(right)))

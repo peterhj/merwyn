@@ -84,20 +84,22 @@ pub fn make_bc_add() -> VMBoxCode {
   bc
 }
 
-pub fn make_adj_add(builder: &mut LBuilder, params: Vec<LVar>) -> Vec<LExpr> {
+pub fn make_adj_add(builder: &mut LBuilder, _params: Vec<LVar>, adj_sink: LVar) -> Vec<LExpr> {
   let adj0 = {
     let v = builder.vars.fresh();
-    builder.lambda_term(
+    /*builder.lambda_term(
         vec![v.clone()],
         &mut |builder| builder.lookup_term(v.clone()),
-    )
+    )*/
+    builder.lookup_term(adj_sink.clone())
   };
   let adj1 = {
     let v = builder.vars.fresh();
-    builder.lambda_term(
+    /*builder.lambda_term(
         vec![v.clone()],
         &mut |builder| builder.lookup_term(v.clone()),
-    )
+    )*/
+    builder.lookup_term(adj_sink.clone())
   };
   vec![adj0, adj1]
 }
@@ -148,33 +150,25 @@ pub fn make_bc_mul() -> VMBoxCode {
   bc
 }
 
-pub fn make_adj_mul(builder: &mut LBuilder, params: Vec<LVar>) -> Vec<LExpr> {
+pub fn make_adj_mul(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -> Vec<LExpr> {
   let op_hash = builder.hashes.lookup("mul".to_owned());
   let op = builder.vars.lookup(op_hash);
   let adj0 = {
-    let v = builder.vars.fresh();
-    builder.lambda_term(
-        vec![v.clone()],
-        &mut |builder| builder.apply_term(
-            &mut |builder| builder.lookup_term(op.clone()),
-            vec![
-              &mut |builder| builder.lookup_term(params[1].clone()),
-              &mut |builder| builder.lookup_term(v.clone()),
-            ]
-        ),
+    builder.apply_term(
+        &mut |builder| builder.lookup_term(op.clone()),
+        vec![
+          &mut |builder| builder.lookup_term(params[1].clone()),
+          &mut |builder| builder.lookup_term(adj_sink.clone()),
+        ]
     )
   };
   let adj1 = {
-    let v = builder.vars.fresh();
-    builder.lambda_term(
-        vec![v.clone()],
-        &mut |builder| builder.apply_term(
-            &mut |builder| builder.lookup_term(op.clone()),
-            vec![
-              &mut |builder| builder.lookup_term(params[0].clone()),
-              &mut |builder| builder.lookup_term(v.clone()),
-            ]
-        ),
+    builder.apply_term(
+        &mut |builder| builder.lookup_term(op.clone()),
+        vec![
+          &mut |builder| builder.lookup_term(params[0].clone()),
+          &mut |builder| builder.lookup_term(adj_sink.clone()),
+        ]
     )
   };
   vec![adj0, adj1]

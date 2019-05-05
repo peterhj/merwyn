@@ -274,7 +274,7 @@ impl VMVal {
 
   fn _pattern_match_bind(this: VMValRef, pat: &LPat, pat_env: &mut Vec<(LVar, VMValRef)>) -> bool {
     match (&*this, pat) {
-      (&VMVal::Tup(ref es), &LPat::Tup(ref esp)) => {
+      (&VMVal::Tup(ref es), &LPat::Tuple(ref esp)) => {
         if es.len() == esp.len() {
           let mut pm = true;
           for (e, ep) in es.iter().zip(esp.iter()) {
@@ -285,7 +285,7 @@ impl VMVal {
           false
         }
       }
-      (_, &LPat::Tup(_)) => {
+      (_, &LPat::Tuple(_)) => {
         panic!("vm: runtime error: tried to match a tup pattern, but mval is not a tup: {}", this._mval_name());
       }
       (&VMVal::Bit(x), &LPat::BitLit(xp)) => {
@@ -308,7 +308,7 @@ impl VMVal {
         pat_env.push((vp.clone(), this));
         true
       }
-      (_, &LPat::Wild) => {
+      (_, &LPat::Place) => {
         true
       }
       _ => unimplemented!(),
@@ -773,7 +773,7 @@ impl VMachine {
             let mval = VMValRef::new(VMVal::Clo(VMClosure{
               lam: VMLam{
                 code: VMLamCode::BoxCode(match bcdef.cg {
-                  None => panic!(),
+                  None => panic!("vm: runtime error: bc lambda missing codegen"),
                   Some(ref cg) => (cg)(),
                 }),
               },
