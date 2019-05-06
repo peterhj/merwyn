@@ -1,16 +1,16 @@
-`hebb` is an approach to computing with numbers and math.
-A few sample motivating problems that should be easy to tackle with `hebb`:
+Merwyn (previously `hebb`) is an approach to computing with numbers and math.
+A few sample motivating problems that should be easy to tackle with Merwyn:
 automatic differentiation, hardware resource constraints (e.g. memory limits),
 parallelism (e.g. multiple GPUs, distributed settings), and program optimization
 (e.g. fusion systems, other transformations).
 
-`hebb` in practice consists of a few parts:
+Merwyn in practice consists of a few parts:
 
 * a (mostly) pure, strict, higher-order functional language
 * an embeddable virtual machine for evaluating the language
 * a standard library of "black box" data types and operations
 
-# the hebb language
+# the Merwyn language
 
 * syntactically, similar to OCaml
 * application is explicit and (currently!) uses square brackets
@@ -26,7 +26,7 @@ parallelism (e.g. multiple GPUs, distributed settings), and program optimization
   (liveness analysis is one of the main desiderata); some higher-order versions
   exist based on flow analysis
 
-# the hebb virtual machine
+# the Merwyn virtual machine
 
 * embeddable: has a C API for embedding inside other languages; think Lua
 * rather directly corresponds to operational semantics of a CEK/CESK-style
@@ -38,7 +38,7 @@ parallelism (e.g. multiple GPUs, distributed settings), and program optimization
 * good support for implementing custom "black box" boxed types and "primitive"
   operators
 
-# the hebb standard library
+# the Merwyn standard library
 
 * some lessons learned from previous implementations:
   * it is way too much work to support all the needed variations of operators,

@@ -4,14 +4,14 @@
 
 use envy;
 
-fn default_repro_level() -> i32 {
+/*fn default_repro_level() -> i32 {
   0
-}
+}*/
 
 #[derive(Deserialize, Debug)]
 pub struct GlobalConfig {
-  #[serde(default="default_repro_level")]
-  pub hebb_repro_level: i32,
+  /*#[serde(default="default_repro_level")]
+  pub merwyn_rt_repro_level: i32,*/
 }
 
 impl Default for GlobalConfig {

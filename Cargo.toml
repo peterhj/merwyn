@@ -1,8 +1,9 @@
 [package]
-name = "hebb"
-version = "0.0.0"
+name = "merwyn"
+version = "0.1.0-devel"
 authors = ["Peter Jin <peterhaijin@gmail.com>"]
 edition = "2018"
+license = "MPL-2.0"
 
 [features]
 default = []
@@ -28,12 +29,3 @@ serde = "^1.0"
 serde_derive = "^1.0"
 #vertreap = { path = "../vertreap" }
 vertreap = "^0.1.0-pre.0"
-
-#[lib]
-#name = "hebb"
-#path = "src/lib.rs"
-#crate-type = ["rlib", "cdylib"]
-
-#[[bin]]
-#name = "hebbi"
-#path = "tools/hebbi.rs"
