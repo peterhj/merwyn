@@ -1,7 +1,7 @@
-extern crate hebb;
+extern crate merwyn;
 
-use hebb::ir::{LBuilder};
-use hebb::lang::{HLexer, HParser};
+use merwyn::ir::{LBuilder};
+use merwyn::lang::{HLexer, HParser};
 
 #[test]
 fn test_ir_1() {

@@ -1,8 +1,8 @@
-extern crate hebb;
+extern crate merwyn;
 
-use hebb::ir::{LBuilder, LVar};
-use hebb::lang::{HLexer, HParser};
-use hebb::vm::{VMachine, VMUnpack};
+use merwyn::ir::{LBuilder, LVar};
+use merwyn::lang::{HLexer, HParser};
+use merwyn::vm::{VMachine, VMUnpack};
 
 #[test]
 fn test_vm_1() {

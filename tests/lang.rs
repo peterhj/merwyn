@@ -1,6 +1,6 @@
-extern crate hebb;
+extern crate merwyn;
 
-use hebb::lang::{HLexer, HParser};
+use merwyn::lang::{HLexer, HParser};
 
 #[test]
 fn test_lang() {
