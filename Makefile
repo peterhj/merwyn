@@ -37,6 +37,12 @@ test-lang: pre
 test-ir: pre
 	RUST_TEST_THREADS=1 $(CARGO) test --test ir --release -- --nocapture
 
+test-ir-debug: pre
+	RUST_TEST_THREADS=1 $(CARGO) test --test ir -- --nocapture
+
+test-ty: pre
+	RUST_TEST_THREADS=1 $(CARGO) test --test ty --release -- --nocapture
+
 test-vm: pre
 	RUST_TEST_THREADS=1 $(CARGO) test --test vm --release -- --nocapture
 
