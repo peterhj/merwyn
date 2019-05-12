@@ -743,6 +743,16 @@ impl VMachine {
             // TODO
             unimplemented!();
           }*/
+          (&LTerm::ESelect(ref target, ref name), _) => {
+            println!("TRACE: vm:   expr: env select");
+            let lookup_mlam = VMLam{
+              code: VMLamCode::LamTerm(Vec::new(), ltree.clone()),
+            };
+            let next_ctrl = VMReg::Code(target.clone());
+            let next_kont = VMKontRef::new(VMKont::ELku(name.clone(), lookup_mlam, env.clone(), kont));
+            let next_env = env.clone();
+            (next_ctrl, next_env, next_kont)
+          }
           (&LTerm::Lambda(ref params, ref body), _) => {
             // TODO
             println!("TRACE: vm:   capturing lambda...");
@@ -920,16 +930,6 @@ impl VMachine {
                 panic!("invalid thunk state (reset)");
               }
             }
-          }
-          (&LTerm::EnvSelect(ref target, ref name), _) => {
-            println!("TRACE: vm:   expr: env select");
-            let lookup_mlam = VMLam{
-              code: VMLamCode::LamTerm(Vec::new(), ltree.clone()),
-            };
-            let next_ctrl = VMReg::Code(target.clone());
-            let next_kont = VMKontRef::new(VMKont::ELku(name.clone(), lookup_mlam, env.clone(), kont));
-            let next_env = env.clone();
-            (next_ctrl, next_env, next_kont)
           }
           (&LTerm::Reclaim(ref var, ref rest), _) => {
             println!("TRACE: vm:   expr: reclaim");

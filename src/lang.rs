@@ -16,7 +16,7 @@ lexer! {
   r#"extern"#       => HLToken::Extern,
   r#"intern"#       => HLToken::Intern,
   r#"lambda"#       => HLToken::Lambda,
-  r#"λ"#            => HLToken::Lambda,
+  //r#"λ"#            => HLToken::Lambda,
   r#"adj"#          => HLToken::Adj,
   r#"dyn"#          => HLToken::Dyn,
   r#"pub"#          => HLToken::Pub,
@@ -65,20 +65,24 @@ lexer! {
   r#"-"#            => HLToken::Dash,
   r#"\*"#           => HLToken::Star,
   r#"/"#            => HLToken::Slash,
+  r#"\{\}"#         => HLToken::NilSTupLit,
   r#"\(\)"#         => HLToken::NilTupLit,
   r#"\("#           => HLToken::LParen,
   r#"\)"#           => HLToken::RParen,
   r#"\["#           => HLToken::LBrack,
   r#"\]"#           => HLToken::RBrack,
+  r#"\{"#           => HLToken::LCurly,
+  r#"\}"#           => HLToken::RCurly,
 
   r#"_"#            => HLToken::PlacePat,
   r#"noret"#        => HLToken::NoRet,
   r#"nonsmooth"#    => HLToken::NonSmooth,
   r#"unit"#         => HLToken::UnitLit,
   r#"bot"#          => HLToken::BotLit,
-  r#"⊥"#            => HLToken::BotLit,
+  //r#"⊥"#            => HLToken::BotLit,
   r#"tee"#          => HLToken::TeeLit,
-  r#"⊤"#            => HLToken::TeeLit,
+  //r#"⊤"#            => HLToken::TeeLit,
+  r#"'\?"#          => HLToken::TopTylit,
 
   r#"[0-9]+"#       => HLToken::IntLit(text.parse().unwrap()),
   r#"[0-9]+\.[0-9]*"#           => HLToken::FloatLit(text.parse().unwrap()),
@@ -150,10 +154,13 @@ pub enum HLToken {
   RParen,
   LBrack,
   RBrack,
+  LCurly,
+  RCurly,
   PlacePat,
   NoRet,
   NonSmooth,
   UnitLit,
+  NilSTupLit,
   NilTupLit,
   BotLit,
   TeeLit,
@@ -161,6 +168,7 @@ pub enum HLToken {
   FloatLit(f64),
   Ident(String),
   InfixIdent(String),
+  TopTylit,
   TyvarIdent(String),
   Eof,
 }
@@ -227,6 +235,7 @@ pub struct HLetAttrs {
 
 #[derive(Clone, Debug)]
 pub enum HTypat {
+  TopLit,
   Ident(String),
   Tyvar(String),
   Tylam(Vec<Rc<HTypat>>, Rc<HTypat>),
@@ -238,6 +247,7 @@ pub enum HExpr {
   Intern(String, Rc<HExpr>),
   Lambda(Vec<Rc<HExpr>>, Rc<HExpr>),
   Apply(Rc<HExpr>, Vec<Rc<HExpr>>),
+  STuple(Vec<Rc<HExpr>>),
   Tuple(Vec<Rc<HExpr>>),
   Adj(Rc<HExpr>),
   AdjDyn(Rc<HExpr>),
@@ -274,6 +284,7 @@ pub enum HExpr {
   NonSmooth,
   PlacePat,
   UnitLit,
+  NilSTupLit,
   NilTupLit,
   BotLit,
   TeeLit,
@@ -417,9 +428,11 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::RParen => 0,
       &HLToken::LBrack => 800,
       &HLToken::RBrack => 0,
+      &HLToken::RCurly => 0,
       &HLToken::NoRet |
       &HLToken::NonSmooth |
       &HLToken::UnitLit |
+      &HLToken::NilSTupLit |
       &HLToken::NilTupLit |
       &HLToken::BotLit |
       &HLToken::TeeLit |
@@ -783,6 +796,21 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
               self.advance();
               break;
             }
+            HLToken::TopTylit => {
+              self.advance();
+              arg_typats.push(Rc::new(HTypat::TopLit));
+              match self.current_token() {
+                HLToken::Comma => {
+                  self.advance();
+                  continue;
+                }
+                HLToken::RBrack => {
+                  self.advance();
+                  break;
+                }
+                _ => panic!(),
+              }
+            }
             HLToken::Ident(name) => {
               self.advance();
               arg_typats.push(Rc::new(HTypat::Ident(name)));
@@ -873,6 +901,44 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
           }
         }
       }
+      HLToken::LCurly => {
+        self.advance();
+        match self.current_token() {
+          HLToken::RCurly => {
+            // FIXME: should warn on this case.
+            /*self.advance();
+            Ok(HExpr::NilSTupLit)*/
+            panic!();
+          }
+          _ => {
+            self.backtrack();
+            let right = self.expression(0, -1)?;
+            match self.current_token() {
+              HLToken::Comma => {
+                let mut args = vec![Rc::new(right)];
+                loop {
+                  self.advance();
+                  let right = self.expression(0, -1)?;
+                  args.push(Rc::new(right));
+                  match self.current_token() {
+                    HLToken::RCurly => {
+                      self.advance();
+                      assert!(args.len() >= 2);
+                      return Ok(HExpr::STuple(args));
+                    }
+                    HLToken::Comma => {}
+                    _ => panic!(),
+                  }
+                }
+              }
+              HLToken::RCurly => {}
+              _ => panic!(),
+            }
+            self.advance();
+            Ok(right)
+          }
+        }
+      }
       HLToken::NoRet => {
         Ok(HExpr::NoRet)
       }
@@ -884,6 +950,9 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       }
       HLToken::UnitLit => {
         Ok(HExpr::UnitLit)
+      }
+      HLToken::NilSTupLit => {
+        Ok(HExpr::NilSTupLit)
       }
       HLToken::NilTupLit => {
         Ok(HExpr::NilTupLit)

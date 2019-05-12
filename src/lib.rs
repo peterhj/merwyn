@@ -14,6 +14,7 @@ extern crate plex;
 extern crate rand;
 extern crate rand_chacha;
 extern crate rdrand;
+//extern crate rearray;
 extern crate serde;
 #[macro_use] extern crate serde_derive;
 extern crate vertreap;

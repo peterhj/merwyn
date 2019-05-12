@@ -115,6 +115,7 @@ pub type LTyRef = Rc<LTy>;
 pub enum LPat {
   Cons(LPatRef, LPatRef),
   Concat(LPatRef, LPatRef),
+  STuple(Vec<LPatRef>),
   Tuple(Vec<LPatRef>),
   Place,
   UnitLit,
@@ -167,6 +168,11 @@ impl LPat {
         lhs._vars(vars_set, vars_buf);
         rhs._vars(vars_set, vars_buf);
       }
+      &LPat::STuple(ref elems) => {
+        for e in elems.iter() {
+          e._vars(vars_set, vars_buf);
+        }
+      }
       &LPat::Tuple(ref elems) => {
         for e in elems.iter() {
           e._vars(vars_set, vars_buf);
@@ -204,7 +210,7 @@ pub struct LPat {
 impl LPat {
 }
 
-#[derive(Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum LEnvKey {
   Var(LVar),
   Param(usize),
@@ -213,9 +219,9 @@ pub enum LEnvKey {
 pub struct LVMBCLambdaDef {
   // TODO
   pub ar:   usize,
-  pub ty:   Option<Rc<dyn Fn() -> (Vec<LTy>, LTy)>>,
-  pub cg:   Option<Rc<dyn Fn() -> VMBoxCode>>,
+  pub ty:   Option<Rc<dyn Fn(&mut LBuilder) -> (Vec<LTy>, LTy)>>,
   pub adj:  Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>,
+  pub cg:   Option<Rc<dyn Fn() -> VMBoxCode>>,
 }
 
 pub enum LVMExt {
@@ -253,8 +259,10 @@ pub enum LTerm<E=LExpr, X=LVMExt> {
   AEnv(Vec<(LEnvKey, E)>),
   AECons(LEnvKey, E, E),
   AEConcat(E, E),
-  AEApp(Vec<LVar>, E),
+  EApp(Vec<LVar>, E),
   ERet(Vec<LVar>, E),
+  EHashSelect(E, LHash),
+  ESelect(E, LVar),
   Lambda(Vec<LVar>, E),
   LambdaEnv(Vec<(Option<LHash>, LVar)>, LVar, Vec<LVar>, E),
   Adj(E),
@@ -265,14 +273,13 @@ pub enum LTerm<E=LExpr, X=LVMExt> {
   Match(E, Vec<(LPat, E)>),
   Cons(E, E),
   Concat(E, E),
+  STuple(Vec<E>),
   Tuple(Vec<E>),
   UnitLit,
   BitLit(bool),
   IntLit(i64),
   FloLit(f64),
   Lookup(LVar),
-  EnvHashSelect(E, LHash),
-  EnvSelect(E, LVar),
   Reclaim(LVar, E),
   VMExt(X),
 }
@@ -421,11 +428,11 @@ impl LExpr {
           term:     self.term.clone(),
         }
       }
-      &LTerm::EnvHashSelect(..) => {
+      &LTerm::EHashSelect(..) => {
         // FIXME
         unimplemented!();
       }
-      &LTerm::EnvSelect(..) => {
+      &LTerm::ESelect(..) => {
         // FIXME
         unimplemented!();
       }
@@ -510,11 +517,11 @@ impl LExpr {
       &LTerm::Lookup(_) => {
         info.data.insert(self.label.clone(), env);
       }
-      &LTerm::EnvHashSelect(..) => {
+      &LTerm::EHashSelect(..) => {
         // FIXME
         unimplemented!();
       }
-      &LTerm::EnvSelect(..) => {
+      &LTerm::ESelect(..) => {
         // FIXME
         unimplemented!();
       }
@@ -1393,6 +1400,12 @@ impl LBuilder {
 
   pub fn _htree_to_ltree_lower_pass_pat_rec(&mut self, htree: Rc<HExpr>, bindings: &mut Vec<(LHash, LVar, Option<LVar>)>) -> LPat {
     match &*htree {
+      &HExpr::STuple(ref elems) => {
+        let elems: Vec<_> = elems.iter().map(|elem| {
+          LPatRef::new(self._htree_to_ltree_lower_pass_pat_rec(elem.clone(), bindings))
+        }).collect();
+        LPat::STuple(elems)
+      }
       &HExpr::Tuple(ref elems) => {
         let elems: Vec<_> = elems.iter().map(|elem| {
           LPatRef::new(self._htree_to_ltree_lower_pass_pat_rec(elem.clone(), bindings))
@@ -1463,6 +1476,12 @@ impl LBuilder {
           self._htree_to_ltree_lower_pass(arg.clone())
         }).collect();
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Apply(lhs, args)), /*info: LExprInfo::default()*/}
+      }
+      &HExpr::STuple(ref elems) => {
+        let elems: Vec<_> = elems.iter().map(|elem| {
+          self._htree_to_ltree_lower_pass(elem.clone())
+        }).collect();
+        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::STuple(elems)), /*info: LExprInfo::default()*/}
       }
       &HExpr::Tuple(ref elems) => {
         let elems: Vec<_> = elems.iter().map(|elem| {
@@ -1632,6 +1651,9 @@ impl LBuilder {
       &HExpr::UnitLit => {
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::UnitLit), /*info: LExprInfo::default()*/}
       }
+      &HExpr::NilSTupLit => {
+        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::STuple(vec![])), /*info: LExprInfo::default()*/}
+      }
       &HExpr::NilTupLit => {
         LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::Tuple(vec![])), /*info: LExprInfo::default()*/}
       }
@@ -1667,9 +1689,9 @@ impl LBuilder {
         LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Let(name_var, body, rest)), /*info: LExprInfo::default()*/}*/
         // TODO
         let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
-        //LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::DynEnvSelect(lhs, rhs_name.clone())), /*info: LExprInfo::default()*/}
+        //LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::DynESelect(lhs, rhs_name.clone())), /*info: LExprInfo::default()*/}
         let rhs_hash = self.hashes.lookup(rhs_name.clone());
-        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::EnvHashSelect(lhs, rhs_hash)), /*info: LExprInfo::default()*/}
+        LExpr{gen: self._gen(), label: self.labels.fresh(), term: LTermRef::new(LTerm::EHashSelect(lhs, rhs_hash)), /*info: LExprInfo::default()*/}
       }
       _ => {
         // TODO
@@ -1693,7 +1715,7 @@ impl LBuilder {
       &LTerm::Apply(ref head, ref args) => {
         self._ltree_normalize_pass_kont_name(head.clone(), &mut |this, head| {
           this._ltree_normalize_pass_kont_names(VecDeque::from(args.clone()), Vec::new(), &mut |this, args| {
-            let new_apply_expr = LExpr{
+            let new_ltree = LExpr{
               gen:    this._gen(),
               label:  this.labels.fresh(),
               term:   LTermRef::new(LTerm::Apply(
@@ -1701,26 +1723,46 @@ impl LBuilder {
                   args,
               )),
             };
-            kont(this, new_apply_expr)
+            kont(this, new_ltree)
           })
         })
       }
       &LTerm::Adj(ref sink) => {
         self._ltree_normalize_pass_kont_name(sink.clone(), &mut |this, sink| {
-          let new_adj_expr = LExpr{
+          let new_ltree = LExpr{
             gen:    this._gen(),
             label:  this.labels.fresh(),
             term:   LTermRef::new(LTerm::Adj(sink)),
           };
-          kont(this, new_adj_expr)
+          kont(this, new_ltree)
         })
       }
-      &LTerm::AEApp(ref idx_args, ref env) => {
+      &LTerm::AEnv(ref kvs) => {
+        // TODO
+        kont(self, ltree)
+      }
+      &LTerm::AEConcat(ref lhs, ref rhs) => {
+        // TODO
+        self._ltree_normalize_pass_kont_name(lhs.clone(), &mut |this, lhs| {
+          this._ltree_normalize_pass_kont_name(rhs.clone(), &mut |this, rhs| {
+            let new_ltree = LExpr{
+              gen:    this._gen(),
+              label:  this.labels.fresh(),
+              term:   LTermRef::new(LTerm::AEConcat(
+                  lhs.clone(),
+                  rhs,
+              ))
+            };
+            kont(this, new_ltree)
+          })
+        })
+      }
+      &LTerm::EApp(ref idx_args, ref env) => {
         self._ltree_normalize_pass_kont_name(env.clone(), &mut |this, env| {
           let new_ltree = LExpr{
             gen:    this._gen(),
             label:  this.labels.fresh(),
-            term:   LTermRef::new(LTerm::AEApp(
+            term:   LTermRef::new(LTerm::EApp(
                 idx_args.clone(),
                 env,
             ))
@@ -1743,7 +1785,7 @@ impl LBuilder {
       }
       &LTerm::Lambda(ref params, ref body) => {
         let body = self._ltree_normalize_pass_kont_term(body.clone());
-        let new_lambda_expr = LExpr{
+        let new_ltree = LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
           term:   LTermRef::new(LTerm::Lambda(
@@ -1751,7 +1793,7 @@ impl LBuilder {
               body,
           )),
         };
-        kont(self, new_lambda_expr)
+        kont(self, new_ltree)
       }
       &LTerm::VMExt(LVMExt::BCLambda(..)) => {
         kont(self, ltree)
@@ -1802,16 +1844,28 @@ impl LBuilder {
           kont(this, new_match_expr)
         })
       }
+      &LTerm::STuple(ref elems) => {
+        self._ltree_normalize_pass_kont_names(VecDeque::from(elems.clone()), Vec::new(), &mut |this, elems| {
+          let new_ltree = LExpr{
+            gen:    this._gen(),
+            label:  this.labels.fresh(),
+            term:   LTermRef::new(LTerm::STuple(
+                elems,
+            )),
+          };
+          kont(this, new_ltree)
+        })
+      }
       &LTerm::Tuple(ref elems) => {
         self._ltree_normalize_pass_kont_names(VecDeque::from(elems.clone()), Vec::new(), &mut |this, elems| {
-          let new_tuple_expr = LExpr{
+          let new_ltree = LExpr{
             gen:    this._gen(),
             label:  this.labels.fresh(),
             term:   LTermRef::new(LTerm::Tuple(
                 elems,
             )),
           };
-          kont(this, new_tuple_expr)
+          kont(this, new_ltree)
         })
       }
       &LTerm::UnitLit => {
@@ -1867,6 +1921,57 @@ impl LBuilder {
         }
         &LTerm::Lookup(_) => {
           kont(this, new_ltree)
+        }
+        &LTerm::AEnv(ref kvs) => {
+          if kvs.is_empty() {
+            kont(this, new_ltree)
+          } else if kvs.len() == 1 {
+            // FIXME: kind of a hacky case for `AEConcat` to approx `AECons`.
+            kont(this, new_ltree)
+          } else {
+            // FIXME
+            /*let new_var = this.vars.fresh();
+            LExpr{
+              gen:    this._gen(),
+              label:  this.labels.fresh(),
+              term:   LTermRef::new(LTerm::Let(
+                  new_var.clone(),
+                  new_ltree,
+                  {
+                    let new_var_expr = LExpr{
+                      gen:    this._gen(),
+                      label:  this.labels.fresh(),
+                      term:   LTermRef::new(LTerm::Lookup(new_var)),
+                    };
+                    kont(this, new_var_expr)
+                  }
+              )),
+            }*/
+            kont(this, new_ltree)
+          }
+        }
+        &LTerm::STuple(ref elems) => {
+          if elems.is_empty() {
+            kont(this, new_ltree)
+          } else {
+            let new_var = this.vars.fresh();
+            LExpr{
+              gen:    this._gen(),
+              label:  this.labels.fresh(),
+              term:   LTermRef::new(LTerm::Let(
+                  new_var.clone(),
+                  new_ltree,
+                  {
+                    let new_var_expr = LExpr{
+                      gen:    this._gen(),
+                      label:  this.labels.fresh(),
+                      term:   LTermRef::new(LTerm::Lookup(new_var)),
+                    };
+                    kont(this, new_var_expr)
+                  }
+              )),
+            }
+          }
         }
         &LTerm::Tuple(ref elems) => {
           if elems.is_empty() {
@@ -1931,7 +2036,7 @@ impl LBuilder {
           true  => LExpr{
             gen:    self._gen(),
             label:  self.labels.fresh(),
-            term:   LTermRef::new(LTerm::EnvSelect(
+            term:   LTermRef::new(LTerm::ESelect(
                 LExpr{
                   gen:      self._gen(),
                   label:    self.labels.fresh(),
@@ -2076,15 +2181,15 @@ impl LBuilder {
       &LTerm::Lookup(_) => {
         ltree.with_gen_rec(self._gen())
       }
-      &LTerm::EnvHashSelect(ref target, ref hash) => {
+      &LTerm::EHashSelect(ref target, ref hash) => {
         unreachable!();
       }
-      &LTerm::EnvSelect(ref target, ref name) => {
+      &LTerm::ESelect(ref target, ref name) => {
         let target = self._ltree_close_lambdas_pass(lroot, target.clone());
         LExpr{
           gen:      self._gen(),
           label:    self.labels.fresh(),
-          term:     LTermRef::new(LTerm::EnvSelect(
+          term:     LTermRef::new(LTerm::ESelect(
               target,
               name.clone(),
           )),
@@ -2118,16 +2223,24 @@ impl LBuilder {
   fn _ltree_search_adj_sink_pass_binding<'root>(&mut self, lroot: &'root LTree, ctx: &mut AdjPassCtx, name: LVar, adj_name: LVar, body: LExpr, rest: LExpr) -> LExpr {
     match &*body.term {
       &LTerm::FloLit(_) => {
+        let sink_param = self.vars.fresh();
         let new_body = LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
-          term:   LTermRef::new(LTerm::Tuple(
+          term:   LTermRef::new(LTerm::STuple(
               vec![
                 body.with_gen_rec(self._gen()),
                 LExpr{
                   gen:    self._gen(),
                   label:  self.labels.fresh(),
-                  term:   LTermRef::new(LTerm::AEnv(vec![]))
+                  term:   LTermRef::new(LTerm::Lambda(
+                      vec![sink_param],
+                      LExpr{
+                        gen:    self._gen(),
+                        label:  self.labels.fresh(),
+                        term:   LTermRef::new(LTerm::AEnv(vec![]))
+                      },
+                  ))
                 },
               ]
           ))
@@ -2138,7 +2251,7 @@ impl LBuilder {
           term:   LTermRef::new(LTerm::Match(
               new_body,
               vec![(
-                LPat::Tuple(vec![
+                LPat::STuple(vec![
                   LPatRef::new(LPat::Var(name.clone())),
                   LPatRef::new(LPat::Var(adj_name)),
                 ]),
@@ -2158,7 +2271,7 @@ impl LBuilder {
         let new_body = LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
-          term:   LTermRef::new(LTerm::Tuple(
+          term:   LTermRef::new(LTerm::STuple(
               vec![
                 body.with_gen_rec(self._gen()),
                 LExpr{
@@ -2216,7 +2329,7 @@ impl LBuilder {
           term:   LTermRef::new(LTerm::Match(
               new_body,
               vec![(
-                LPat::Tuple(vec![
+                LPat::STuple(vec![
                   LPatRef::new(LPat::Var(name.clone())),
                   LPatRef::new(LPat::Var(adj_name)),
                 ]),
@@ -2236,7 +2349,7 @@ impl LBuilder {
               LExpr{
                 gen:    self._gen(),
                 label:  self.labels.fresh(),
-                term:   LTermRef::new(LTerm::Tuple(
+                term:   LTermRef::new(LTerm::STuple(
                     vec![
                       LExpr{
                         gen:    self._gen(),
@@ -2330,7 +2443,7 @@ impl LBuilder {
                                   ))
                                 },
                                 vec![(
-                                  LPat::Tuple(vec![
+                                  LPat::STuple(vec![
                                     LPatRef::new(LPat::Place),
                                     LPatRef::new(LPat::Var(tmp_adj_part_name.clone())),
                                   ]),
@@ -2362,7 +2475,7 @@ impl LBuilder {
               LExpr{
                 gen:    self._gen(),
                 label:  self.labels.fresh(),
-                term:   LTermRef::new(LTerm::Tuple(
+                term:   LTermRef::new(LTerm::STuple(
                     vec![
                       LExpr{
                         gen:    self._gen(),
@@ -2457,7 +2570,7 @@ impl LBuilder {
                                   ))
                                 },
                                 vec![(
-                                  LPat::Tuple(vec![
+                                  LPat::STuple(vec![
                                     LPatRef::new(LPat::Var(tmp_fst_part_name.clone())),
                                     LPatRef::new(LPat::Place),
                                   ]),
@@ -2530,7 +2643,7 @@ impl LBuilder {
                       LExpr{
                         gen:    self._gen(),
                         label:  self.labels.fresh(),
-                        term:   LTermRef::new(LTerm::Tuple(
+                        term:   LTermRef::new(LTerm::STuple(
                             vec![
                               LExpr{
                                 gen:    self._gen(),
@@ -2549,7 +2662,7 @@ impl LBuilder {
                 ))
               },
               vec![(
-                LPat::Tuple(vec![
+                LPat::STuple(vec![
                   LPatRef::new(LPat::Var(name.clone())),
                   LPatRef::new(LPat::Var(tmp_adj_part_name.clone())),
                 ]),
@@ -2561,7 +2674,7 @@ impl LBuilder {
                       LExpr{
                         gen:    self._gen(),
                         label:  self.labels.fresh(),
-                        term:   LTermRef::new(LTerm::AEApp(
+                        term:   LTermRef::new(LTerm::EApp(
                             arg_vars,
                             LExpr{
                               gen:    self._gen(),
@@ -2674,7 +2787,7 @@ impl LBuilder {
                             term:   LTermRef::new(LTerm::Lookup(np.clone()))
                           },
                           vec![(
-                            LPat::Tuple(vec![
+                            LPat::STuple(vec![
                               LPatRef::new(LPat::Var(p.clone())),
                               LPatRef::new(LPat::Var(adj_p.clone())),
                             ]),
@@ -2694,7 +2807,7 @@ impl LBuilder {
                             term:   LTermRef::new(LTerm::Lookup(np.clone()))
                           },
                           vec![(
-                            LPat::Tuple(vec![
+                            LPat::STuple(vec![
                               LPatRef::new(LPat::Var(p.clone())),
                               LPatRef::new(LPat::Place),
                             ]),
@@ -2816,11 +2929,18 @@ type TyRef = Rc<Ty>;
 enum Ty {
   Tyvar(u64),
   Boxty(LBoxty),
+  //AEnv(Vec<LVar>, HashMap<LHash, LVar>),
+  AEnvFlat(HashSet<LEnvKey>, HashMap<LHash, LVar>),
+  AEnvNil,
+  AEnvCons(LEnvKey, TyRef, TyRef),
+  EApp(Vec<LVar>, TyRef),
+  ERet(Vec<LVar>, TyRef),
+  Fun(Vec<TyRef>, TyRef),
+  STup(Vec<TyRef>),
   Tup,
   Bit,
   Int,
   Flo,
-  Fun(Vec<TyRef>, TyRef),
 }
 
 struct TyHypothesis {
@@ -2836,27 +2956,79 @@ enum TyConstraint {
 #[derive(Default)]
 pub struct SimpleTyInferenceMachine {
   tyvar_ctr:    u64,
-  ltree_tyvars: HashMap<LLabel, u64>,
+  tree_tyvars:  HashMap<LLabel, u64>,
+  bound_tyvars: HashMap<LVar, u64>,
   hypotheses:   VecDeque<TyHypothesis>,
   constraints:  VecDeque<TyConstraint>,
+  // FIXME: use a proper union-find data structure.
   substitution: HashMap<u64, Ty>,
 }
 
 impl SimpleTyInferenceMachine {
   fn _tree_tyvar(&mut self, ltree: &LExpr) -> Ty {
-    if self.ltree_tyvars.contains_key(&ltree.label) {
-      return Ty::Tyvar(*self.ltree_tyvars.get(&ltree.label).unwrap());
+    if self.tree_tyvars.contains_key(&ltree.label) {
+      return Ty::Tyvar(*self.tree_tyvars.get(&ltree.label).unwrap());
     }
     self.tyvar_ctr += 1;
     assert!(self.tyvar_ctr != 0);
-    self.ltree_tyvars.insert(ltree.label.clone(), self.tyvar_ctr);
+    self.tree_tyvars.insert(ltree.label.clone(), self.tyvar_ctr);
     Ty::Tyvar(self.tyvar_ctr)
   }
 
-  fn _fresh_tyvar(&mut self) -> Ty {
+  fn _bound_tyvar(&mut self, var: LVar) -> Ty {
+    if self.bound_tyvars.contains_key(&var) {
+      return Ty::Tyvar(*self.bound_tyvars.get(&var).unwrap());
+    }
+    self.tyvar_ctr += 1;
+    assert!(self.tyvar_ctr != 0);
+    self.bound_tyvars.insert(var, self.tyvar_ctr);
+    Ty::Tyvar(self.tyvar_ctr)
+  }
+
+  fn _anon_tyvar(&mut self) -> Ty {
     self.tyvar_ctr += 1;
     assert!(self.tyvar_ctr != 0);
     Ty::Tyvar(self.tyvar_ctr)
+  }
+
+  fn _pat_ty_rec(&mut self, pat: &LPat, tyvars: &mut Vec<(LVar, Ty)>) -> Ty {
+    match pat {
+      &LPat::STuple(ref elems) => {
+        Ty::STup(elems.iter().map(|e| TyRef::new(self._pat_ty_rec(e, tyvars))).collect())
+      }
+      &LPat::Tuple(_) => {
+        Ty::Tup
+      }
+      &LPat::BitLit(_) => {
+        Ty::Bit
+      }
+      &LPat::IntLit(_) => {
+        Ty::Int
+      }
+      &LPat::FloLit(_) => {
+        Ty::Flo
+      }
+      &LPat::Place => {
+        // FIXME: create an anon `LVar`, then create corresponding bound tyvar.
+        let ty = self._anon_tyvar();
+        //tyvars.push((tmp_var.clone(), ty.clone()));
+        ty
+      }
+      &LPat::Var(ref var) => {
+        let ty = self._bound_tyvar(var.clone());
+        tyvars.push((var.clone(), ty.clone()));
+        ty
+      }
+      _ => {
+        panic!("_pat_ty: unimplemented lpat: {:?}", pat);
+      }
+    }
+  }
+
+  fn _pat_ty(&mut self, pat: &LPat) -> (Ty, Vec<(LVar, Ty)>) {
+    let mut tyvars = Vec::new();
+    let ty = self._pat_ty_rec(pat, &mut tyvars);
+    (ty, tyvars)
   }
 
   fn _reset(&mut self, ltree: LExpr) {
@@ -2897,11 +3069,86 @@ impl SimpleTyInferenceMachine {
               });
             }
           }
+          &LTerm::AEnv(ref kvs) => {
+            // TODO
+            if kvs.is_empty() {
+              //self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), Ty::AEnv(HashSet::new(), HashMap::new())));
+              self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), Ty::AEnvNil));
+            } else if kvs.len() == 1 {
+              /*let mut keys = HashSet::new();
+              let mut hashes = HashMap::new();
+              keys.insert(kvs[0].0.clone());
+              // FIXME: rev-lookup hashes using the builder.
+              //hashes.insert(...);
+              self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), Ty::AEnv(keys, hashes)));*/
+              let v_ty_v = self._tree_tyvar(&kvs[0].1);
+              self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), Ty::AEnvCons(kvs[0].0.clone(), TyRef::new(v_ty_v.clone()), TyRef::new(Ty::AEnvNil))));
+              self.hypotheses.push_front(TyHypothesis{
+                ltree:  kvs[0].1.clone(),
+                ty:     v_ty_v,
+                venv:   hyp.venv.clone(),
+              });
+            } else {
+              panic!("bug: unimplemented tyinf on large AEnv");
+            }
+          }
+          &LTerm::AEConcat(ref lhs, ref rhs) => {
+            // TODO
+            match &*lhs.term {
+              &LTerm::AEnv(ref lhs_kvs) => {
+                let rhs_ty_v = self._tree_tyvar(rhs);
+                if lhs_kvs.is_empty() {
+                  // TODO: other constraints (e.g. on `rhs`)?
+                  self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), rhs_ty_v.clone()));
+                  self.hypotheses.push_front(TyHypothesis{
+                    ltree:  rhs.clone(),
+                    ty:     rhs_ty_v,
+                    venv:   hyp.venv.clone(),
+                  });
+                } else if lhs_kvs.len() == 1 {
+                  // TODO: other constraints (e.g. on `rhs`)?
+                  let lhs_ty_v = self._tree_tyvar(&lhs_kvs[0].1);
+                  self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), Ty::AEnvCons(lhs_kvs[0].0.clone(), TyRef::new(lhs_ty_v.clone()), TyRef::new(rhs_ty_v.clone()))));
+                  self.hypotheses.push_front(TyHypothesis{
+                    ltree:  rhs.clone(),
+                    ty:     rhs_ty_v,
+                    venv:   hyp.venv.clone(),
+                  });
+                  self.hypotheses.push_back(TyHypothesis{
+                    ltree:  lhs_kvs[0].1.clone(),
+                    ty:     lhs_ty_v,
+                    venv:   hyp.venv.clone(),
+                  });
+                } else {
+                  panic!("bug: unimplemented tyinf on large AEnv");
+                }
+              }
+              _ => unimplemented!(),
+            }
+          }
+          &LTerm::EApp(ref arg_vars, ref env) => {
+            let env_ty_v = self._tree_tyvar(env);
+            self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), Ty::EApp(arg_vars.clone(), TyRef::new(env_ty_v.clone()))));
+            self.hypotheses.push_front(TyHypothesis{
+              ltree:    env.clone(),
+              ty:       env_ty_v,
+              venv:     hyp.venv.clone(),
+            });
+          }
+          &LTerm::ERet(ref params, ref env) => {
+            let env_ty_v = self._tree_tyvar(env);
+            self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), Ty::ERet(params.clone(), TyRef::new(env_ty_v.clone()))));
+            self.hypotheses.push_front(TyHypothesis{
+              ltree:    env.clone(),
+              ty:       env_ty_v,
+              venv:     hyp.venv.clone(),
+            });
+          }
           &LTerm::Lambda(ref params, ref body) => {
             let mut body_venv = hyp.venv.clone();
             let mut params_tys = Vec::with_capacity(params.len());
             for p in params.iter() {
-              let p_ty_v = self._fresh_tyvar();
+              let p_ty_v = self._bound_tyvar(p.clone());
               body_venv.insert(p.clone(), p_ty_v.clone());
               params_tys.push(TyRef::new(p_ty_v));
             }
@@ -2914,12 +3161,10 @@ impl SimpleTyInferenceMachine {
             });
           }
           &LTerm::Let(ref name, ref body, ref rest) => {
-            // TODO
-            let name_ty_v = self._fresh_tyvar();
+            let name_ty_v = self._bound_tyvar(name.clone());
             let body_ty_v = self._tree_tyvar(body);
             let rest_ty_v = self._tree_tyvar(rest);
             let mut rest_venv = hyp.venv.clone();
-            //rest_venv.insert(name.clone(), body_ty_v.clone());
             rest_venv.insert(name.clone(), name_ty_v.clone());
             self.constraints.push_back(TyConstraint::Eq(name_ty_v, body_ty_v.clone()));
             self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), rest_ty_v.clone()));
@@ -2934,7 +3179,53 @@ impl SimpleTyInferenceMachine {
               venv:     rest_venv,
             });
           }
+          &LTerm::Match(ref query, ref pat_arms) => {
+            if pat_arms.is_empty() {
+              panic!("bug");
+            } else if pat_arms.len() == 1 {
+              // TODO
+              let pat = &pat_arms[0].0;
+              let arm = &pat_arms[0].1;
+              let query_ty_v = self._tree_tyvar(query);
+              let (pat_ty, pat_tyvars) = self._pat_ty(pat);
+              let arm_ty_v = self._tree_tyvar(arm);
+              let mut arm_venv = hyp.venv.clone();
+              for (pv, p_tv) in pat_tyvars.into_iter() {
+                arm_venv.insert(pv, p_tv);
+              }
+              self.constraints.push_back(TyConstraint::Eq(query_ty_v.clone(), pat_ty.clone()));
+              self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), arm_ty_v.clone()));
+              self.hypotheses.push_front(TyHypothesis{
+                ltree:    query.clone(),
+                ty:       query_ty_v,
+                venv:     hyp.venv.clone(),
+              });
+              self.hypotheses.push_back(TyHypothesis{
+                ltree:    arm.clone(),
+                ty:       arm_ty_v,
+                venv:     arm_venv,
+              });
+            } else {
+              // FIXME
+              unimplemented!();
+            }
+          }
+          &LTerm::STuple(ref elems) => {
+            // TODO
+            let mut elems_tys = Vec::new();
+            for e in elems.iter() {
+              let e_ty_v = self._tree_tyvar(e);
+              elems_tys.push(TyRef::new(e_ty_v.clone()));
+              self.hypotheses.push_back(TyHypothesis{
+                ltree:    e.clone(),
+                ty:       e_ty_v,
+                venv:     hyp.venv.clone(),
+              });
+            }
+            self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), Ty::STup(elems_tys)));
+          }
           &LTerm::Tuple(_) => {
+            // TODO
             self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), Ty::Tup));
           }
           &LTerm::BitLit(_) => {
@@ -3006,13 +3297,33 @@ impl SimpleTyInferenceMachine {
             if lhs_dom.len() != rhs_dom.len() {
               return Err(());
             }
-            constraints.push_front(TyConstraint::Eq((**lhs_cod).clone(), (**rhs_cod).clone()));
             for (lt, rt) in lhs_dom.iter().zip(rhs_dom.iter()) {
+              constraints.push_back(TyConstraint::Eq((**lt).clone(), (**rt).clone()));
+            }
+            constraints.push_back(TyConstraint::Eq((**lhs_cod).clone(), (**rhs_cod).clone()));
+            Self::_unify(constraints, substitution)
+          }
+          (&Ty::STup(ref lhs_elems), &Ty::STup(ref rhs_elems)) => {
+            if lhs_elems.len() != rhs_elems.len() {
+              return Err(());
+            }
+            for (lt, rt) in lhs_elems.iter().zip(rhs_elems.iter()) {
               constraints.push_back(TyConstraint::Eq((**lt).clone(), (**rt).clone()));
             }
             Self::_unify(constraints, substitution)
           }
+          // TODO
+          (&Ty::AEnvCons(ref lhs_key, ref lhs_kty, ref lhs_env), &Ty::AEnvCons(ref rhs_key, ref rhs_kty, ref rhs_env)) => {
+            if lhs_key != rhs_key {
+              println!("DEBUG: unify failure: AEnv key mismatch");
+              return Err(());
+            }
+            constraints.push_back(TyConstraint::Eq((**lhs_kty).clone(), (**rhs_kty).clone()));
+            constraints.push_back(TyConstraint::Eq((**lhs_env).clone(), (**rhs_env).clone()));
+            Self::_unify(constraints, substitution)
+          }
           _ => {
+            println!("DEBUG: unify failure: lhs: {:?} rhs: {:?}", lhs, rhs);
             Err(())
           }
         }
@@ -3025,8 +3336,11 @@ impl SimpleTyInferenceMachine {
   }
 
   pub fn _debug_dump(&self) {
-    for (ll, v) in self.ltree_tyvars.iter() {
-      println!("DEBUG: SimpleTyInferenceMachine: tree var: {} = {:?}", v, ll);
+    for (vv, v) in self.bound_tyvars.iter() {
+      println!("DEBUG: SimpleTyInferenceMachine: bound tv: {} = {:?}", v, vv);
+    }
+    for (ll, v) in self.tree_tyvars.iter() {
+      println!("DEBUG: SimpleTyInferenceMachine: tree tv:  {} = {:?}", v, ll);
     }
     for (v, t) in self.substitution.iter() {
       println!("DEBUG: SimpleTyInferenceMachine: type sub: {} : {:?}", v, t);
@@ -3399,6 +3713,18 @@ impl<'a> LTreePrettyPrinter2<'a> {
         write!(writer, " ++ ").unwrap();
         self._write_pat(&*rhs, writer);
       }
+      &LPat::STuple(ref elems) => {
+        write!(writer, "{{").unwrap();
+        for (e_idx, elem) in elems.iter().enumerate() {
+          self._write_pat(&*elem, writer);
+          if e_idx + 1 < elems.len() {
+            write!(writer, ", ").unwrap();
+          } else {
+            write!(writer, ",").unwrap();
+          }
+        }
+        write!(writer, "}}").unwrap();
+      }
       &LPat::Tuple(ref elems) => {
         write!(writer, "(").unwrap();
         for (e_idx, elem) in elems.iter().enumerate() {
@@ -3513,8 +3839,8 @@ impl<'a> LTreePrettyPrinter2<'a> {
         self._write(lroot, rhs.clone(), writer);
         write!(writer, ")").unwrap();
       }
-      &LTerm::AEApp(ref args, ref env) => {
-        write!(writer, "<ae-app>({{").unwrap();
+      &LTerm::EApp(ref args, ref env) => {
+        write!(writer, "<e-app>({{").unwrap();
         for (idx, ref arg) in args.iter().enumerate() {
           if idx < args.len() - 1 {
             write!(writer, "{} => ${}, ", idx, arg.0).unwrap();
@@ -3604,6 +3930,18 @@ impl<'a> LTreePrettyPrinter2<'a> {
         write!(writer, " ++ ").unwrap();
         self._write(lroot, rhs.clone(), writer);
         write!(writer, ")").unwrap();
+      }
+      &LTerm::STuple(ref elems) => {
+        write!(writer, "{{").unwrap();
+        for (e_idx, elem) in elems.iter().enumerate() {
+          self._write(lroot, elem.clone(), writer);
+          if e_idx + 1 < elems.len() {
+            write!(writer, ", ").unwrap();
+          } else {
+            write!(writer, ",").unwrap();
+          }
+        }
+        write!(writer, "}}").unwrap();
       }
       &LTerm::Tuple(ref elems) => {
         write!(writer, "(").unwrap();

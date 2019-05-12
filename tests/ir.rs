@@ -72,6 +72,9 @@ fn test_ir_adj_0() {
   let ltree = builder.expand_adj(ltree);
   println!("DEBUG: adj-expanded ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
 }
 
 #[test]
@@ -99,6 +102,9 @@ fn test_ir_adj_1() {
   //println!("DEBUG: adj-expanded ltree: {:?}", ltree.root);
   println!("DEBUG: adj-expanded ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
 }
 
 #[test]
@@ -125,6 +131,9 @@ fn test_ir_adj_2() {
   //let ltree = ltree.with_free_env_info();
   //println!("DEBUG: adj-expanded ltree: {:?}", ltree.root);
   println!("DEBUG: adj-expanded ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
 }
 
@@ -154,9 +163,9 @@ fn test_ir_adj_3() {
   //println!("DEBUG: adj-expanded ltree: {:?}", ltree.root);
   println!("DEBUG: adj-expanded ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
-  /*let ltree = builder.normalize(ltree);
+  let ltree = builder.normalize(ltree);
   println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
-  builder.pretty_print(ltree.clone());*/
+  builder.pretty_print(ltree.clone());
 }
 
 #[test]
@@ -182,5 +191,8 @@ fn test_ir_adj_3_prev() {
   //let ltree = ltree.with_free_env_info();
   //println!("DEBUG: adj-expanded ltree: {:?}", ltree.root);
   println!("DEBUG: adj-expanded ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
 }
