@@ -144,6 +144,7 @@ pub enum VMVal {
   //DEnv(LEnv),
   Env(VMEnvRef),
   Clo(VMClosure),
+  STup(Vec<VMValRef>),
   Tup(Vec<VMValRef>),
   Bit(bool),
   Int(Checked<i64>),
@@ -189,6 +190,13 @@ impl VMUnpack<f64> for VMVal {
 impl VMUnpack<()> for VMVal {
   fn try_unpack(&self) -> Option<()> {
     match self {
+      &VMVal::STup(ref elems) => {
+        if elems.is_empty() {
+          Some(())
+        } else {
+          None
+        }
+      }
       &VMVal::Tup(ref elems) => {
         if elems.is_empty() {
           Some(())
@@ -204,6 +212,13 @@ impl VMUnpack<()> for VMVal {
 impl<T1> VMUnpack<(T1,)> for VMVal where VMVal: VMUnpack<T1> {
   fn try_unpack(&self) -> Option<(T1,)> {
     match self {
+      &VMVal::STup(ref elems) => {
+        if elems.len() == 1 {
+          elems[0].try_unpack().map(|v1| (v1,))
+        } else {
+          None
+        }
+      }
       &VMVal::Tup(ref elems) => {
         if elems.len() == 1 {
           elems[0].try_unpack().map(|v1| (v1,))
@@ -219,6 +234,17 @@ impl<T1> VMUnpack<(T1,)> for VMVal where VMVal: VMUnpack<T1> {
 impl<T1, T2> VMUnpack<(T1, T2)> for VMVal where VMVal: VMUnpack<T1> + VMUnpack<T2> {
   fn try_unpack(&self) -> Option<(T1, T2)> {
     match self {
+      &VMVal::STup(ref elems) => {
+        if elems.len() == 2 {
+          elems[0].try_unpack().and_then(|v1|
+            elems[1].try_unpack().map(|v2|
+              (v1, v2)
+            )
+          )
+        } else {
+          None
+        }
+      }
       &VMVal::Tup(ref elems) => {
         if elems.len() == 2 {
           elems[0].try_unpack().and_then(|v1|
@@ -238,6 +264,19 @@ impl<T1, T2> VMUnpack<(T1, T2)> for VMVal where VMVal: VMUnpack<T1> + VMUnpack<T
 impl<T1, T2, T3> VMUnpack<(T1, T2, T3)> for VMVal where VMVal: VMUnpack<T1> + VMUnpack<T2> + VMUnpack<T3> {
   fn try_unpack(&self) -> Option<(T1, T2, T3)> {
     match self {
+      &VMVal::STup(ref elems) => {
+        if elems.len() == 3 {
+          elems[0].try_unpack().and_then(|v1|
+            elems[1].try_unpack().and_then(|v2|
+              elems[2].try_unpack().map(|v3|
+                (v1, v2, v3)
+              )
+            )
+          )
+        } else {
+          None
+        }
+      }
       &VMVal::Tup(ref elems) => {
         if elems.len() == 3 {
           elems[0].try_unpack().and_then(|v1|
@@ -262,6 +301,7 @@ impl VMVal {
       //&VMVal::DEnv(_) => "DEnv",
       &VMVal::Env(_) => "Env",
       &VMVal::Clo(_) => "Clo",
+      &VMVal::STup(_) => "STup",
       &VMVal::Tup(_) => "Tup",
       &VMVal::Bit(_) => "Bit",
       &VMVal::Int(_) => "Int",
@@ -274,6 +314,20 @@ impl VMVal {
 
   fn _pattern_match_bind(this: VMValRef, pat: &LPat, pat_env: &mut Vec<(LVar, VMValRef)>) -> bool {
     match (&*this, pat) {
+      (&VMVal::STup(ref es), &LPat::STuple(ref esp)) => {
+        if es.len() == esp.len() {
+          let mut pm = true;
+          for (e, ep) in es.iter().zip(esp.iter()) {
+            pm &= VMVal::_pattern_match_bind(e.clone(), &*ep, pat_env);
+          }
+          pm
+        } else {
+          false
+        }
+      }
+      (_, &LPat::STuple(_)) => {
+        panic!("vm: runtime error: tried to match a STup pattern, but mval is not a STup: {}", this._mval_name());
+      }
       (&VMVal::Tup(ref es), &LPat::Tuple(ref esp)) => {
         if es.len() == esp.len() {
           let mut pm = true;
@@ -286,7 +340,7 @@ impl VMVal {
         }
       }
       (_, &LPat::Tuple(_)) => {
-        panic!("vm: runtime error: tried to match a tup pattern, but mval is not a tup: {}", this._mval_name());
+        panic!("vm: runtime error: tried to match a Tup pattern, but mval is not a Tup: {}", this._mval_name());
       }
       (&VMVal::Bit(x), &LPat::BitLit(xp)) => {
         if x == xp { true }

@@ -1783,6 +1783,32 @@ impl LBuilder {
           kont(this, new_ltree)
         })
       }
+      &LTerm::EHashSelect(ref tg_env, ref key_hash) => {
+        self._ltree_normalize_pass_kont_name(tg_env.clone(), &mut |this, tg_env| {
+          let new_ltree = LExpr{
+            gen:    this._gen(),
+            label:  this.labels.fresh(),
+            term:   LTermRef::new(LTerm::EHashSelect(
+                tg_env,
+                key_hash.clone(),
+            ))
+          };
+          kont(this, new_ltree)
+        })
+      }
+      &LTerm::ESelect(ref tg_env, ref key_name) => {
+        self._ltree_normalize_pass_kont_name(tg_env.clone(), &mut |this, tg_env| {
+          let new_ltree = LExpr{
+            gen:    this._gen(),
+            label:  this.labels.fresh(),
+            term:   LTermRef::new(LTerm::ESelect(
+                tg_env,
+                key_name.clone(),
+            ))
+          };
+          kont(this, new_ltree)
+        })
+      }
       &LTerm::Lambda(ref params, ref body) => {
         let body = self._ltree_normalize_pass_kont_term(body.clone());
         let new_ltree = LExpr{
@@ -2923,6 +2949,170 @@ impl LBuilder {
   }
 }
 
+impl LBuilder {
+  fn _ltree_resolve_env_select_pass(&mut self, ltree: LExpr, ty_inf: &SimpleTyInferenceMachine) -> LExpr {
+    match &*ltree.term {
+      &LTerm::EHashSelect(ref tg_env, ref key_hash) => {
+        let tg_env = self._ltree_resolve_env_select_pass(tg_env.clone(), ty_inf);
+        match ty_inf._find_tree_pty(&ltree) {
+          Some(ty) => match ty {
+            Ty::ESel(_, ref tyinf_key_var, ref tyinf_key_hash) => {
+              assert_eq!(tyinf_key_hash, key_hash);
+              LExpr{
+                gen:    self._gen(),
+                label:  self.labels.fresh(),
+                term:   LTermRef::new(LTerm::ESelect(
+                    tg_env,
+                    tyinf_key_var.clone(),
+                ))
+              }
+            }
+            _ => panic!(),
+          },
+          None => panic!(),
+        }
+      }
+      &LTerm::Apply(ref head, ref args) => {
+        let head = self._ltree_resolve_env_select_pass(head.clone(), ty_inf);
+        let args: Vec<_> = args.iter().map(|a| self._ltree_resolve_env_select_pass(a.clone(), ty_inf)).collect();
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Apply(
+              head,
+              args,
+          ))
+        }
+      }
+      &LTerm::AEnv(ref kvs) => {
+        let kvs = kvs.iter().map(|&(ref k, ref v)| (k.clone(), self._ltree_resolve_env_select_pass(v.clone(), ty_inf))).collect();
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::AEnv(
+              kvs,
+          ))
+        }
+      }
+      &LTerm::AEConcat(ref lhs, ref rhs) => {
+        let lhs = self._ltree_resolve_env_select_pass(lhs.clone(), ty_inf);
+        let rhs = self._ltree_resolve_env_select_pass(rhs.clone(), ty_inf);
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::AEConcat(
+              lhs,
+              rhs,
+          ))
+        }
+      }
+      &LTerm::EApp(ref params, ref env) => {
+        let env = self._ltree_resolve_env_select_pass(env.clone(), ty_inf);
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::EApp(
+              params.clone(),
+              env,
+          ))
+        }
+      }
+      &LTerm::ERet(ref params, ref env) => {
+        let env = self._ltree_resolve_env_select_pass(env.clone(), ty_inf);
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::ERet(
+              params.clone(),
+              env,
+          ))
+        }
+      }
+      &LTerm::ESelect(ref tg_env, ref key_var) => {
+        let tg_env = self._ltree_resolve_env_select_pass(tg_env.clone(), ty_inf);
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::ESelect(
+              tg_env,
+              key_var.clone(),
+          ))
+        }
+      }
+      &LTerm::Lambda(ref params, ref body) => {
+        let body = self._ltree_resolve_env_select_pass(body.clone(), ty_inf);
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Lambda(
+              params.clone(),
+              body,
+          ))
+        }
+      }
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        let body = self._ltree_resolve_env_select_pass(body.clone(), ty_inf);
+        let rest = self._ltree_resolve_env_select_pass(rest.clone(), ty_inf);
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Let(
+              name.clone(),
+              body,
+              rest,
+          ))
+        }
+      }
+      &LTerm::Match(ref query, ref pat_arms) => {
+        let query = self._ltree_resolve_env_select_pass(query.clone(), ty_inf);
+        let pat_arms: Vec<_> = pat_arms.iter().map(|&(ref p, ref a)| (p.clone(), self._ltree_resolve_env_select_pass(a.clone(), ty_inf))).collect();
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Match(
+              query,
+              pat_arms,
+          ))
+        }
+      }
+      &LTerm::STuple(ref elems) => {
+        let elems: Vec<_> = elems.iter().map(|e| self._ltree_resolve_env_select_pass(e.clone(), ty_inf)).collect();
+        LExpr{
+          gen:    self._gen(),
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::STuple(
+              elems,
+          ))
+        }
+      }
+      &LTerm::UnitLit |
+      &LTerm::BitLit(_) |
+      &LTerm::IntLit(_) |
+      &LTerm::FloLit(_) |
+      &LTerm::Lookup(_) => {
+        ltree
+      }
+      _ => unimplemented!(),
+    }
+  }
+
+  pub fn resolve_env_select(&mut self, ltree: LTree) -> LTree {
+    let mut ty_inf = SimpleTyInferenceMachine::default();
+    ty_inf.gen(ltree.root.clone());
+    let ty_res = ty_inf.solve(self);
+    // TODO
+    match ty_res {
+      Err(_) => panic!(),
+      Ok(_) => {}
+    }
+    let root = self._ltree_resolve_env_select_pass(ltree.root.clone(), &ty_inf);
+    LTree{
+      info: LTreeInfo::default(),
+      root,
+    }
+  }
+}
+
 type TyRef = Rc<Ty>;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -2935,6 +3125,8 @@ enum Ty {
   AEnvCons(LEnvKey, TyRef, TyRef),
   EApp(Vec<LVar>, TyRef),
   ERet(Vec<LVar>, TyRef),
+  EHashSel(TyRef, LHash),
+  ESel(TyRef, LVar, LHash),
   Fun(Vec<TyRef>, TyRef),
   STup(Vec<TyRef>),
   Tup,
@@ -2951,6 +3143,7 @@ struct TyHypothesis {
 
 enum TyConstraint {
   Eq(Ty, Ty),
+  IsaEnvSelByKeyHash(Ty, Ty, LHash),
 }
 
 #[derive(Default)]
@@ -2965,6 +3158,15 @@ pub struct SimpleTyInferenceMachine {
 }
 
 impl SimpleTyInferenceMachine {
+  fn _find_tree_pty(&self, ltree: &LExpr) -> Option<Ty> {
+    match self.tree_tyvars.get(&ltree.label) {
+      None => return None,
+      Some(&v) => {
+        Self::_find_pty(&self.substitution, v)
+      }
+    }
+  }
+
   fn _tree_tyvar(&mut self, ltree: &LExpr) -> Ty {
     if self.tree_tyvars.contains_key(&ltree.label) {
       return Ty::Tyvar(*self.tree_tyvars.get(&ltree.label).unwrap());
@@ -3144,6 +3346,19 @@ impl SimpleTyInferenceMachine {
               venv:     hyp.venv.clone(),
             });
           }
+          &LTerm::EHashSelect(ref tg_env, ref key_hash) => {
+            let tg_env_ty_v = self._tree_tyvar(tg_env);
+            //self.constraints.push_back(TyConstraint::Eq(hyp.ty.clone(), Ty::EHashSel(TyRef::new(tg_env_ty_v.clone()), key_hash.clone())));
+            self.constraints.push_back(TyConstraint::IsaEnvSelByKeyHash(hyp.ty.clone(), tg_env_ty_v.clone(), key_hash.clone()));
+            self.hypotheses.push_front(TyHypothesis{
+              ltree:    tg_env.clone(),
+              ty:       tg_env_ty_v,
+              venv:     hyp.venv.clone(),
+            });
+          }
+          &LTerm::ESelect(ref tg_env, ref key) => {
+            unimplemented!();
+          }
           &LTerm::Lambda(ref params, ref body) => {
             let mut body_venv = hyp.venv.clone();
             let mut params_tys = Vec::with_capacity(params.len());
@@ -3259,28 +3474,29 @@ impl SimpleTyInferenceMachine {
     }
   }
 
-  fn _unify(constraints: &mut VecDeque<TyConstraint>, substitution: &mut HashMap<u64, Ty>) -> Result<(), ()> {
+  fn _find_pty(substitution: &HashMap<u64, Ty>, ty_v: u64) -> Option<Ty> {
+    let mut v = ty_v;
+    loop {
+      match substitution.get(&v) {
+        Some(&Ty::Tyvar(w)) => {
+          v = w;
+        }
+        Some(ty) => return Some(ty.clone()),
+        None => return None,
+      }
+    }
+  }
+
+  fn _unify(lbuilder: &mut LBuilder, constraints: &mut VecDeque<TyConstraint>, substitution: &mut HashMap<u64, Ty>) -> Result<(), ()> {
     match constraints.pop_front() {
       None => {
         Ok(())
       }
       Some(TyConstraint::Eq(ref lhs, ref rhs)) => {
         if lhs == rhs {
-          return Self::_unify(constraints, substitution);
+          return Self::_unify(lbuilder, constraints, substitution);
         }
         match (lhs, rhs) {
-          (&Ty::Tyvar(v), _) => {
-            // TODO: occurs-check.
-            match substitution.get(&v) {
-              Some(ty) => {
-                constraints.push_front(TyConstraint::Eq(ty.clone(), rhs.clone()));
-              }
-              None => {
-                substitution.insert(v, rhs.clone());
-              }
-            }
-            Self::_unify(constraints, substitution)
-          }
           (_, &Ty::Tyvar(v)) => {
             // TODO: occurs-check.
             match substitution.get(&v) {
@@ -3291,7 +3507,19 @@ impl SimpleTyInferenceMachine {
                 substitution.insert(v, lhs.clone());
               }
             }
-            Self::_unify(constraints, substitution)
+            Self::_unify(lbuilder, constraints, substitution)
+          }
+          (&Ty::Tyvar(v), _) => {
+            // TODO: occurs-check.
+            match substitution.get(&v) {
+              Some(ty) => {
+                constraints.push_front(TyConstraint::Eq(ty.clone(), rhs.clone()));
+              }
+              None => {
+                substitution.insert(v, rhs.clone());
+              }
+            }
+            Self::_unify(lbuilder, constraints, substitution)
           }
           (&Ty::Fun(ref lhs_dom, ref lhs_cod), &Ty::Fun(ref rhs_dom, ref rhs_cod)) => {
             if lhs_dom.len() != rhs_dom.len() {
@@ -3301,7 +3529,7 @@ impl SimpleTyInferenceMachine {
               constraints.push_back(TyConstraint::Eq((**lt).clone(), (**rt).clone()));
             }
             constraints.push_back(TyConstraint::Eq((**lhs_cod).clone(), (**rhs_cod).clone()));
-            Self::_unify(constraints, substitution)
+            Self::_unify(lbuilder, constraints, substitution)
           }
           (&Ty::STup(ref lhs_elems), &Ty::STup(ref rhs_elems)) => {
             if lhs_elems.len() != rhs_elems.len() {
@@ -3310,7 +3538,7 @@ impl SimpleTyInferenceMachine {
             for (lt, rt) in lhs_elems.iter().zip(rhs_elems.iter()) {
               constraints.push_back(TyConstraint::Eq((**lt).clone(), (**rt).clone()));
             }
-            Self::_unify(constraints, substitution)
+            Self::_unify(lbuilder, constraints, substitution)
           }
           // TODO
           (&Ty::AEnvCons(ref lhs_key, ref lhs_kty, ref lhs_env), &Ty::AEnvCons(ref rhs_key, ref rhs_kty, ref rhs_env)) => {
@@ -3320,19 +3548,90 @@ impl SimpleTyInferenceMachine {
             }
             constraints.push_back(TyConstraint::Eq((**lhs_kty).clone(), (**rhs_kty).clone()));
             constraints.push_back(TyConstraint::Eq((**lhs_env).clone(), (**rhs_env).clone()));
-            Self::_unify(constraints, substitution)
+            Self::_unify(lbuilder, constraints, substitution)
           }
+          /*(&Ty::EApp(..), _) => {
+          }*/
+          /*(&Ty::ERet(..), _) => {
+          }*/
+          /*(&Ty::EHashSel(ref env_ty, ref key_hash), _) => {
+            // TODO
+            unimplemented!();
+          }*/
           _ => {
             println!("DEBUG: unify failure: lhs: {:?} rhs: {:?}", lhs, rhs);
             Err(())
           }
         }
       }
+      Some(TyConstraint::IsaEnvSelByKeyHash(ref sel_ty, ref env_ty, ref key_hash)) => {
+        // TODO
+        match &*env_ty {
+          &Ty::Tyvar(env_ty_v) => {
+            match Self::_find_pty(substitution, env_ty_v) {
+              None => {
+                constraints.push_back(TyConstraint::IsaEnvSelByKeyHash(sel_ty.clone(), env_ty.clone(), key_hash.clone()));
+              }
+              Some(ref env_pty) => {
+                match env_pty {
+                  &Ty::AEnvCons(ref key, ref val_ty, ref next_env_ty) => {
+                    // TODO
+                    let mut matched_var = None;
+                    match key {
+                      &LEnvKey::Var(ref key_var) => {
+                        match lbuilder.vars.maybe_rev_lookup(key_var.clone()) {
+                          None => {}
+                          Some(ref key_var_hash) => {
+                            if key_var_hash == key_hash {
+                              matched_var = Some(key_var.clone());
+                            }
+                          }
+                        }
+                      }
+                      _ => {}
+                    }
+                    if matched_var.is_some() {
+                      println!("DEBUG: unify: found matching env select on key hash");
+                      // FIXME: other constraints.
+                      match &*sel_ty {
+                        &Ty::Tyvar(sel_ty_v) => {
+                          match substitution.get(&sel_ty_v) {
+                            Some(ty) => {
+                              constraints.push_back(TyConstraint::Eq(ty.clone(), Ty::ESel(TyRef::new(env_ty.clone()), matched_var.clone().unwrap(), key_hash.clone())));
+                            }
+                            None => {
+                              substitution.insert(sel_ty_v, Ty::ESel(TyRef::new(env_ty.clone()), matched_var.clone().unwrap(), key_hash.clone()));
+                            }
+                          }
+                        }
+                        _ => unimplemented!(),
+                      }
+                    } else {
+                      constraints.push_back(TyConstraint::IsaEnvSelByKeyHash(sel_ty.clone(), (**next_env_ty).clone(), key_hash.clone()));
+                    }
+                  }
+                  &Ty::AEnvNil => {
+                    println!("DEBUG: unify failure: select nonexistent key hash in env");
+                    return Err(());
+                  }
+                  _ => {
+                    println!("DEBUG: unify failure: select key hash in a non-env");
+                    return Err(());
+                  }
+                }
+              }
+            }
+            return Self::_unify(lbuilder, constraints, substitution);
+          }
+          _ => unimplemented!(),
+        }
+      }
+      Some(_) => unimplemented!(),
     }
   }
 
-  pub fn solve(&mut self) -> Result<(), ()> {
-    Self::_unify(&mut self.constraints, &mut self.substitution)
+  pub fn solve(&mut self, lbuilder: &mut LBuilder) -> Result<(), ()> {
+    Self::_unify(lbuilder, &mut self.constraints, &mut self.substitution)
   }
 
   pub fn _debug_dump(&self) {
@@ -3864,6 +4163,16 @@ impl<'a> LTreePrettyPrinter2<'a> {
         write!(writer, "}}, ").unwrap();
         self._write(lroot, env.clone(), writer);
         write!(writer, ")").unwrap();
+      }
+      &LTerm::EHashSelect(ref tg_env, ref key_hash) => {
+        write!(writer, "<e-hash-sel>(").unwrap();
+        self._write(lroot, tg_env.clone(), writer);
+        write!(writer, ", #{})", key_hash.0).unwrap();
+      }
+      &LTerm::ESelect(ref tg_env, ref key_name) => {
+        write!(writer, "<e-sel>(").unwrap();
+        self._write(lroot, tg_env.clone(), writer);
+        write!(writer, ", ${})", key_name.0).unwrap();
       }
       &LTerm::Lambda(ref params, ref body) => {
         write!(writer, "\\").unwrap();

@@ -84,8 +84,9 @@ lexer! {
   //r#"⊤"#            => HLToken::TeeLit,
   r#"'\?"#          => HLToken::TopTylit,
 
-  r#"[0-9]+"#       => HLToken::IntLit(text.parse().unwrap()),
-  r#"[0-9]+\.[0-9]*"#           => HLToken::FloatLit(text.parse().unwrap()),
+  r#"[0-9]+\.[0-9]*"#       => HLToken::FloatLit(text.parse().unwrap()),
+  //r#"[0-9]+\.[0-9]*[f]?"#   => HLToken::FloatLit(text.parse().unwrap()),
+  r#"[0-9]+"#               => HLToken::IntLit(text.parse().unwrap()),
 
   r#"[a-zA-Z_][a-zA-Z0-9_]*[']*"#   => HLToken::Ident(text.to_owned()),
   r#"`[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::InfixIdent(text.to_owned()),
