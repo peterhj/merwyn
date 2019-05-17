@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::cfg::{GlobalConfig};
-use crate::ir::{LDef, LEnv, LExpr, LPat, LTerm, LTermRef, LVar, LVMExt};
+use crate::ir::{LDef, LEnv, LEnvKey, LExpr, LPat, LTerm, LTermRef, LVar, LVMExt};
 use crate::num_util::{Checked, checked};
 use crate::rngs::{HwRng};
 
@@ -49,6 +49,13 @@ pub struct VMLam {
 pub struct VMClosure {
   pub lam:  VMLam,
   pub env:  VMEnvRef,
+}
+
+#[derive(Clone)]
+pub struct VMAEnv {
+  // FIXME: data structure reprs.
+  pub free: HashMap<LVar, VMAddr>,
+  pub bind: Vec<LVar>,
 }
 
 pub enum VMThunkState {
@@ -142,7 +149,8 @@ pub type VMValRef = Rc<VMVal>;
 //#[derive(Debug)]
 pub enum VMVal {
   //DEnv(LEnv),
-  Env(VMEnvRef),
+  //Env(VMEnvRef),
+  AEnv(VMAEnv),
   Clo(VMClosure),
   STup(Vec<VMValRef>),
   Tup(Vec<VMValRef>),
@@ -299,7 +307,7 @@ impl VMVal {
   pub fn _mval_name(&self) -> &'static str {
     match self {
       //&VMVal::DEnv(_) => "DEnv",
-      &VMVal::Env(_) => "Env",
+      &VMVal::AEnv(_) => "AEnv",
       &VMVal::Clo(_) => "Clo",
       &VMVal::STup(_) => "STup",
       &VMVal::Tup(_) => "Tup",
@@ -346,18 +354,24 @@ impl VMVal {
         if x == xp { true }
         else { false }
       }
+      (_, &LPat::BitLit(_)) => {
+        panic!("vm: runtime error: tried to match a Bit pattern, but mval is not a Bit: {}", this._mval_name());
+      }
       (&VMVal::Int(x), &LPat::IntLit(xp)) => {
         let x: i64 = x.into();
         if x == xp { true }
         else { false }
       }
       (_, &LPat::IntLit(_)) => {
-        panic!("vm: runtime error: tried to match a int pattern, but mval is not a int: {}", this._mval_name());
+        panic!("vm: runtime error: tried to match a Int pattern, but mval is not a Int: {}", this._mval_name());
       }
-      (&VMVal::Flo(x), &LPat::FloLit(xp)) => {
+      /*(&VMVal::Flo(x), &LPat::FloLit(xp)) => {
         if x == xp { true }
         else { false }
       }
+      (_, &LPat::FloLit(_)) => {
+        panic!("vm: runtime error: tried to match a Flo pattern, but mval is not a Flo: {}", this._mval_name());
+      }*/
       (_, &LPat::Var(ref vp)) => {
         pat_env.push((vp.clone(), this));
         true
@@ -443,13 +457,18 @@ pub type VMKontRef = Rc<VMKont>;
 
 pub enum VMKont {
   Halt,
-  ELku(LVar, VMLam, VMEnvRef, VMKontRef),
   Thk0(VMAddr, VMLam, VMEnvRef, VMKontRef),
   App0(VMEnvRef, VMKontRef),
   App(Option<VMClosure>, Vec<VMValRef>, VecDeque<LExpr>, VMEnvRef, VMKontRef),
   Ret(VMEnvRef, VMKontRef),
+  AThk(LVar, VMAddr, VMLam, VMEnvRef, VMKontRef),
+  ACons(LVar, VMAddr, VMEnvRef, VMKontRef),
+  AApp(/*FIXME*/ VMEnvRef, VMKontRef),
+  ERet(/*FIXME*/ VMEnvRef, VMKontRef),
+  ESel(LVar, VMLam, VMEnvRef, VMKontRef),
   Swch(LExpr, LExpr, VMEnvRef, VMKontRef),
   Mch(VecDeque<(LPat, LExpr)>, VMEnvRef, VMKontRef),
+  STup(Vec<LExpr>, Vec<VMValRef>, VMEnvRef, VMKontRef),
   Tup(Vec<LExpr>, Vec<VMValRef>, VMEnvRef, VMKontRef),
 }
 
@@ -463,13 +482,18 @@ impl VMKont {
   pub fn _kont_name(&self) -> &'static str {
     match self {
       &VMKont::Halt => "Halt",
-      &VMKont::ELku(..) => "ELku",
       &VMKont::Thk0(..) => "Thk0",
       &VMKont::App0(..) => "App0",
       &VMKont::App(..) => "App",
       &VMKont::Ret(..) => "Ret",
+      &VMKont::AThk(..) => "AThk",
+      &VMKont::ACons(..) => "ACons",
+      &VMKont::AApp(..) => "AApp",
+      &VMKont::ERet(..) => "ERet",
+      &VMKont::ESel(..) => "ESel",
       &VMKont::Swch(..) => "Swch",
       &VMKont::Mch(..) => "Mch",
+      &VMKont::STup(..) => "STup",
       &VMKont::Tup(..) => "Tup",
     }
   }
@@ -680,6 +704,7 @@ impl VMachine {
       &VMReg::MVal(ref mval) => {
         match &**mval {
           VMVal::Clo(_) => println!("DEBUG: vm: ctrl: mval: closure"),
+          VMVal::STup(elems) => println!("DEBUG: vm: ctrl: mval: s-tuple (num elems: {})", elems.len()),
           VMVal::Tup(elems) => println!("DEBUG: vm: ctrl: mval: tuple (num elems: {})", elems.len()),
           VMVal::Bit(x) => println!("DEBUG: vm: ctrl: mval: bit: {:?}", x),
           VMVal::Int(x) => println!("DEBUG: vm: ctrl: mval: int: {:?}", x),
@@ -700,10 +725,6 @@ impl VMachine {
           depth += 1;
           kont = prev_kont.clone();
         }*/
-        &VMKont::ELku(.., ref prev_kont) => {
-          depth += 1;
-          kont = prev_kont.clone();
-        }
         &VMKont::Thk0(.., ref prev_kont) => {
           depth += 1;
           kont = prev_kont.clone();
@@ -720,11 +741,35 @@ impl VMachine {
           depth += 1;
           kont = prev_kont.clone();
         }
+        &VMKont::AThk(.., ref prev_kont) => {
+          depth += 1;
+          kont = prev_kont.clone();
+        }
+        &VMKont::ACons(.., ref prev_kont) => {
+          depth += 1;
+          kont = prev_kont.clone();
+        }
+        &VMKont::AApp(.., ref prev_kont) => {
+          depth += 1;
+          kont = prev_kont.clone();
+        }
+        &VMKont::ERet(.., ref prev_kont) => {
+          depth += 1;
+          kont = prev_kont.clone();
+        }
+        &VMKont::ESel(.., ref prev_kont) => {
+          depth += 1;
+          kont = prev_kont.clone();
+        }
         &VMKont::Swch(.., ref prev_kont) => {
           depth += 1;
           kont = prev_kont.clone();
         }
         &VMKont::Mch(.., ref prev_kont) => {
+          depth += 1;
+          kont = prev_kont.clone();
+        }
+        &VMKont::STup(.., ref prev_kont) => {
           depth += 1;
           kont = prev_kont.clone();
         }
@@ -793,17 +838,71 @@ impl VMachine {
             let next_env = env;
             (next_ctrl, next_env, next_kont)
           }
-          /*(&LTerm::Env, _) => {
-            // TODO
+          (&LTerm::AEnv(ref kvs), _) => {
+            println!("TRACE: vm:   expr: a-env");
+            if kvs.is_empty() {
+              let mval = VMValRef::new(VMVal::AEnv(VMAEnv{
+                free: HashMap::new(),
+                bind: Vec::new(),
+              }));
+              let next_ctrl = VMReg::MVal(mval);
+              let next_env = env;
+              let next_kont = kont;
+              (next_ctrl, next_env, next_kont)
+            } else {
+              panic!();
+            }
+          }
+          (&LTerm::AConcat(ref lhs, ref rhs), _) => {
+            println!("TRACE: vm:   expr: a-env concat");
+            match &*lhs.term {
+              &LTerm::AEnv(ref lhs_kvs) => {
+                if lhs_kvs.is_empty() {
+                  let next_ctrl = VMReg::Code(rhs.clone());
+                  let next_env = env;
+                  let next_kont = kont;
+                  (next_ctrl, next_env, next_kont)
+                } else if lhs_kvs.len() == 1 {
+                  let lhs_mlam = VMLam{
+                    code: VMLamCode::LamTerm(Vec::new(), lhs_kvs[0].1.clone()),
+                  };
+                  let rhs_mlam = VMLam{
+                    code: VMLamCode::LamTerm(Vec::new(), rhs.clone()),
+                  };
+                  let key_var = match lhs_kvs[0].0.clone() {
+                    LEnvKey::Var(v) => v,
+                    _ => panic!(),
+                  };
+                  let mthk = VMThunkRef::new(VMThunk::new_blkhole(lhs_mlam, env.clone()));
+                  let thk_a = self.store.insert(mthk);
+                  let next_ctrl = VMReg::Code(lhs_kvs[0].1.clone());
+                  let next_kont = VMKontRef::new(VMKont::AThk(key_var, thk_a, rhs_mlam, env.clone(), kont));
+                  let next_env = env;
+                  (next_ctrl, next_env, next_kont)
+                } else {
+                  panic!();
+                }
+              }
+              _ => unimplemented!(),
+            }
+          }
+          (&LTerm::AApp(ref params, ref rhs), _) => {
+            // FIXME
+            println!("TRACE: vm:   expr: a-env apply");
             unimplemented!();
-          }*/
+          }
+          (&LTerm::ERet(ref params, ref rhs), _) => {
+            // FIXME
+            println!("TRACE: vm:   expr: env return");
+            unimplemented!();
+          }
           (&LTerm::ESelect(ref target, ref name), _) => {
             println!("TRACE: vm:   expr: env select");
             let lookup_mlam = VMLam{
               code: VMLamCode::LamTerm(Vec::new(), ltree.clone()),
             };
             let next_ctrl = VMReg::Code(target.clone());
-            let next_kont = VMKontRef::new(VMKont::ELku(name.clone(), lookup_mlam, env.clone(), kont));
+            let next_kont = VMKontRef::new(VMKont::ESel(name.clone(), lookup_mlam, env.clone(), kont));
             let next_env = env.clone();
             (next_ctrl, next_env, next_kont)
           }
@@ -904,6 +1003,21 @@ impl VMachine {
             let next_env = env;
             (next_ctrl, next_env, next_kont)
           }
+          (&LTerm::STuple(ref args), _) => {
+            println!("TRACE: vm:   expr: s-tuple");
+            if args.is_empty() {
+              let mval = VMValRef::new(VMVal::STup(vec![]));
+              let next_ctrl = VMReg::MVal(mval);
+              let next_env = env;
+              let next_kont = kont;
+              (next_ctrl, next_env, next_kont)
+            } else {
+              let next_ctrl = VMReg::Code(args[0].clone());
+              let next_kont = VMKontRef::new(VMKont::STup(args.clone(), vec![], env.clone(), kont));
+              let next_env = env;
+              (next_ctrl, next_env, next_kont)
+            }
+          }
           (&LTerm::Tuple(ref args), _) => {
             println!("TRACE: vm:   expr: tuple");
             if args.is_empty() {
@@ -930,6 +1044,14 @@ impl VMachine {
           (&LTerm::IntLit(x), _) => {
             println!("TRACE: vm:   expr: intlit");
             let mval = VMValRef::new(VMVal::Int(checked(x)));
+            let next_ctrl = VMReg::MVal(mval);
+            let next_env = env;
+            let next_kont = kont;
+            (next_ctrl, next_env, next_kont)
+          }
+          (&LTerm::FloLit(x), _) => {
+            println!("TRACE: vm:   expr: flolit");
+            let mval = VMValRef::new(VMVal::Flo(x));
             let next_ctrl = VMReg::MVal(mval);
             let next_env = env;
             let next_kont = kont;
@@ -992,7 +1114,7 @@ impl VMachine {
             let next_kont = kont;
             (next_ctrl, next_env, next_kont)
           }
-          _ => unimplemented!(),
+          _ => panic!("TRACE: unimplemented: code: {:?} kont: {}", &*ltree.term, kont._kont_name()),
         }
       }
       VMReg::BCode(bcode, arg_mvals) => {
@@ -1005,10 +1127,50 @@ impl VMachine {
       }
       VMReg::MVal(mval) => {
         match (&*mval, &*kont) {
-          (&VMVal::Env(ref tg_env), &VMKont::ELku(ref name, ref lookup_mlam, ref saved_env, ref saved_kont)) => {
+          (_, &VMKont::AThk(ref key_var, ref thk_a, ref rest_mlam, ref saved_env, ref saved_kont)) => {
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
+            self.store.update(thk_a.clone(), mval);
+            let next_ctrl = match rest_mlam.code.clone() {
+              VMLamCode::NoExec => panic!("vm: runtime error"),
+              VMLamCode::LamTerm(_, e) => VMReg::Code(e),
+              VMLamCode::BoxCode(bc) => {
+                println!("WARNING: rest of the code after thk0 is bc, this path is less tested and may be broken");
+                VMReg::BCode(bc, Vec::new())
+              }
+            };
+            let next_kont = VMKontRef::new(VMKont::ACons(key_var.clone(), thk_a.clone(), saved_env.clone(), saved_kont.clone()));
+            let next_env = saved_env.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          (&VMVal::AEnv(ref tg_env), &VMKont::ACons(ref key_var, ref thk_a, ref saved_env, ref saved_kont)) => {
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
+            let mut new_tg_env = tg_env.clone();
+            match new_tg_env.free.get(key_var) {
+              None => {
+                new_tg_env.free.insert(key_var.clone(), thk_a.clone());
+              }
+              Some(a) => {
+                // FIXME
+                unimplemented!();
+              }
+            }
+            let new_mval = VMValRef::new(VMVal::AEnv(new_tg_env));
+            let next_ctrl = VMReg::MVal(new_mval);
+            let next_env = saved_env.clone();
+            let next_kont = saved_kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          (_, &VMKont::ACons(..)) => {
+            panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
+          }
+          (&VMVal::AEnv(ref tg_env), &VMKont::ESel(ref name, ref lookup_mlam, ref saved_env, ref saved_kont)) => {
             // TODO
-            println!("TRACE: vm:   kont: elku");
-            let thk_a = tg_env.lookup(name.clone());
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
+            //let thk_a = tg_env.lookup(name.clone());
+            let thk_a = match tg_env.free.get(name) {
+              None => panic!(),
+              Some(a) => a.clone(),
+            };
             let mthk = self.store.lookup(thk_a.clone());
             match mthk.state() {
               VMThunkState::Emp => {
@@ -1052,12 +1214,12 @@ impl VMachine {
               }
             }
           }
-          (_, &VMKont::ELku(..)) => {
+          (_, &VMKont::ESel(..)) => {
             panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
           }
           (_, &VMKont::Thk0(ref thk_a, ref rest_mlam, ref env, ref kont)) => {
             // TODO
-            println!("TRACE: vm:   kont: thk0");
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
             self.store.update(thk_a.clone(), mval);
             let next_ctrl = match rest_mlam.code.clone() {
               VMLamCode::NoExec => panic!("vm: runtime error"),
@@ -1072,7 +1234,7 @@ impl VMachine {
             (next_ctrl, next_env, next_kont)
           }
           (&VMVal::Clo(ref closure), &VMKont::App(None, ref arg_mvals, ref arg_codes, ref saved_env, ref saved_kont)) => {
-            println!("TRACE: vm:   kont: app (closure)");
+            println!("TRACE: vm:   kont: {} (closure)", kont._kont_name());
             let mut next_arg_codes = arg_codes.clone();
             match next_arg_codes.pop_front() {
               Some(next_arg) => {
@@ -1100,7 +1262,7 @@ impl VMachine {
             }
           }
           (_, &VMKont::App(Some(ref closure), ref arg_mvals, ref arg_codes, ref saved_env, ref saved_kont)) => {
-            println!("TRACE: vm:   kont: app (arg)");
+            println!("TRACE: vm:   kont: {} (arg)", kont._kont_name());
             let mut next_arg_mvals = arg_mvals.clone();
             let mut next_arg_codes = arg_codes.clone();
             next_arg_mvals.push(mval);
@@ -1115,6 +1277,7 @@ impl VMachine {
                 match closure.lam.code.clone() {
                   VMLamCode::NoExec => panic!("vm: runtime error"),
                   VMLamCode::LamTerm(params, body) => {
+                    let arg_mvals = next_arg_mvals;
                     assert_eq!(params.len(), arg_mvals.len());
                     let mut next_env = closure.env.clone();
                     for (pv, p_mval) in params.into_iter().zip(arg_mvals.iter()) {
@@ -1142,14 +1305,14 @@ impl VMachine {
             panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
           }
           (_, &VMKont::Ret(ref saved_env, ref saved_kont)) => {
-            println!("TRACE: vm:   kont: ret");
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
             let next_ctrl = VMReg::MVal(mval);
             let next_env = saved_env.clone();
             let next_kont = saved_kont.clone();
             (next_ctrl, next_env, next_kont)
           }
           (&VMVal::Bit(x), &VMKont::Swch(ref top_code, ref bot_code, ref env, ref kont)) => {
-            println!("TRACE: vm:   kont: swch");
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
             let next_ctrl = VMReg::Code(match x {
               true  => top_code.clone(),
               false => bot_code.clone(),
@@ -1162,7 +1325,7 @@ impl VMachine {
             panic!("vm: runtime error: switch expected bit value");
           }
           (_, &VMKont::Mch(ref pat_arms, ref saved_env, ref saved_kont)) => {
-            println!("TRACE: vm:   kont: mch");
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
             match pat_arms.front() {
               None => panic!("vm: runtime error: no matching pattern"),
               Some(&(ref pat, ref arm)) => {
@@ -1191,8 +1354,28 @@ impl VMachine {
               }
             }
           }
+          (_, &VMKont::STup(ref elem_codes, ref elem_mvals, ref saved_env, ref saved_kont)) => {
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
+            let mut elem_mvals = elem_mvals.clone();
+            elem_mvals.push(mval);
+            if elem_codes.len() < elem_mvals.len() {
+              panic!();
+            } else if elem_codes.len() == elem_mvals.len() {
+              let next_ctrl = VMReg::MVal(VMValRef::new(VMVal::STup(elem_mvals)));
+              let next_env = saved_env.clone();
+              let next_kont = saved_kont.clone();
+              (next_ctrl, next_env, next_kont)
+            } else if elem_codes.len() > elem_mvals.len() {
+              let next_ctrl = VMReg::Code(elem_codes[elem_mvals.len()].clone());
+              let next_kont = VMKontRef::new(VMKont::STup(elem_codes.clone(), elem_mvals, saved_env.clone(), saved_kont.clone()));
+              let next_env = env.clone();
+              (next_ctrl, next_env, next_kont)
+            } else {
+              unreachable!();
+            }
+          }
           (_, &VMKont::Tup(ref elem_codes, ref elem_mvals, ref saved_env, ref saved_kont)) => {
-            println!("TRACE: vm:   kont: tup");
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
             let mut elem_mvals = elem_mvals.clone();
             elem_mvals.push(mval);
             if elem_codes.len() < elem_mvals.len() {

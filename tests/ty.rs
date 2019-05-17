@@ -2,6 +2,7 @@ extern crate merwyn;
 
 use merwyn::ir::{LBuilder, SimpleTyInferenceMachine};
 use merwyn::lang::{HLexer, HParser};
+use merwyn::vm::{VMachine, VMUnpack};
 
 #[test]
 fn test_ty_1() {
@@ -180,30 +181,23 @@ fn test_ty_adj_3() {
   let mut builder = LBuilder::new();
   let ltree = builder.lower(htree);
   //let ltree = builder.lower_with_stdlib(htree);
-  //let ltree = ltree.with_env_info();
-  //let ltree = ltree.with_free_env_info();
-  //println!("DEBUG: ltree: {:?}", ltree.root);
   println!("DEBUG: ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
   let ltree = builder.normalize(ltree);
   println!("DEBUG: a-normalized ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
   let ltree = builder.expand_adj(ltree);
-  //let ltree = ltree.with_env_info();
-  //let ltree = ltree.with_free_env_info();
-  //println!("DEBUG: adj-expanded ltree: {:?}", ltree.root);
   println!("DEBUG: adj-expanded ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
   let ltree = builder.normalize(ltree);
   println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
-  /*let mut ty_inf = SimpleTyInferenceMachine::default();
-  ty_inf.gen(ltree.root.clone());
-  let ty_res = ty_inf.solve(&mut builder);
-  println!("DEBUG: ltree type inference result: {:?}", ty_res);
-  ty_inf._debug_dump();
-  assert!(ty_res.is_ok());*/
   let ltree = builder.resolve_env_select(ltree);
   println!("DEBUG: env-select-resolved, pretty printed:");
   builder.pretty_print(ltree.clone());
+  let ltree = ltree.root;
+  let mut vm = VMachine::new();
+  let halt_mval = vm.eval(ltree);
+  let v: Option<(f64, f64)> = halt_mval.try_unpack();
+  println!("DEBUG: halt value: {:?}", v);
 }
