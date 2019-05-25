@@ -179,8 +179,8 @@ fn test_ty_adj_3() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
-  let ltree = builder.lower(htree);
-  //let ltree = builder.lower_with_stdlib(htree);
+  //let ltree = builder.lower(htree);
+  let ltree = builder.lower_with_stdlib(htree);
   println!("DEBUG: ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
   let ltree = builder.normalize(ltree);
@@ -192,8 +192,8 @@ fn test_ty_adj_3() {
   let ltree = builder.normalize(ltree);
   println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
-  let ltree = builder.resolve_env_select(ltree);
-  println!("DEBUG: env-select-resolved, pretty printed:");
+  let ltree = builder.resolve_ty_inf(ltree);
+  println!("DEBUG: ty-inf-resolved, pretty printed:");
   builder.pretty_print(ltree.clone());
   let ltree = ltree.root;
   let mut vm = VMachine::new();

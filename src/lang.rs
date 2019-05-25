@@ -82,6 +82,7 @@ lexer! {
   //r#"⊥"#            => HLToken::BotLit,
   r#"tee"#          => HLToken::TeeLit,
   //r#"⊤"#            => HLToken::TeeLit,
+  r#"'_"#           => HLToken::PlaceTylit,
   r#"'\?"#          => HLToken::TopTylit,
 
   r#"[0-9]+\.[0-9]*"#       => HLToken::FloatLit(text.parse().unwrap()),
@@ -169,6 +170,7 @@ pub enum HLToken {
   FloatLit(f64),
   Ident(String),
   InfixIdent(String),
+  PlaceTylit,
   TopTylit,
   TyvarIdent(String),
   Eof,

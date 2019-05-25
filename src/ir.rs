@@ -4,7 +4,7 @@
 
 use crate::lang::{HExpr};
 use crate::stdlib::*;
-use crate::vm::{VMBoxCode};
+use crate::vm::{VMAddr, VMBoxCode};
 
 use fixedbitset::{FixedBitSet};
 use lazycell::{LazyCell};
@@ -225,13 +225,17 @@ pub struct LVMBCLambdaDef {
 }
 
 pub enum LVMExt {
+  BCApply(LVar, Vec<VMAddr>),
   BCLambda(Vec<LVar>, LVMBCLambdaDef),
 }
 
 impl Debug for LVMExt {
   fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
     // TODO
-    write!(f, "BCLambda(...)")
+    match self {
+      &LVMExt::BCApply(..) => write!(f, "BCApply(...)"),
+      &LVMExt::BCLambda(..) => write!(f, "BCLambda(...)"),
+    }
   }
 }
 
@@ -1373,12 +1377,12 @@ impl LBuilder {
       }
     }
     let stdlib_bindings: Vec<(_, _, Rc<dyn Fn() -> VMBoxCode>, Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>)> = vec![
-      ("eq",  2, Rc::new(|| make_bc_eq()), None),
       ("add", 2, Rc::new(|| make_bc_add()), Some(Rc::new(|lb, args, sink| make_adj_add(lb, args, sink)))),
       ("sub", 2, Rc::new(|| make_bc_sub()), None),
       ("mul", 2, Rc::new(|| make_bc_mul()), None),
       ("div", 2, Rc::new(|| make_bc_div()), None),
       ("neg", 1, Rc::new(|| make_bc_neg()), None),
+      ("eq",  2, Rc::new(|| make_bc_eq()), None),
       ("pi100", 0, Rc::new(|| make_bc_pi100()), None),
     ];
     let ltree = bind_next(
@@ -2858,11 +2862,12 @@ impl LBuilder {
       }
       &LTerm::VMExt(LVMExt::BCLambda(..)) => {
         // FIXME
-        unimplemented!();
+        //unimplemented!();
         /*self._ltree_search_adj_sink_pass_kont2(lroot, body.clone(), ctx,
             &mut |this, lroot, body, ctx| {
             }
         )*/
+        None
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
         match self._ltree_search_adj_sink_pass_kont2(lroot, body.clone(), ctx,
@@ -2931,6 +2936,11 @@ impl LBuilder {
     }
   }
 
+  fn _ltree_fixup_adj_app_pass_kont2<'root>(&mut self, lroot: &'root LTree, ltree: LExpr, ctx: &mut AdjPassCtx, kont: &mut FnMut(&mut Self, &'root LTree, LExpr, &mut AdjPassCtx) -> LExpr) -> Option<LExpr> {
+    // FIXME
+    unimplemented!();
+  }
+
   pub fn expand_adj(&mut self, ltree: LTree) -> LTree {
     let mut ltree = ltree;
     // FIXME
@@ -2950,10 +2960,10 @@ impl LBuilder {
 }
 
 impl LBuilder {
-  fn _ltree_resolve_env_select_pass(&mut self, ltree: LExpr, ty_inf: &SimpleTyInferenceMachine) -> LExpr {
+  fn _ltree_resolve_ty_inf_pass(&mut self, ltree: LExpr, ty_inf: &SimpleTyInferenceMachine) -> LExpr {
     match &*ltree.term {
       &LTerm::EHashSelect(ref tg_env, ref key_hash) => {
-        let tg_env = self._ltree_resolve_env_select_pass(tg_env.clone(), ty_inf);
+        let tg_env = self._ltree_resolve_ty_inf_pass(tg_env.clone(), ty_inf);
         match ty_inf._find_tree_pty(&ltree) {
           Some(ty) => match ty {
             Ty::ESel(_, ref tyinf_key_var, ref tyinf_key_hash) => {
@@ -2973,8 +2983,8 @@ impl LBuilder {
         }
       }
       &LTerm::Apply(ref head, ref args) => {
-        let head = self._ltree_resolve_env_select_pass(head.clone(), ty_inf);
-        let args: Vec<_> = args.iter().map(|a| self._ltree_resolve_env_select_pass(a.clone(), ty_inf)).collect();
+        let head = self._ltree_resolve_ty_inf_pass(head.clone(), ty_inf);
+        let args: Vec<_> = args.iter().map(|a| self._ltree_resolve_ty_inf_pass(a.clone(), ty_inf)).collect();
         LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
@@ -2985,7 +2995,7 @@ impl LBuilder {
         }
       }
       &LTerm::AEnv(ref kvs) => {
-        let kvs = kvs.iter().map(|&(ref k, ref v)| (k.clone(), self._ltree_resolve_env_select_pass(v.clone(), ty_inf))).collect();
+        let kvs = kvs.iter().map(|&(ref k, ref v)| (k.clone(), self._ltree_resolve_ty_inf_pass(v.clone(), ty_inf))).collect();
         LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
@@ -2995,8 +3005,8 @@ impl LBuilder {
         }
       }
       &LTerm::AConcat(ref lhs, ref rhs) => {
-        let lhs = self._ltree_resolve_env_select_pass(lhs.clone(), ty_inf);
-        let rhs = self._ltree_resolve_env_select_pass(rhs.clone(), ty_inf);
+        let lhs = self._ltree_resolve_ty_inf_pass(lhs.clone(), ty_inf);
+        let rhs = self._ltree_resolve_ty_inf_pass(rhs.clone(), ty_inf);
         LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
@@ -3007,7 +3017,7 @@ impl LBuilder {
         }
       }
       &LTerm::AApp(ref params, ref env) => {
-        let env = self._ltree_resolve_env_select_pass(env.clone(), ty_inf);
+        let env = self._ltree_resolve_ty_inf_pass(env.clone(), ty_inf);
         LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
@@ -3018,7 +3028,7 @@ impl LBuilder {
         }
       }
       &LTerm::ERet(ref params, ref env) => {
-        let env = self._ltree_resolve_env_select_pass(env.clone(), ty_inf);
+        let env = self._ltree_resolve_ty_inf_pass(env.clone(), ty_inf);
         LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
@@ -3029,7 +3039,7 @@ impl LBuilder {
         }
       }
       &LTerm::ESelect(ref tg_env, ref key_var) => {
-        let tg_env = self._ltree_resolve_env_select_pass(tg_env.clone(), ty_inf);
+        let tg_env = self._ltree_resolve_ty_inf_pass(tg_env.clone(), ty_inf);
         LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
@@ -3040,7 +3050,7 @@ impl LBuilder {
         }
       }
       &LTerm::Lambda(ref params, ref body) => {
-        let body = self._ltree_resolve_env_select_pass(body.clone(), ty_inf);
+        let body = self._ltree_resolve_ty_inf_pass(body.clone(), ty_inf);
         LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
@@ -3050,9 +3060,13 @@ impl LBuilder {
           ))
         }
       }
+      &LTerm::VMExt(LVMExt::BCLambda(..)) => {
+        // FIXME
+        ltree
+      }
       &LTerm::Let(ref name, ref body, ref rest) => {
-        let body = self._ltree_resolve_env_select_pass(body.clone(), ty_inf);
-        let rest = self._ltree_resolve_env_select_pass(rest.clone(), ty_inf);
+        let body = self._ltree_resolve_ty_inf_pass(body.clone(), ty_inf);
+        let rest = self._ltree_resolve_ty_inf_pass(rest.clone(), ty_inf);
         LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
@@ -3064,8 +3078,8 @@ impl LBuilder {
         }
       }
       &LTerm::Match(ref query, ref pat_arms) => {
-        let query = self._ltree_resolve_env_select_pass(query.clone(), ty_inf);
-        let pat_arms: Vec<_> = pat_arms.iter().map(|&(ref p, ref a)| (p.clone(), self._ltree_resolve_env_select_pass(a.clone(), ty_inf))).collect();
+        let query = self._ltree_resolve_ty_inf_pass(query.clone(), ty_inf);
+        let pat_arms: Vec<_> = pat_arms.iter().map(|&(ref p, ref a)| (p.clone(), self._ltree_resolve_ty_inf_pass(a.clone(), ty_inf))).collect();
         LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
@@ -3076,7 +3090,7 @@ impl LBuilder {
         }
       }
       &LTerm::STuple(ref elems) => {
-        let elems: Vec<_> = elems.iter().map(|e| self._ltree_resolve_env_select_pass(e.clone(), ty_inf)).collect();
+        let elems: Vec<_> = elems.iter().map(|e| self._ltree_resolve_ty_inf_pass(e.clone(), ty_inf)).collect();
         LExpr{
           gen:    self._gen(),
           label:  self.labels.fresh(),
@@ -3096,7 +3110,7 @@ impl LBuilder {
     }
   }
 
-  pub fn resolve_env_select(&mut self, ltree: LTree) -> LTree {
+  pub fn resolve_ty_inf(&mut self, ltree: LTree) -> LTree {
     let mut ty_inf = SimpleTyInferenceMachine::default();
     ty_inf.gen(ltree.root.clone());
     let ty_res = ty_inf.solve(self);
@@ -3105,7 +3119,7 @@ impl LBuilder {
       Err(_) => panic!(),
       Ok(_) => {}
     }
-    let root = self._ltree_resolve_env_select_pass(ltree.root.clone(), &ty_inf);
+    let root = self._ltree_resolve_ty_inf_pass(ltree.root.clone(), &ty_inf);
     LTree{
       info: LTreeInfo::default(),
       root,
@@ -3374,6 +3388,9 @@ impl SimpleTyInferenceMachine {
               ty:       body_ty_v,
               venv:     body_venv,
             });
+          }
+          &LTerm::VMExt(LVMExt::BCLambda(..)) => {
+            // FIXME
           }
           &LTerm::Let(ref name, ref body, ref rest) => {
             let name_ty_v = self._bound_tyvar(name.clone());
