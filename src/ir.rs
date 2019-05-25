@@ -225,7 +225,7 @@ pub struct LVMBCLambdaDef {
 }
 
 pub enum LVMExt {
-  BCApply(LVar, Vec<VMAddr>),
+  Deref(VMAddr),
   BCLambda(Vec<LVar>, LVMBCLambdaDef),
 }
 
@@ -233,7 +233,7 @@ impl Debug for LVMExt {
   fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
     // TODO
     match self {
-      &LVMExt::BCApply(..) => write!(f, "BCApply(...)"),
+      &LVMExt::Deref(..) => write!(f, "Deref(...)"),
       &LVMExt::BCLambda(..) => write!(f, "BCLambda(...)"),
     }
   }
@@ -1320,6 +1320,14 @@ impl LBuilder {
       gen:    self._gen(),
       label:  self.labels.fresh(),
       term:   LTermRef::new(LTerm::Lookup(v)),
+    }
+  }
+
+  pub fn vm_deref_term(&mut self, addr: VMAddr) -> LExpr {
+    LExpr{
+      gen:    self._gen(),
+      label:  self.labels.fresh(),
+      term:   LTermRef::new(LTerm::VMExt(LVMExt::Deref(addr)))
     }
   }
 

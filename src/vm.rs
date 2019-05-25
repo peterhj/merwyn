@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::cfg::{GlobalConfig};
-use crate::ir::{LDef, LEnv, LEnvKey, LExpr, LPat, LTerm, LTermRef, LVar, LVMExt};
+use crate::ir::{LBuilder, LDef, LEnv, LEnvKey, LExpr, LPat, LTerm, LTermRef, LVar, LVMExt};
 use crate::num_util::{Checked, checked};
 use crate::rngs::{HwRng};
 
@@ -54,7 +54,7 @@ pub struct VMClosure {
 #[derive(Clone)]
 pub enum VMAValue {
   Addr(VMAddr),
-  Cons(VMLam, VMAddr, VMAddr, VMAddr),
+  Cons(VMAddr, VMAddr, VMAddr),
 }
 
 #[derive(Clone)]
@@ -154,8 +154,6 @@ pub type VMValRef = Rc<VMVal>;
 
 //#[derive(Debug)]
 pub enum VMVal {
-  //DEnv(LEnv),
-  //Env(VMEnvRef),
   AEnv(VMAEnv),
   Clo(VMClosure),
   STup(Vec<VMValRef>),
@@ -312,7 +310,6 @@ impl<T1, T2, T3> VMUnpack<(T1, T2, T3)> for VMVal where VMVal: VMUnpack<T1> + VM
 impl VMVal {
   pub fn _mval_name(&self) -> &'static str {
     match self {
-      //&VMVal::DEnv(_) => "DEnv",
       &VMVal::AEnv(_) => "AEnv",
       &VMVal::Clo(_) => "Clo",
       &VMVal::STup(_) => "STup",
@@ -688,6 +685,7 @@ pub struct VMachine {
   pub kont:     VMKontRef,
   pub store:    VMStore,
   pub initsave: MSaveState,
+  pub lbuilder: Option<LBuilder>,
 }
 
 impl VMachine {
@@ -699,6 +697,19 @@ impl VMachine {
       kont:     VMKontRef::default(),
       store:    VMStore::default(),
       initsave: MSaveState::default(),
+      lbuilder: None,
+    }
+  }
+
+  pub fn with_lbuilder(lbuilder: LBuilder) -> VMachine {
+    VMachine{
+      cfg:      GlobalConfig::default(),
+      ctrl:     VMReg::Uninit,
+      env:      VMEnvRef::default(),
+      kont:     VMKontRef::default(),
+      store:    VMStore::default(),
+      initsave: MSaveState::default(),
+      lbuilder: Some(lbuilder),
     }
   }
 
@@ -1118,6 +1129,55 @@ impl VMachine {
               }
             }
           }
+          (&LTerm::VMExt(LVMExt::Deref(ref thk_a)), _) => {
+            println!("TRACE: vm:   expr: deref");
+            let mthk = self.store.lookup(thk_a.clone());
+            match mthk.state() {
+              VMThunkState::Emp => {
+                println!("TRACE: vm:   expr:   emp...");
+                let rest_mlam = VMLam{
+                  code: VMLamCode::LCode(Vec::new(), ltree.clone()),
+                };
+                // NB: Must explicitly transition the thunk to a "black hole"
+                // state using `_prep_update`.
+                mthk._prep_update();
+                let next_ctrl = match mthk.lam.code.clone() {
+                  VMLamCode::NoExe => panic!("vm: runtime error"),
+                  VMLamCode::LCode(_, e) => VMReg::Code(e),
+                  VMLamCode::BCode(_, bc) => VMReg::BCode(bc, Vec::new()),
+                };
+                let next_kont = VMKontRef::new(VMKont::Thk0(thk_a.clone(), rest_mlam, env.clone(), kont));
+                let next_env = mthk.env.clone();
+                println!("TRACE: vm:   expr:     end emp");
+                (next_ctrl, next_env, next_kont)
+              }
+              VMThunkState::Blk => {
+                panic!("invalid thunk state (blkhole)");
+              }
+              VMThunkState::Val => {
+                println!("TRACE: vm:   expr:   val...");
+                let mslot = mthk.slot.borrow();
+                let mval = match &*mslot {
+                  &VMThunkSlot::Val(ref mval) => mval.clone(),
+                  _ => panic!("bug"),
+                };
+                /*// TODO: this basically overwrites the current env if the mval
+                // is a closure... is this the correct behavior?
+                let next_env = match &*mval {
+                  &VMVal::Clo(ref mclosure) => mclosure.env.clone(),
+                  _ => env,
+                };*/
+                let next_ctrl = VMReg::MVal(mval);
+                let next_env = env;
+                let next_kont = kont;
+                println!("TRACE: vm:   expr:     end val");
+                (next_ctrl, next_env, next_kont)
+              }
+              VMThunkState::Rst => {
+                panic!("invalid thunk state (reset)");
+              }
+            }
+          }
           (&LTerm::Reclaim(ref var, ref rest), _) => {
             println!("TRACE: vm:   expr: reclaim: {:?}", var);
             let next_ctrl = VMReg::Code(rest.clone());
@@ -1158,25 +1218,30 @@ impl VMachine {
                 new_tg_env.free.insert(key_var.clone(), VMAValue::Addr(thk_a.clone()));
               }
               Some(&VMAValue::Addr(ref tg_thk_a)) => {
-                // FIXME
-                unimplemented!();
-                /*
-                self.lbuilder.bc_apply_term(
-                    |lb| lb.lookup_term(LVar(1)),
-                    /*vec![
-                      |lb| lb.vm_deref_term(thk_a.clone()),
-                      |lb| lb.vm_deref_term(tg_thk_a.clone()),
-                    ]*/
+                let join_code = self.lbuilder.as_mut().unwrap().apply_term(
+                    &mut |lb| lb.lookup_term(LVar(1)),
                     vec![
-                      thk_a.clone(),
-                      tg_thk_a.clone(),
+                      &mut |lb| lb.vm_deref_term(thk_a.clone()),
+                      &mut |lb| lb.vm_deref_term(tg_thk_a.clone()),
                     ]
-                )
-                */
+                );
+                let join_mlam = VMLam{code: VMLamCode::LCode(Vec::new(), join_code)};
+                let join_mthk = VMThunkRef::new(VMThunk::new_empty(join_mlam, env.clone()));
+                let join_thk_a = self.store.insert(join_mthk);
+                new_tg_env.free.insert(key_var.clone(), VMAValue::Cons(join_thk_a, thk_a.clone(), tg_thk_a.clone()));
               }
-              Some(&VMAValue::Cons(_, ref tg_thk_a, ..)) => {
-                // FIXME
-                unimplemented!();
+              Some(&VMAValue::Cons(ref tg_thk_a, ..)) => {
+                let join_code = self.lbuilder.as_mut().unwrap().apply_term(
+                    &mut |lb| lb.lookup_term(LVar(1)),
+                    vec![
+                      &mut |lb| lb.vm_deref_term(thk_a.clone()),
+                      &mut |lb| lb.vm_deref_term(tg_thk_a.clone()),
+                    ]
+                );
+                let join_mlam = VMLam{code: VMLamCode::LCode(Vec::new(), join_code)};
+                let join_mthk = VMThunkRef::new(VMThunk::new_empty(join_mlam, env.clone()));
+                let join_thk_a = self.store.insert(join_mthk);
+                new_tg_env.free.insert(key_var.clone(), VMAValue::Cons(join_thk_a, thk_a.clone(), tg_thk_a.clone()));
               }
             }
             let new_mval = VMValRef::new(VMVal::AEnv(new_tg_env));
@@ -1195,7 +1260,7 @@ impl VMachine {
             let thk_a = match tg_env.free.get(name) {
               None => panic!(),
               Some(&VMAValue::Addr(ref a)) => a.clone(),
-              Some(&VMAValue::Cons(_, ref a, ..)) => a.clone(),
+              Some(&VMAValue::Cons(ref a, ..)) => a.clone(),
             };
             let mthk = self.store.lookup(thk_a.clone());
             match mthk.state() {
