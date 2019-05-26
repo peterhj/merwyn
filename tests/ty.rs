@@ -201,3 +201,40 @@ fn test_ty_adj_3() {
   let v: Option<(f64, f64)> = halt_mval.try_unpack();
   println!("DEBUG: halt value: {:?}", v);
 }
+
+#[test]
+fn test_ty_adj_4() {
+  println!();
+  //let lexer = HLexer::new("let x = 3.14; let y = let w = x in w; let z = adj y; z");
+  //let lexer = HLexer::new("let x = 3.14; let y = x; let dy = (adj y)[1.0]; dy.x");
+  //let lexer = HLexer::new("let x = 3.14; let y = x; let z = y; let dz = (adj z)[1.0]; {dz.x, dz.y}");
+  let lexer = HLexer::new("let x = 3.14; let y = \\t. x; let z = y[x]; let dz = (adj z)[1.0]; dz.x");
+  //let lexer = HLexer::new("let x = 3.14; let y = \\t. 3.14; let y' = y[x]; let z = adj y'; z");
+  //let lexer = HLexer::new("let x = 3.14; let y = \\t. t; let y' = y[x]; let z = adj y'; z");
+  //let lexer = HLexer::new("let x = 3.14; let y = \\t. x; let y' = y[x]; let z = adj y'; let dy = z[1.0]; dy.x");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::new();
+  //let ltree = builder.lower(htree);
+  let ltree = builder.lower_with_stdlib(htree);
+  println!("DEBUG: ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.expand_adj(ltree);
+  println!("DEBUG: adj-expanded ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.resolve_ty_inf(ltree);
+  println!("DEBUG: ty-inf-resolved, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = ltree.root;
+  let mut vm = VMachine::new();
+  let halt_mval = vm.eval(ltree);
+  let v: Option<f64> = halt_mval.try_unpack();
+  println!("DEBUG: halt value: {:?}", v);
+}

@@ -19,11 +19,11 @@ extern crate serde;
 #[macro_use] extern crate serde_derive;
 extern crate vertreap;
 
+pub mod builtins;
 pub mod cfg;
 pub mod ir;
 pub mod lang;
 pub mod num_util;
 //pub mod repl;
 pub mod rngs;
-pub mod stdlib;
 pub mod vm;

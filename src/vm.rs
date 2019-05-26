@@ -466,8 +466,8 @@ pub enum VMKont {
   Ret(VMEnvRef, VMKontRef),
   AThk(LVar, VMAddr, VMLam, VMEnvRef, VMKontRef),
   ACons(LVar, VMAddr, VMEnvRef, VMKontRef),
-  AApp(/*FIXME*/ VMEnvRef, VMKontRef),
-  ERet(/*FIXME*/ VMEnvRef, VMKontRef),
+  AApp(Vec<LVar>, Vec<LVar>, VMEnvRef, VMKontRef),
+  ERet(Vec<LVar>, VMEnvRef, VMKontRef),
   ESel(LVar, VMLam, VMEnvRef, VMKontRef),
   Swch(LExpr, LExpr, VMEnvRef, VMKontRef),
   Mch(VecDeque<(LPat, LExpr)>, VMEnvRef, VMKontRef),
@@ -908,15 +908,19 @@ impl VMachine {
               _ => unimplemented!(),
             }
           }
-          (&LTerm::AApp(ref params, ref rhs), _) => {
-            // FIXME
+          (&LTerm::AApp(ref args, ref arg_adjs, ref target), _) => {
             println!("TRACE: vm:   expr: a-env apply");
-            unimplemented!();
+            let next_ctrl = VMReg::Code(target.clone());
+            let next_kont = VMKontRef::new(VMKont::AApp(args.clone(), arg_adjs.clone(), env.clone(), kont));
+            let next_env = env;
+            (next_ctrl, next_env, next_kont)
           }
-          (&LTerm::ERet(ref params, ref rhs), _) => {
-            // FIXME
+          (&LTerm::ERet(ref params, ref target), _) => {
             println!("TRACE: vm:   expr: env return");
-            unimplemented!();
+            let next_ctrl = VMReg::Code(target.clone());
+            let next_kont = VMKontRef::new(VMKont::ERet(params.clone(), env.clone(), kont));
+            let next_env = env;
+            (next_ctrl, next_env, next_kont)
           }
           (&LTerm::ESelect(ref target, ref name), _) => {
             println!("TRACE: vm:   expr: env select");
@@ -1218,7 +1222,9 @@ impl VMachine {
                 new_tg_env.free.insert(key_var.clone(), VMAValue::Addr(thk_a.clone()));
               }
               Some(&VMAValue::Addr(ref tg_thk_a)) => {
+                let tg_thk_a = tg_thk_a.clone();
                 let join_code = self.lbuilder.as_mut().unwrap().apply_term(
+                    // FIXME: hardcoded `add` (assumes standard prelude).
                     &mut |lb| lb.lookup_term(LVar(1)),
                     vec![
                       &mut |lb| lb.vm_deref_term(thk_a.clone()),
@@ -1228,10 +1234,12 @@ impl VMachine {
                 let join_mlam = VMLam{code: VMLamCode::LCode(Vec::new(), join_code)};
                 let join_mthk = VMThunkRef::new(VMThunk::new_empty(join_mlam, env.clone()));
                 let join_thk_a = self.store.insert(join_mthk);
-                new_tg_env.free.insert(key_var.clone(), VMAValue::Cons(join_thk_a, thk_a.clone(), tg_thk_a.clone()));
+                new_tg_env.free.insert(key_var.clone(), VMAValue::Cons(join_thk_a, thk_a.clone(), tg_thk_a));
               }
               Some(&VMAValue::Cons(ref tg_thk_a, ..)) => {
+                let tg_thk_a = tg_thk_a.clone();
                 let join_code = self.lbuilder.as_mut().unwrap().apply_term(
+                    // FIXME: hardcoded `add` (assumes standard prelude).
                     &mut |lb| lb.lookup_term(LVar(1)),
                     vec![
                       &mut |lb| lb.vm_deref_term(thk_a.clone()),
@@ -1241,7 +1249,7 @@ impl VMachine {
                 let join_mlam = VMLam{code: VMLamCode::LCode(Vec::new(), join_code)};
                 let join_mthk = VMThunkRef::new(VMThunk::new_empty(join_mlam, env.clone()));
                 let join_thk_a = self.store.insert(join_mthk);
-                new_tg_env.free.insert(key_var.clone(), VMAValue::Cons(join_thk_a, thk_a.clone(), tg_thk_a.clone()));
+                new_tg_env.free.insert(key_var.clone(), VMAValue::Cons(join_thk_a, thk_a.clone(), tg_thk_a));
               }
             }
             let new_mval = VMValRef::new(VMVal::AEnv(new_tg_env));
@@ -1253,10 +1261,91 @@ impl VMachine {
           (_, &VMKont::ACons(..)) => {
             panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
           }
+          (&VMVal::AEnv(ref tg_env), &VMKont::AApp(ref args, ref arg_adjs, ref saved_env, ref saved_kont)) => {
+            // FIXME: join arg adjs.
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
+            let mut new_tg_env = tg_env.clone();
+            assert_eq!(args.len(), new_tg_env.bind.len());
+            for (a, b) in args.iter().zip(new_tg_env.bind.iter()) {
+              match new_tg_env.free.remove(b) {
+                None => {}
+                Some(v) => {
+                  match new_tg_env.free.get(a) {
+                    None => {
+                      new_tg_env.free.insert(a.clone(), v);
+                    }
+                    Some(&VMAValue::Addr(ref tg_thk_a)) => {
+                      let thk_a = match v {
+                        VMAValue::Addr(thk_a) => thk_a,
+                        VMAValue::Cons(thk_a, ..) => thk_a,
+                      };
+                      let tg_thk_a = tg_thk_a.clone();
+                      let join_code = self.lbuilder.as_mut().unwrap().apply_term(
+                          // FIXME: hardcoded `add` (assumes standard prelude).
+                          &mut |lb| lb.lookup_term(LVar(1)),
+                          vec![
+                            &mut |lb| lb.vm_deref_term(thk_a.clone()),
+                            &mut |lb| lb.vm_deref_term(tg_thk_a.clone()),
+                          ]
+                      );
+                      let join_mlam = VMLam{code: VMLamCode::LCode(Vec::new(), join_code)};
+                      let join_mthk = VMThunkRef::new(VMThunk::new_empty(join_mlam, env.clone()));
+                      let join_thk_a = self.store.insert(join_mthk);
+                      new_tg_env.free.insert(a.clone(), VMAValue::Cons(join_thk_a, thk_a, tg_thk_a));
+                    }
+                    Some(&VMAValue::Cons(ref tg_thk_a, ..)) => {
+                      let thk_a = match v {
+                        VMAValue::Addr(thk_a) => thk_a,
+                        VMAValue::Cons(thk_a, ..) => thk_a,
+                      };
+                      let tg_thk_a = tg_thk_a.clone();
+                      let join_code = self.lbuilder.as_mut().unwrap().apply_term(
+                          // FIXME: hardcoded `add` (assumes standard prelude).
+                          &mut |lb| lb.lookup_term(LVar(1)),
+                          vec![
+                            &mut |lb| lb.vm_deref_term(thk_a.clone()),
+                            &mut |lb| lb.vm_deref_term(tg_thk_a.clone()),
+                          ]
+                      );
+                      let join_mlam = VMLam{code: VMLamCode::LCode(Vec::new(), join_code)};
+                      let join_mthk = VMThunkRef::new(VMThunk::new_empty(join_mlam, env.clone()));
+                      let join_thk_a = self.store.insert(join_mthk);
+                      new_tg_env.free.insert(a.clone(), VMAValue::Cons(join_thk_a, thk_a, tg_thk_a));
+                    }
+                  }
+                }
+              }
+            }
+            new_tg_env.bind.clear();
+            let new_mval = VMValRef::new(VMVal::AEnv(new_tg_env));
+            let next_ctrl = VMReg::MVal(new_mval);
+            let next_env = saved_env.clone();
+            let next_kont = saved_kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          (_, &VMKont::AApp(..)) => {
+            panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
+          }
+          (&VMVal::AEnv(ref tg_env), &VMKont::ERet(ref params, ref saved_env, ref saved_kont)) => {
+            // TODO
+            println!("TRACE: vm:   kont: {}", kont._kont_name());
+            let mut new_tg_env = tg_env.clone();
+            assert_eq!(new_tg_env.bind.len(), 0);
+            for p in params.iter() {
+              new_tg_env.bind.push(p.clone());
+            }
+            let new_mval = VMValRef::new(VMVal::AEnv(new_tg_env));
+            let next_ctrl = VMReg::MVal(new_mval);
+            let next_env = saved_env.clone();
+            let next_kont = saved_kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          (_, &VMKont::ERet(..)) => {
+            panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
+          }
           (&VMVal::AEnv(ref tg_env), &VMKont::ESel(ref name, ref lookup_mlam, ref saved_env, ref saved_kont)) => {
             // TODO
             println!("TRACE: vm:   kont: {}", kont._kont_name());
-            //let thk_a = tg_env.lookup(name.clone());
             let thk_a = match tg_env.free.get(name) {
               None => panic!(),
               Some(&VMAValue::Addr(ref a)) => a.clone(),
