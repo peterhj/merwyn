@@ -238,3 +238,34 @@ fn test_ty_adj_4() {
   let v: Option<f64> = halt_mval.try_unpack();
   println!("DEBUG: halt value: {:?}", v);
 }
+
+#[test]
+fn test_ty_adj_add_1() {
+  println!();
+  let lexer = HLexer::new("let x = 3.14; let y = x + x; let dy = (adj y)[1.0]; dy.x");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::new();
+  let ltree = builder.lower_with_stdlib(htree);
+  println!("DEBUG: ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.expand_adj(ltree);
+  println!("DEBUG: adj-expanded ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.resolve_ty_inf(ltree);
+  println!("DEBUG: ty-inf-resolved, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = ltree.root;
+  //let mut vm = VMachine::new();
+  let mut vm = VMachine::with_lbuilder(builder);
+  let halt_mval = vm.eval(ltree);
+  let v: Option<f64> = halt_mval.try_unpack();
+  println!("DEBUG: halt value: {:?}", v);
+}

@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use crate::ir::{LBuilder, LExpr, LVar};
+use crate::ir::{LBuilder, LEnvKey, LExpr, LTerm, LTermRef, LVar};
 use crate::num_util::{checked};
 use crate::vm::{VMBoxCode, VMLam, VMLamCode, VMVal, VMValRef};
 
@@ -84,24 +84,62 @@ pub fn make_bc_add() -> VMBoxCode {
   bc
 }
 
-pub fn make_adj_add(builder: &mut LBuilder, _params: Vec<LVar>, adj_sink: LVar) -> Vec<LExpr> {
-  let adj0 = {
-    let v = builder.vars.fresh();
-    /*builder.lambda_term(
+pub fn make_adj_add(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -> LExpr {
+  /*let adj0 = {
+    /*let v = builder.vars.fresh();
+    builder.lambda_term(
         vec![v.clone()],
         &mut |builder| builder.lookup_term(v.clone()),
     )*/
     builder.lookup_term(adj_sink.clone())
   };
   let adj1 = {
-    let v = builder.vars.fresh();
-    /*builder.lambda_term(
+    /*let v = builder.vars.fresh();
+    builder.lambda_term(
         vec![v.clone()],
         &mut |builder| builder.lookup_term(v.clone()),
     )*/
     builder.lookup_term(adj_sink.clone())
   };
-  vec![adj0, adj1]
+  vec![adj0, adj1]*/
+  LExpr{
+    label:  builder.labels.fresh(),
+    term:   LTermRef::new(LTerm::AConcat(
+        LExpr{
+          label:  builder.labels.fresh(),
+          term:   LTermRef::new(LTerm::AEnv(
+              vec![(
+                LEnvKey::Var(params[0].clone()),
+                LExpr{
+                  label:  builder.labels.fresh(),
+                  term:   LTermRef::new(LTerm::Lookup(adj_sink.clone()))
+                }
+              )],
+          ))
+        },
+        LExpr{
+          label:  builder.labels.fresh(),
+          term:   LTermRef::new(LTerm::AConcat(
+              LExpr{
+                label:  builder.labels.fresh(),
+                term:   LTermRef::new(LTerm::AEnv(
+                    vec![(
+                      LEnvKey::Var(params[1].clone()),
+                      LExpr{
+                        label:  builder.labels.fresh(),
+                        term:   LTermRef::new(LTerm::Lookup(adj_sink.clone()))
+                      }
+                    )],
+                ))
+              },
+              LExpr{
+                label:  builder.labels.fresh(),
+                term:   LTermRef::new(LTerm::AEnv(vec![]))
+              },
+          ))
+        },
+    ))
+  }
 }
 
 pub fn make_bc_sub() -> VMBoxCode {
@@ -150,7 +188,7 @@ pub fn make_bc_mul() -> VMBoxCode {
   bc
 }
 
-pub fn make_adj_mul(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -> Vec<LExpr> {
+/*pub fn make_adj_mul(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -> Vec<LExpr> {
   let op_hash = builder.hashes.lookup("mul".to_owned());
   let op = builder.vars.lookup(op_hash);
   let adj0 = {
@@ -172,7 +210,7 @@ pub fn make_adj_mul(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -
     )
   };
   vec![adj0, adj1]
-}
+}*/
 
 pub fn make_bc_div() -> VMBoxCode {
   let bc = VMBoxCode{

@@ -161,7 +161,8 @@ pub enum VMVal {
   Bit(bool),
   Int(Checked<i64>),
   Flo(f64),
-  Box_(VMBoxVal),
+  Box(VMBoxVal),
+  Ref(RefCell<VMValRef>),
   RState,
   IOState,
 }
@@ -317,7 +318,8 @@ impl VMVal {
       &VMVal::Bit(_) => "Bit",
       &VMVal::Int(_) => "Int",
       &VMVal::Flo(_) => "Flo",
-      &VMVal::Box_(_) => "Box_",
+      &VMVal::Box(_) => "Box",
+      &VMVal::Ref(_) => "Ref",
       &VMVal::RState => "RState",
       &VMVal::IOState => "IOState",
     }

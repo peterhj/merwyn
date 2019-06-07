@@ -220,7 +220,7 @@ pub struct LVMBCLambdaDef {
   // TODO
   pub ar:   usize,
   pub ty:   Option<Rc<dyn Fn(&mut LBuilder) -> (Vec<LTy>, LTy)>>,
-  pub adj:  Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>,
+  pub adj:  Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> LExpr>>,
   pub cg:   Option<Rc<dyn Fn() -> VMBoxCode>>,
 }
 
@@ -1347,7 +1347,7 @@ impl LBuilder {
   }
 
   //pub fn _make_bclambda(&mut self, bc: VMBoxCode) -> LExpr {
-  pub fn _make_bclambda(&mut self, ar: usize, cg: Rc<dyn Fn() -> VMBoxCode>, adj: Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>) -> LExpr {
+  pub fn _make_bclambda(&mut self, ar: usize, cg: Rc<dyn Fn() -> VMBoxCode>, adj: Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> LExpr>>) -> LExpr {
     let bcdef = LVMBCLambdaDef{
       ar,
       // FIXME
@@ -1356,13 +1356,13 @@ impl LBuilder {
       cg:   Some(cg),
       //adj:  None,
       //adj:  Some(Rc::new(move || {  })),
-      adj:  adj,
+      adj,
     };
     LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::VMExt(LVMExt::BCLambda(vec![], bcdef))), /*info: LExprInfo::default()*/}
   }
 
   //pub fn _alloc_bclambda(&mut self, name: &str, bc: VMBoxCode) -> (LHash, LVar, LLabel, LExpr) {
-  pub fn _alloc_bclambda(&mut self, name: &str, ar: usize, cg: Rc<dyn Fn() -> VMBoxCode>, adj: Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>) -> (LHash, LVar, LLabel, LExpr) {
+  pub fn _alloc_bclambda(&mut self, name: &str, ar: usize, cg: Rc<dyn Fn() -> VMBoxCode>, adj: Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> LExpr>>) -> (LHash, LVar, LLabel, LExpr) {
     let (hash, var, label) = self._alloc_name(name);
     let bclam = self._make_bclambda(ar, cg, adj);
     (hash, var, label, bclam)
@@ -1372,7 +1372,7 @@ impl LBuilder {
     fn bind(_gen: u64, label: LLabel, var: LVar, body: LExpr, rest: LExpr) -> LExpr {
       LExpr{/*gen,*/ label: label, term: LTermRef::new(LTerm::Let(var, body, rest)), /*info: LExprInfo::default()*/}
     }
-    fn bind_next<B: Iterator<Item=(&'static str, usize, Rc<dyn Fn() -> VMBoxCode>, Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>)>, R: FnOnce() -> Rc<HExpr>>(this: &mut LBuilder, mut bindings: B, rest: R) -> LExpr {
+    fn bind_next<B: Iterator<Item=(&'static str, usize, Rc<dyn Fn() -> VMBoxCode>, Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> LExpr>>)>, R: FnOnce() -> Rc<HExpr>>(this: &mut LBuilder, mut bindings: B, rest: R) -> LExpr {
       match bindings.next() {
         None => this._htree_to_ltree_lower_pass((rest)()),
         Some((name, ar, cg, adj)) => {
@@ -1383,7 +1383,7 @@ impl LBuilder {
         }
       }
     }
-    let stdlib_bindings: Vec<(_, _, Rc<dyn Fn() -> VMBoxCode>, Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> Vec<LExpr>>>)> = vec![
+    let stdlib_bindings: Vec<(_, _, Rc<dyn Fn() -> VMBoxCode>, Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> LExpr>>)> = vec![
       ("add", 2, Rc::new(|| make_bc_add()), Some(Rc::new(|lb, args, sink| make_adj_add(lb, args, sink)))),
       ("sub", 2, Rc::new(|| make_bc_sub()), None),
       ("mul", 2, Rc::new(|| make_bc_mul()), None),
@@ -2376,133 +2376,7 @@ impl LBuilder {
           ))
         }
       }
-      /*&LTerm::Lambda(ref params, ref lam_body) => {
-        let new_lam_body_name = self.vars.fresh();
-        let new_lam_body = LExpr{
-          //gen:    self._gen(),
-          label:  self.labels.fresh(),
-          term:   LTermRef::new(LTerm::Let(
-              new_lam_body_name.clone(),
-              lam_body.clone(),
-              LExpr{
-                //gen:    self._gen(),
-                label:  self.labels.fresh(),
-                term:   LTermRef::new(LTerm::STuple(
-                    vec![
-                      LExpr{
-                        //gen:    self._gen(),
-                        label:  self.labels.fresh(),
-                        term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
-                      },
-                      LExpr{
-                        //gen:    self._gen(),
-                        label:  self.labels.fresh(),
-                        term:   LTermRef::new(LTerm::ERet(
-                            params.iter().enumerate().map(|(i, p)| {
-                              (p.clone(), i)
-                            }).collect(),
-                            LExpr{
-                              //gen:    self._gen(),
-                              label:  self.labels.fresh(),
-                              term:   LTermRef::new(LTerm::Adj(
-                                  LExpr{
-                                    //gen:    self._gen(),
-                                    label:  self.labels.fresh(),
-                                    term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
-                                  }
-                              ))
-                            },
-                        ))
-                      },
-                    ]
-                ))
-              }
-          ))
-        };
-        let new_lam = LExpr{
-          //gen:    self._gen(),
-          label:  self.labels.fresh(),
-          term:   LTermRef::new(LTerm::Lambda(
-              params.clone(),
-              new_lam_body,
-          ))
-        };
-        let new_lam = self._ltree_normalize_pass_kont_term(new_lam);
-        let new_lam = match self._ltree_search_adj_sink_pass_kont2(lroot, new_lam, ctx,
-            &mut |_, _, new_lam, _| new_lam) {
-          None => panic!("bug"),
-          Some(new_lam) => new_lam,
-        };
-        let new_lam_params = match &*new_lam.term {
-          &LTerm::Lambda(ref params, _) => params.clone(),
-          _ => panic!("bug"),
-        };
-        let mut new_adj_lam_params = Vec::with_capacity(new_lam_params.len());
-        for _ in 0 .. new_lam_params.len() {
-          new_adj_lam_params.push(self.vars.fresh());
-        }
-        let tmp_adj_part_name = self.vars.fresh();
-        LExpr{
-          //gen:    self._gen(),
-          label:  self.labels.fresh(),
-          term:   LTermRef::new(LTerm::Let(
-              name.clone(),
-              new_lam,
-              LExpr{
-                //gen:    self._gen(),
-                label:  self.labels.fresh(),
-                term:   LTermRef::new(LTerm::Let(
-                    adj_name,
-                    LExpr{
-                      //gen:    self._gen(),
-                      label:  self.labels.fresh(),
-                      term:   LTermRef::new(LTerm::Lambda(
-                          new_adj_lam_params.clone(),
-                          LExpr{
-                            //gen:    self._gen(),
-                            label:  self.labels.fresh(),
-                            term:   LTermRef::new(LTerm::Match(
-                                LExpr{
-                                  //gen:    self._gen(),
-                                  label:  self.labels.fresh(),
-                                  term:   LTermRef::new(LTerm::Apply(
-                                      LExpr{
-                                        //gen:    self._gen(),
-                                        label:  self.labels.fresh(),
-                                        term:   LTermRef::new(LTerm::Lookup(name.clone()))
-                                      },
-                                      new_adj_lam_params.iter().map(|p| {
-                                        LExpr{
-                                          //gen:    self._gen(),
-                                          label:  self.labels.fresh(),
-                                          term:   LTermRef::new(LTerm::Lookup(p.clone()))
-                                        }
-                                      }).collect(),
-                                  ))
-                                },
-                                vec![(
-                                  LPat::STuple(vec![
-                                    LPatRef::new(LPat::Place),
-                                    LPatRef::new(LPat::Var(tmp_adj_part_name.clone())),
-                                  ]),
-                                  LExpr{
-                                    //gen:    self._gen(),
-                                    label:  self.labels.fresh(),
-                                    term:   LTermRef::new(LTerm::Lookup(tmp_adj_part_name))
-                                  }
-                                )]
-                            ))
-                          }
-                      ))
-                    },
-                    rest,
-                ))
-              }
-          ))
-        }
-      }*/
       &LTerm::Lambda(ref params, ref lam_body) => {
-        // FIXME: preserve the original lam type (only introduce a new adj ty).
         let new_lam_body_name = self.vars.fresh();
         let tmp_sink_param = self.vars.fresh();
         let new_lam_body = LExpr{
@@ -2533,7 +2407,6 @@ impl LBuilder {
                                           label:  self.labels.fresh(),
                                           term:   LTermRef::new(LTerm::Adj(
                                               LExpr{
-                                                //gen:    self._gen(),
                                                 label:  self.labels.fresh(),
                                                 term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
                                               }
@@ -2555,7 +2428,6 @@ impl LBuilder {
           ))
         };
         let new_lam = LExpr{
-          //gen:    self._gen(),
           label:  self.labels.fresh(),
           term:   LTermRef::new(LTerm::Lambda(
               params.clone(),
@@ -2618,7 +2490,7 @@ impl LBuilder {
                                 vec![(
                                   LPat::STuple(vec![
                                     LPatRef::new(LPat::Var(tmp_fst_part_name.clone())),
-                                    LPatRef::new(LPat::Place),
+                                    LPatRef::new(/*LPat::Place*/ LPat::Var(self.vars.fresh())),
                                   ]),
                                   LExpr{
                                     //gen:    self._gen(),
@@ -2636,58 +2508,72 @@ impl LBuilder {
           ))
         }
       }
-      &LTerm::VMExt(LVMExt::BCLambda(_, ref bcdef)) => {
-        /*// FIXME: preserve the original lam type (only introduce a new adj ty).
-        let new_lam_body_name = self.vars.fresh();
-        let new_lam_body = LExpr{
+      &LTerm::VMExt(LVMExt::BCLambda(ref bcp, ref bcdef)) => {
+        // FIXME: preserve the original lam type (only introduce a new adj ty).
+        let mut new_adj_params = vec![]; // FIXME
+        for _ in 0 .. bcdef.ar {
+          new_adj_params.push(self.vars.fresh());
+        }
+        let tmp_adj_sink_name = self.vars.fresh();
+        let new_adj_lam_body = LExpr{
           label:  self.labels.fresh(),
-          term:   LTermRef::new(LTerm::Let(
-              new_lam_body_name.clone(),
-              lam_body.clone(),
-              LExpr{
-                label:  self.labels.fresh(),
-                term:   LTermRef::new(LTerm::STuple(
-                    vec![
+          term:   LTermRef::new(LTerm::STuple(
+              vec![
+                LExpr{
+                  label:  self.labels.fresh(),
+                  term:   LTermRef::new(LTerm::Apply(
                       LExpr{
                         label:  self.labels.fresh(),
-                        term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
+                        term:   LTermRef::new(LTerm::Lookup(name.clone()))
                       },
+                      new_adj_params.iter().map(|ap| LExpr{
+                        label:  self.labels.fresh(),
+                        term:   LTermRef::new(LTerm::Lookup(ap.clone()))
+                      }).collect(),
+                  ))
+                },
+                LExpr{
+                  label:  self.labels.fresh(),
+                  term:   LTermRef::new(LTerm::Lambda(
+                      vec![tmp_adj_sink_name.clone()],
                       LExpr{
                         label:  self.labels.fresh(),
                         term:   LTermRef::new(LTerm::ERet(
-                            params.clone(),
-                            LExpr{
-                              label:  self.labels.fresh(),
-                              term:   LTermRef::new(LTerm::Adj(
-                                  LExpr{
-                                    label:  self.labels.fresh(),
-                                    term:   LTermRef::new(LTerm::Lookup(new_lam_body_name.clone()))
-                                  }
-                              ))
-                            },
+                            new_adj_params.clone(),
+                            match bcdef.adj {
+                              None => panic!(),
+                              Some(ref adj) => {
+                                (adj)(self, new_adj_params.clone(), tmp_adj_sink_name)
+                              }
+                            }
                         ))
                       },
-                    ]
+                  ))
+                },
+              ]
+          ))
+        };
+        LExpr{
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Let(
+              name.clone(),
+              body.clone(),
+              LExpr{
+                label:  self.labels.fresh(),
+                term:   LTermRef::new(LTerm::Let(
+                    adj_name.clone(),
+                    LExpr{
+                      label:  self.labels.fresh(),
+                      term:   LTermRef::new(LTerm::Lambda(
+                          new_adj_params,
+                          new_adj_lam_body,
+                      ))
+                    },
+                    rest,
                 ))
               }
           ))
-        };
-        match bcdef.adj {
-          None => panic!(),
-          Some(adj) => {
-            (adj)(self, _)
-          }
         }
-        let mut new_params = vec![]; // FIXME
-        let new_adj_lam = LExpr{
-          label:  self.labels.fresh(),
-          term:   LTermRef::new(LTerm::Lambda(
-              new_params.clone(),
-              new_lam_body,
-          ))
-        };*/
-        // FIXME
-        unimplemented!();
       }
       &LTerm::Apply(ref head, ref args) => {
         let head_var = match &*head.term {
@@ -2703,12 +2589,10 @@ impl LBuilder {
         // not in the callsite itself.
         let mut arg_vars = Vec::with_capacity(args.len());
         let mut arg_adjs = Vec::with_capacity(args.len());
-        //let mut args_adjs = Vec::with_capacity(args.len());
         for (arg_idx, arg) in args.iter().enumerate() {
           match &*arg.term {
             // FIXME: literal args.
             &LTerm::Lookup(ref arg_var) => {
-              //idx_arg_vars.push((arg_idx, arg_var.clone()));
               arg_vars.push(arg_var.clone());
               if !ctx.marked.contains(&arg_var) {
                 let adj_arg_var = self.vars.fresh();
@@ -2716,7 +2600,6 @@ impl LBuilder {
                 ctx.marked.insert(arg_var.clone());
               }
               let arg_adj = ctx.adj_map.get(arg_var).unwrap().clone();
-              //args_adjs.push((arg_var.clone(), arg_adj.clone()));*/
               arg_adjs.push(arg_adj.clone());
             }
             _ => unimplemented!(),
@@ -2726,46 +2609,21 @@ impl LBuilder {
         let tmp_adj_part_name = self.vars.fresh();
         let tmp_sink_param = self.vars.fresh();
         LExpr{
-          //gen:    self._gen(),
           label:  self.labels.fresh(),
           term:   LTermRef::new(LTerm::Match(
-              //body.with_gen_rec(self._gen()),
               LExpr{
-                //gen:    self._gen(),
                 label:  self.labels.fresh(),
                 term:   LTermRef::new(LTerm::Apply(
                     LExpr{
-                      //gen:    self._gen(),
                       label:  self.labels.fresh(),
                       term:   LTermRef::new(LTerm::Lookup(adj_head_var))
                     },
                     arg_vars.iter().map(|arg_var| {
                       LExpr{
-                        //gen:    self._gen(),
                         label:  self.labels.fresh(),
                         term:   LTermRef::new(LTerm::Lookup(arg_var.clone()))
                       }
                     }).collect(),
-                    /*args_adjs.into_iter().map(|(arg_var, arg_adj)| {
-                      LExpr{
-                        //gen:    self._gen(),
-                        label:  self.labels.fresh(),
-                        term:   LTermRef::new(LTerm::STuple(
-                            vec![
-                              LExpr{
-                                //gen:    self._gen(),
-                                label:  self.labels.fresh(),
-                                term:   LTermRef::new(LTerm::Lookup(arg_var))
-                              },
-                              LExpr{
-                                //gen:    self._gen(),
-                                label:  self.labels.fresh(),
-                                term:   LTermRef::new(LTerm::Lookup(arg_adj))
-                              },
-                            ]
-                        ))
-                      }
-                    }).collect(),*/
                 ))
               },
               vec![(
@@ -2856,8 +2714,7 @@ impl LBuilder {
         }
       }
       &LTerm::Apply(ref head, ref args) => {
-        // FIXME
-        //unimplemented!();
+        // TODO: returning `None` on this case assumes normalized lexpr.
         /*self._ltree_search_adj_sink_pass_kont2(lroot, head.clone(), ctx,
             &mut |_, _, head, _| unimplemented!());*/
         None
@@ -3676,14 +3533,14 @@ impl SimpleTyInferenceMachine {
             constraints.push_back(TyConstraint::Eq((**lhs_env).clone(), (**rhs_env).clone()));
             Self::_unify(lbuilder, constraints, substitution)
           }
-          //(&Ty::Fun(ref lhs_dom, ref lhs_cod), &Ty::AApp(_, _, ref rhs_ty)) => {
+          /*//(&Ty::Fun(ref lhs_dom, ref lhs_cod), &Ty::AApp(_, _, ref rhs_ty)) => {
           //(_, &Ty::AApp(_, _, ref rhs_ty)) => {
           (&Ty::AApp(_, _, ref lhs_ty), &Ty::AApp(_, _, ref rhs_ty)) => {
             // TODO
             //constraints.push_back(TyConstraint::Eq(lhs.clone(), (**rhs_ty).clone()));
             constraints.push_back(TyConstraint::Eq((**lhs_ty).clone(), (**rhs_ty).clone()));
             Self::_unify(lbuilder, constraints, substitution)
-          }
+          }*/
           //(&Ty::AApp(_, _, ref lhs_ty), &Ty::Fun(ref rhs_dom, ref rhs_cod)) => {
           //(&Ty::AApp(_, _, ref lhs_ty), _) => {
           (&Ty::AApp(_, _, ref lhs_ty), &Ty::AApp(_, _, ref rhs_ty)) => {
@@ -3692,14 +3549,14 @@ impl SimpleTyInferenceMachine {
             constraints.push_back(TyConstraint::Eq((**lhs_ty).clone(), (**rhs_ty).clone()));
             Self::_unify(lbuilder, constraints, substitution)
           }
-          //(&Ty::Fun(ref lhs_dom, ref lhs_cod), &Ty::ERet(_, ref rhs_ty)) => {
+          /*//(&Ty::Fun(ref lhs_dom, ref lhs_cod), &Ty::ERet(_, ref rhs_ty)) => {
           //(_, &Ty::ERet(_, ref rhs_ty)) => {
           (&Ty::ERet(_, ref lhs_ty), &Ty::ERet(_, ref rhs_ty)) => {
             // TODO
             //constraints.push_back(TyConstraint::Eq(lhs.clone(), (**rhs_ty).clone()));
             constraints.push_back(TyConstraint::Eq((**rhs_ty).clone(), (**rhs_ty).clone()));
             Self::_unify(lbuilder, constraints, substitution)
-          }
+          }*/
           //(&Ty::ERet(_, ref lhs_ty), &Ty::Fun(ref rhs_dom, ref rhs_cod)) => {
           //(&Ty::ERet(_, ref lhs_ty), _) => {
           (&Ty::ERet(_, ref lhs_ty), &Ty::ERet(_, ref rhs_ty)) => {
@@ -3749,7 +3606,7 @@ impl SimpleTyInferenceMachine {
                     }
                     if matched_var.is_some() {
                       println!("DEBUG: unify: found matching env select on key hash");
-                      // FIXME: other constraints.
+                      // FIXME: other constraints?
                       match &*sel_ty {
                         &Ty::Tyvar(sel_ty_v) => {
                           match substitution.get(&sel_ty_v) {
@@ -3771,9 +3628,41 @@ impl SimpleTyInferenceMachine {
                     println!("DEBUG: unify failure: select nonexistent key hash in env");
                     return Err(());
                   }
-                  &Ty::AApp(_, _, ref env_ty) => {
+                  &Ty::AApp(ref arg_vars, _, ref env_ty) => {
                     // TODO
-                    constraints.push_back(TyConstraint::IsaEnvSelByKeyHash(sel_ty.clone(), (**env_ty).clone(), key_hash.clone()));
+                    // FIXME: this loop matches the first type with a compatible
+                    // hash, but what if the hash has multiple matches?
+                    let mut matched_var = None;
+                    for arg_var in arg_vars.iter() {
+                      match lbuilder.vars.maybe_rev_lookup(arg_var.clone()) {
+                        None => {}
+                        Some(ref arg_hash) => {
+                          if arg_hash == key_hash {
+                            matched_var = Some(arg_var.clone());
+                            break;
+                          }
+                        }
+                      }
+                    }
+                    if matched_var.is_some() {
+                      println!("DEBUG: unify: found matching env select on key hash");
+                      // FIXME: other constraints?
+                      match &*sel_ty {
+                        &Ty::Tyvar(sel_ty_v) => {
+                          match substitution.get(&sel_ty_v) {
+                            Some(ty) => {
+                              constraints.push_back(TyConstraint::Eq(ty.clone(), Ty::ESel(TyRef::new((**env_ty).clone()), matched_var.clone().unwrap(), key_hash.clone())));
+                            }
+                            None => {
+                              substitution.insert(sel_ty_v, Ty::ESel(TyRef::new((**env_ty).clone()), matched_var.clone().unwrap(), key_hash.clone()));
+                            }
+                          }
+                        }
+                        _ => unimplemented!(),
+                      }
+                    } else {
+                      constraints.push_back(TyConstraint::IsaEnvSelByKeyHash(sel_ty.clone(), (**env_ty).clone(), key_hash.clone()));
+                    }
                   }
                   &Ty::ERet(_, ref env_ty) => {
                     // TODO
