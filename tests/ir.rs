@@ -55,7 +55,7 @@ fn test_ir_adj_0() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   let ltree = builder.lower(htree);
-  //let ltree = builder.lower_with_stdlib(htree);
+  //let ltree = builder.lower_with_toplevel(htree);
   let ltree = ltree.with_env_info();
   let ltree = ltree.with_free_env_info();
   //println!("DEBUG: ltree: {:?}", ltree);
@@ -87,7 +87,7 @@ fn test_ir_adj_1() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   let ltree = builder.lower(htree);
-  //let ltree = builder.lower_with_stdlib(htree);
+  //let ltree = builder.lower_with_toplevel(htree);
   let ltree = ltree.with_env_info();
   let ltree = ltree.with_free_env_info();
   //println!("DEBUG: ltree: {:?}", ltree.root);
@@ -117,7 +117,7 @@ fn test_ir_adj_2() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   let ltree = builder.lower(htree);
-  //let ltree = builder.lower_with_stdlib(htree);
+  //let ltree = builder.lower_with_toplevel(htree);
   let ltree = ltree.with_env_info();
   let ltree = ltree.with_free_env_info();
   //println!("DEBUG: ltree: {:?}", ltree.root);
@@ -148,7 +148,7 @@ fn test_ir_adj_3() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   let ltree = builder.lower(htree);
-  //let ltree = builder.lower_with_stdlib(htree);
+  //let ltree = builder.lower_with_toplevel(htree);
   let ltree = ltree.with_env_info();
   let ltree = ltree.with_free_env_info();
   //println!("DEBUG: ltree: {:?}", ltree.root);
@@ -177,7 +177,7 @@ fn test_ir_adj_3_prev() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   let ltree = builder.lower(htree);
-  //let ltree = builder.lower_with_stdlib(htree);
+  //let ltree = builder.lower_with_toplevel(htree);
   let ltree = ltree.with_env_info();
   let ltree = ltree.with_free_env_info();
   //println!("DEBUG: ltree: {:?}", ltree.root);

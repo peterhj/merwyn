@@ -43,6 +43,32 @@ pub fn make_bc_neg() -> VMBoxCode {
   bc
 }
 
+pub fn make_adj_neg(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -> LExpr {
+  let op_hash = builder.hashes.lookup("neg".to_owned());
+  let op = builder.vars.lookup(op_hash);
+  LExpr{
+    label:  builder.labels.fresh(),
+    term:   LTermRef::new(LTerm::AConcat(
+        LExpr{
+          label:  builder.labels.fresh(),
+          term:   LTermRef::new(LTerm::AEnv(
+              vec![(
+                LEnvKey::Var(params[0].clone()),
+                builder.apply_term(
+                    &mut |builder| builder.lookup_term(op.clone()),
+                    vec![&mut |builder| builder.lookup_term(adj_sink.clone())]
+                )
+              )],
+          ))
+        },
+        LExpr{
+          label:  builder.labels.fresh(),
+          term:   LTermRef::new(LTerm::AEnv(vec![]))
+        },
+    ))
+  }
+}
+
 pub fn make_bc_eq() -> VMBoxCode {
   let bc = VMBoxCode{
     ifun: Rc::new(|args| {
@@ -85,23 +111,6 @@ pub fn make_bc_add() -> VMBoxCode {
 }
 
 pub fn make_adj_add(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -> LExpr {
-  /*let adj0 = {
-    /*let v = builder.vars.fresh();
-    builder.lambda_term(
-        vec![v.clone()],
-        &mut |builder| builder.lookup_term(v.clone()),
-    )*/
-    builder.lookup_term(adj_sink.clone())
-  };
-  let adj1 = {
-    /*let v = builder.vars.fresh();
-    builder.lambda_term(
-        vec![v.clone()],
-        &mut |builder| builder.lookup_term(v.clone()),
-    )*/
-    builder.lookup_term(adj_sink.clone())
-  };
-  vec![adj0, adj1]*/
   LExpr{
     label:  builder.labels.fresh(),
     term:   LTermRef::new(LTerm::AConcat(
@@ -165,6 +174,46 @@ pub fn make_bc_sub() -> VMBoxCode {
   bc
 }
 
+pub fn make_adj_sub(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -> LExpr {
+  let op_hash = builder.hashes.lookup("neg".to_owned());
+  let op = builder.vars.lookup(op_hash);
+  LExpr{
+    label:  builder.labels.fresh(),
+    term:   LTermRef::new(LTerm::AConcat(
+        LExpr{
+          label:  builder.labels.fresh(),
+          term:   LTermRef::new(LTerm::AEnv(
+              vec![(
+                LEnvKey::Var(params[0].clone()),
+                builder.lookup_term(params[0].clone()),
+              )],
+          ))
+        },
+        LExpr{
+          label:  builder.labels.fresh(),
+          term:   LTermRef::new(LTerm::AConcat(
+              LExpr{
+                label:  builder.labels.fresh(),
+                term:   LTermRef::new(LTerm::AEnv(
+                    vec![(
+                      LEnvKey::Var(params[1].clone()),
+                      builder.apply_term(
+                          &mut |builder| builder.lookup_term(op.clone()),
+                          vec![&mut |builder| builder.lookup_term(params[1].clone())],
+                      )
+                    )],
+                ))
+              },
+              LExpr{
+                label:  builder.labels.fresh(),
+                term:   LTermRef::new(LTerm::AEnv(vec![]))
+              },
+          ))
+        },
+    ))
+  }
+}
+
 pub fn make_bc_mul() -> VMBoxCode {
   let bc = VMBoxCode{
     ifun: Rc::new(|args| {
@@ -188,29 +237,54 @@ pub fn make_bc_mul() -> VMBoxCode {
   bc
 }
 
-/*pub fn make_adj_mul(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -> Vec<LExpr> {
+pub fn make_adj_mul(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -> LExpr {
   let op_hash = builder.hashes.lookup("mul".to_owned());
   let op = builder.vars.lookup(op_hash);
-  let adj0 = {
-    builder.apply_term(
-        &mut |builder| builder.lookup_term(op.clone()),
-        vec![
-          &mut |builder| builder.lookup_term(params[1].clone()),
-          &mut |builder| builder.lookup_term(adj_sink.clone()),
-        ]
-    )
-  };
-  let adj1 = {
-    builder.apply_term(
-        &mut |builder| builder.lookup_term(op.clone()),
-        vec![
-          &mut |builder| builder.lookup_term(params[0].clone()),
-          &mut |builder| builder.lookup_term(adj_sink.clone()),
-        ]
-    )
-  };
-  vec![adj0, adj1]
-}*/
+  LExpr{
+    label:  builder.labels.fresh(),
+    term:   LTermRef::new(LTerm::AConcat(
+        LExpr{
+          label:  builder.labels.fresh(),
+          term:   LTermRef::new(LTerm::AEnv(
+              vec![(
+                LEnvKey::Var(params[0].clone()),
+                builder.apply_term(
+                    &mut |builder| builder.lookup_term(op.clone()),
+                    vec![
+                      &mut |builder| builder.lookup_term(adj_sink.clone()),
+                      &mut |builder| builder.lookup_term(params[1].clone()),
+                    ]
+                )
+              )],
+          ))
+        },
+        LExpr{
+          label:  builder.labels.fresh(),
+          term:   LTermRef::new(LTerm::AConcat(
+              LExpr{
+                label:  builder.labels.fresh(),
+                term:   LTermRef::new(LTerm::AEnv(
+                    vec![(
+                      LEnvKey::Var(params[1].clone()),
+                      builder.apply_term(
+                          &mut |builder| builder.lookup_term(op.clone()),
+                          vec![
+                            &mut |builder| builder.lookup_term(params[0].clone()),
+                            &mut |builder| builder.lookup_term(adj_sink.clone()),
+                          ]
+                      )
+                    )],
+                ))
+              },
+              LExpr{
+                label:  builder.labels.fresh(),
+                term:   LTermRef::new(LTerm::AEnv(vec![]))
+              },
+          ))
+        },
+    ))
+  }
+}
 
 pub fn make_bc_div() -> VMBoxCode {
   let bc = VMBoxCode{
@@ -233,4 +307,74 @@ pub fn make_bc_div() -> VMBoxCode {
     //ladj: None,
   };
   bc
+}
+
+pub fn make_adj_div(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -> LExpr {
+  let mul_hash = builder.hashes.lookup("mul".to_owned());
+  let mul = builder.vars.lookup(mul_hash);
+  let div_hash = builder.hashes.lookup("div".to_owned());
+  let div = builder.vars.lookup(div_hash);
+  let neg_hash = builder.hashes.lookup("neg".to_owned());
+  let neg = builder.vars.lookup(neg_hash);
+  LExpr{
+    label:  builder.labels.fresh(),
+    term:   LTermRef::new(LTerm::AConcat(
+        LExpr{
+          label:  builder.labels.fresh(),
+          term:   LTermRef::new(LTerm::AEnv(
+              vec![(
+                LEnvKey::Var(params[0].clone()),
+                builder.apply_term(
+                    &mut |builder| builder.lookup_term(div.clone()),
+                    vec![
+                      &mut |builder| builder.lookup_term(adj_sink.clone()),
+                      &mut |builder| builder.lookup_term(params[1].clone()),
+                    ]
+                )
+              )],
+          ))
+        },
+        LExpr{
+          label:  builder.labels.fresh(),
+          term:   LTermRef::new(LTerm::AConcat(
+              LExpr{
+                label:  builder.labels.fresh(),
+                term:   LTermRef::new(LTerm::AEnv(
+                    vec![(
+                      LEnvKey::Var(params[1].clone()),
+                      builder.apply_term(
+                          &mut |builder| builder.lookup_term(neg.clone()),
+                          vec![&mut |builder| {
+                            builder.apply_term(
+                                &mut |builder| builder.lookup_term(div.clone()),
+                                vec![
+                                  &mut |builder| builder.apply_term(
+                                    &mut |builder| builder.lookup_term(mul.clone()),
+                                    vec![
+                                      &mut |builder| builder.lookup_term(params[0].clone()),
+                                      &mut |builder| builder.lookup_term(adj_sink.clone()),
+                                    ]
+                                  ),
+                                  &mut |builder| builder.apply_term(
+                                    &mut |builder| builder.lookup_term(mul.clone()),
+                                    vec![
+                                      &mut |builder| builder.lookup_term(params[1].clone()),
+                                      &mut |builder| builder.lookup_term(params[1].clone()),
+                                    ]
+                                  ),
+                                ],
+                            )
+                          }],
+                      )
+                    )],
+                ))
+              },
+              LExpr{
+                label:  builder.labels.fresh(),
+                term:   LTermRef::new(LTerm::AEnv(vec![]))
+              },
+          ))
+        },
+    ))
+  }
 }

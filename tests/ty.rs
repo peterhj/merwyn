@@ -100,7 +100,7 @@ fn test_ty_adj_1() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   let ltree = builder.lower(htree);
-  //let ltree = builder.lower_with_stdlib(htree);
+  //let ltree = builder.lower_with_toplevel(htree);
   let ltree = ltree.with_env_info();
   let ltree = ltree.with_free_env_info();
   //println!("DEBUG: ltree: {:?}", ltree.root);
@@ -140,7 +140,7 @@ fn test_ty_adj_2() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   let ltree = builder.lower(htree);
-  //let ltree = builder.lower_with_stdlib(htree);
+  //let ltree = builder.lower_with_toplevel(htree);
   //let ltree = ltree.with_env_info();
   //let ltree = ltree.with_free_env_info();
   //println!("DEBUG: ltree: {:?}", ltree.root);
@@ -180,7 +180,7 @@ fn test_ty_adj_3() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   //let ltree = builder.lower(htree);
-  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.lower_with_toplevel(htree);
   println!("DEBUG: ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
   let ltree = builder.normalize(ltree);
@@ -217,7 +217,7 @@ fn test_ty_adj_4() {
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
   //let ltree = builder.lower(htree);
-  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.lower_with_toplevel(htree);
   println!("DEBUG: ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
   let ltree = builder.normalize(ltree);
@@ -247,7 +247,7 @@ fn test_ty_adj_add_1() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
-  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.lower_with_toplevel(htree);
   println!("DEBUG: ltree, pretty printed:");
   builder.pretty_print(ltree.clone());
   let ltree = builder.normalize(ltree);
@@ -268,4 +268,105 @@ fn test_ty_adj_add_1() {
   let halt_mval = vm.eval(ltree);
   let v: Option<f64> = halt_mval.try_unpack();
   println!("DEBUG: halt value: {:?}", v);
+  println!("DEBUG: step count: {:?}", vm._step_count());
+  assert_eq!(v, Some(2.0));
+}
+
+#[test]
+fn test_ty_adj_add_2() {
+  println!();
+  let lexer = HLexer::new("let x = 3.14; let y = x + x; let z = x + y; let dz = (adj z)[1.0]; dz.x");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::new();
+  let ltree = builder.lower_with_toplevel(htree);
+  println!("DEBUG: ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.expand_adj(ltree);
+  println!("DEBUG: adj-expanded ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.resolve_ty_inf(ltree);
+  println!("DEBUG: ty-inf-resolved, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = ltree.root;
+  //let mut vm = VMachine::new();
+  let mut vm = VMachine::with_lbuilder(builder);
+  let halt_mval = vm.eval(ltree);
+  let v: Option<f64> = halt_mval.try_unpack();
+  println!("DEBUG: halt value: {:?}", v);
+  println!("DEBUG: step count: {:?}", vm._step_count());
+  assert_eq!(v, Some(3.0));
+}
+
+#[test]
+fn test_ty_adj_add_3() {
+  println!();
+  let lexer = HLexer::new("let x = 3.14; let y1 = x + x; let y2 = y1 + y1; let y3 = y2 + y2; let y4 = y3 + y3; let y5 = y4 + y4; let z = y5 + y3 + y1; let dz = (adj z)[1.0]; dz.x");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::new();
+  let ltree = builder.lower_with_toplevel(htree);
+  println!("DEBUG: ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.expand_adj(ltree);
+  println!("DEBUG: adj-expanded ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.resolve_ty_inf(ltree);
+  println!("DEBUG: ty-inf-resolved, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = ltree.root;
+  //let mut vm = VMachine::new();
+  let mut vm = VMachine::with_lbuilder(builder);
+  let halt_mval = vm.eval(ltree);
+  let v: Option<f64> = halt_mval.try_unpack();
+  println!("DEBUG: halt value: {:?}", v);
+  println!("DEBUG: step count: {:?}", vm._step_count());
+  assert_eq!(v, Some(42.0));
+}
+
+#[test]
+fn test_ty_adj_mul_1() {
+  println!();
+  let lexer = HLexer::new("let x = 3.14; let y = x * x; let dy = (adj y)[1.0]; dy.x");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::new();
+  let ltree = builder.lower_with_toplevel(htree);
+  println!("DEBUG: ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.expand_adj(ltree);
+  println!("DEBUG: adj-expanded ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.normalize(ltree);
+  println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = builder.resolve_ty_inf(ltree);
+  println!("DEBUG: ty-inf-resolved, pretty printed:");
+  builder.pretty_print(ltree.clone());
+  let ltree = ltree.root;
+  //let mut vm = VMachine::new();
+  let mut vm = VMachine::with_lbuilder(builder);
+  let halt_mval = vm.eval(ltree);
+  let v: Option<f64> = halt_mval.try_unpack();
+  println!("DEBUG: halt value: {:?}", v);
+  println!("DEBUG: step count: {:?}", vm._step_count());
+  assert_eq!(v, Some(3.14 + 3.14));
 }

@@ -72,7 +72,7 @@ fn test_vm_3() {
   let mut builder = LBuilder::new();
   //let ltree = builder._htree_to_ltree_lower_pass(htree);
   //let ltree = builder.lower(htree);
-  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.lower_with_toplevel(htree);
   //let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
@@ -102,7 +102,7 @@ fn test_vm_4() {
   let mut builder = LBuilder::new();
   //let ltree = builder._htree_to_ltree_lower_pass(htree);
   //let ltree = builder.lower(htree);
-  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.lower_with_toplevel(htree);
   let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
@@ -130,7 +130,7 @@ fn test_vm_5() {
   let mut builder = LBuilder::new();
   //let ltree = builder._htree_to_ltree_lower_pass(htree);
   //let ltree = builder.lower(htree);
-  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.lower_with_toplevel(htree);
   let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
@@ -152,7 +152,7 @@ fn test_vm_6() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
-  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.lower_with_toplevel(htree);
   let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
@@ -175,7 +175,7 @@ fn test_vm_6_1() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
-  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.lower_with_toplevel(htree);
   let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);
@@ -198,7 +198,7 @@ fn test_vm_tail_call() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::new();
-  let ltree = builder.lower_with_stdlib(htree);
+  let ltree = builder.lower_with_toplevel(htree);
   let ltree = builder.normalize(ltree);
   builder._debug_dump_vars();
   println!("DEBUG: ltree: {:?}", ltree);

@@ -463,11 +463,13 @@ pub type VMKontRef = Rc<VMKont>;
 pub enum VMKont {
   Halt,
   Thk0(VMAddr, VMLam, VMEnvRef, VMKontRef),
-  App0(VMEnvRef, VMKontRef),
+  //App0(VMEnvRef, VMKontRef),
   App(Option<VMClosure>, Vec<VMValRef>, VecDeque<LExpr>, VMEnvRef, VMKontRef),
   Ret(VMEnvRef, VMKontRef),
   AThk(LVar, VMAddr, VMLam, VMEnvRef, VMKontRef),
   ACons(LVar, VMAddr, VMEnvRef, VMKontRef),
+  AConcatL(LExpr, VMEnvRef, VMKontRef),
+  AConcatR(VMValRef, VMEnvRef, VMKontRef),
   AApp(Vec<LVar>, Vec<LVar>, VMEnvRef, VMKontRef),
   ERet(Vec<LVar>, VMEnvRef, VMKontRef),
   ESel(LVar, VMLam, VMEnvRef, VMKontRef),
@@ -488,11 +490,13 @@ impl VMKont {
     match self {
       &VMKont::Halt => "Halt",
       &VMKont::Thk0(..) => "Thk0",
-      &VMKont::App0(..) => "App0",
+      //&VMKont::App0(..) => "App0",
       &VMKont::App(..) => "App",
       &VMKont::Ret(..) => "Ret",
       &VMKont::AThk(..) => "AThk",
       &VMKont::ACons(..) => "ACons",
+      &VMKont::AConcatL(..) => "AConcatL",
+      &VMKont::AConcatR(..) => "AConcatR",
       &VMKont::AApp(..) => "AApp",
       &VMKont::ERet(..) => "ERet",
       &VMKont::ESel(..) => "ESel",
@@ -688,6 +692,7 @@ pub struct VMachine {
   pub store:    VMStore,
   pub initsave: MSaveState,
   pub lbuilder: Option<LBuilder>,
+  pub _step_ct: usize,
 }
 
 impl VMachine {
@@ -700,6 +705,7 @@ impl VMachine {
       store:    VMStore::default(),
       initsave: MSaveState::default(),
       lbuilder: None,
+      _step_ct: 0,
     }
   }
 
@@ -712,6 +718,7 @@ impl VMachine {
       store:    VMStore::default(),
       initsave: MSaveState::default(),
       lbuilder: Some(lbuilder),
+      _step_ct: 0,
     }
   }
 
@@ -748,10 +755,10 @@ impl VMachine {
           depth += 1;
           kont = prev_kont.clone();
         }
-        &VMKont::App0(.., ref prev_kont) => {
+        /*&VMKont::App0(.., ref prev_kont) => {
           depth += 1;
           kont = prev_kont.clone();
-        }
+        }*/
         &VMKont::App(.., ref prev_kont) => {
           depth += 1;
           kont = prev_kont.clone();
@@ -765,6 +772,14 @@ impl VMachine {
           kont = prev_kont.clone();
         }
         &VMKont::ACons(.., ref prev_kont) => {
+          depth += 1;
+          kont = prev_kont.clone();
+        }
+        &VMKont::AConcatL(.., ref prev_kont) => {
+          depth += 1;
+          kont = prev_kont.clone();
+        }
+        &VMKont::AConcatR(.., ref prev_kont) => {
           depth += 1;
           kont = prev_kont.clone();
         }
@@ -822,6 +837,7 @@ impl VMachine {
     self.ctrl = VMReg::Code(ltree);
     self.env = VMEnvRef::default();
     self.kont = VMKontRef::default();
+    self._step_ct = 0;
   }
 
   /*pub fn _reset(&mut self, lb: LBuilder, ltree: LExpr) {
@@ -839,6 +855,7 @@ impl VMachine {
   pub fn _step(&mut self) {
     // TODO
     println!("TRACE: vm: step");
+    self._step_ct += 1;
     let ctrl = self.ctrl.clone();
     let env = self.env.clone();
     let kont = self.kont.clone();
@@ -907,7 +924,14 @@ impl VMachine {
                   panic!();
                 }
               }
-              _ => unimplemented!(),
+              //_ => unimplemented!(),
+              //_ => panic!("TRACE: vm: unimplemented code: {:?}", lhs.term),
+              _ => {
+                let next_ctrl = VMReg::Code(lhs.clone());
+                let next_kont = VMKontRef::new(VMKont::AConcatL(rhs.clone(), env.clone(), kont));
+                let next_env = env;
+                (next_ctrl, next_env, next_kont)
+              }
             }
           }
           (&LTerm::AApp(ref args, ref arg_adjs, ref target), _) => {
@@ -1263,8 +1287,60 @@ impl VMachine {
           (_, &VMKont::ACons(..)) => {
             panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
           }
-          (&VMVal::AEnv(ref tg_env), &VMKont::AApp(ref args, ref arg_adjs, ref saved_env, ref saved_kont)) => {
-            // FIXME: join arg adjs.
+          (&VMVal::AEnv(ref lhs_env), &VMKont::AConcatL(ref rhs, ref saved_env, ref saved_kont)) => {
+            let next_ctrl = VMReg::Code(rhs.clone());
+            let next_kont = VMKontRef::new(VMKont::AConcatR(mval.clone(), saved_env.clone(), saved_kont.clone()));
+            let next_env = saved_env.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          (_, &VMKont::AConcatL(..)) => {
+            panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
+          }
+          (&VMVal::AEnv(ref rhs_env), &VMKont::AConcatR(ref lhs_mval, ref saved_env, ref saved_kont)) => {
+            let concat_env = match &**lhs_mval {
+              &VMVal::AEnv(ref lhs_env) => {
+                // FIXME: bind keys?
+                let mut concat_env = rhs_env.clone();
+                for (k, lv) in lhs_env.free.iter() {
+                  if concat_env.free.contains_key(k) {
+                    //println!("WARNING: vm: a-env concat impl unfinished");
+                    let rv = concat_env.free.get(k).unwrap();
+                    let (thk_a, tg_thk_a) = match (lv, rv) {
+                      (&VMAValue::Addr(ref thk_a), &VMAValue::Addr(ref tg_thk_a)) => (thk_a.clone(), tg_thk_a.clone()),
+                      (&VMAValue::Addr(ref thk_a), &VMAValue::Cons(ref tg_thk_a, ..)) => (thk_a.clone(), tg_thk_a.clone()),
+                      (&VMAValue::Cons(ref thk_a, ..), &VMAValue::Addr(ref tg_thk_a)) => (thk_a.clone(), tg_thk_a.clone()),
+                      (&VMAValue::Cons(ref thk_a, ..), &VMAValue::Cons(ref tg_thk_a, ..)) => (thk_a.clone(), tg_thk_a.clone()),
+                    };
+                    let join_code = self.lbuilder.as_mut().unwrap().apply_term(
+                        // FIXME: hardcoded `add` (assumes standard prelude).
+                        &mut |lb| lb.lookup_term(LVar(1)),
+                        vec![
+                          &mut |lb| lb.vm_deref_term(thk_a.clone()),
+                          &mut |lb| lb.vm_deref_term(tg_thk_a.clone()),
+                        ]
+                    );
+                    let join_mlam = VMLam{code: VMLamCode::LCode(Vec::new(), join_code)};
+                    let join_mthk = VMThunkRef::new(VMThunk::new_empty(join_mlam, env.clone()));
+                    let join_thk_a = self.store.insert(join_mthk);
+                    concat_env.free.insert(k.clone(), VMAValue::Cons(join_thk_a, thk_a.clone(), tg_thk_a.clone()));
+                  } else {
+                    concat_env.free.insert(k.clone(), lv.clone());
+                  }
+                }
+                concat_env
+              }
+              _ => panic!("vm: runtime error"),
+            };
+            let next_ctrl = VMReg::MVal(VMValRef::new(VMVal::AEnv(concat_env)));
+            let next_env = saved_env.clone();
+            let next_kont = saved_kont.clone();
+            (next_ctrl, next_env, next_kont)
+          }
+          (_, &VMKont::AConcatR(..)) => {
+            panic!("bug: mval: {} kont: {}", mval._mval_name(), kont._kont_name());
+          }
+          (&VMVal::AEnv(ref tg_env), &VMKont::AApp(ref args, ref _arg_adjs, ref saved_env, ref saved_kont)) => {
+            // FIXME: concat with arg adjs.
             println!("TRACE: vm:   kont: {}", kont._kont_name());
             let mut new_tg_env = tg_env.clone();
             assert_eq!(args.len(), new_tg_env.bind.len());
@@ -1611,5 +1687,9 @@ impl VMachine {
       }
       self._step()
     }
+  }
+
+  pub fn _step_count(&self) -> usize {
+    self._step_ct
   }
 }
