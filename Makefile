@@ -12,7 +12,7 @@ CARGO_FLAGS ?=
 CARGO := cargo +nightly $(CARGO_FLAGS)
 RUSTC := rustc +nightly
 
-.PHONY: all pre versions debug release test test-lang test-ir test-vm test-vmad
+.PHONY: all pre versions debug release debugtools tools test test-lang test-ir test-vm test-vmad
 
 all: release
 
@@ -23,10 +23,16 @@ versions:
 	$(Q)$(RUSTC) --version > rustc.version
 
 debug: pre
-	$(CARGO) build
+	$(CARGO) build --lib
 
 release: pre
-	$(CARGO) build --release
+	$(CARGO) build --release --lib
+
+debugtools: debug
+	$(CARGO) build --bins
+
+tools: release
+	$(CARGO) build --release --bins
 
 test: pre
 	RUST_TEST_THREADS=1 $(CARGO) test --release -- --nocapture

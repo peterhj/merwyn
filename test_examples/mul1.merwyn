@@ -1,0 +1,4 @@
+let x = 3.14;
+let y = x * x;
+let dy = (adj y)[1.0];
+dy.x

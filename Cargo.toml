@@ -29,3 +29,7 @@ serde = "^1.0"
 serde_derive = "^1.0"
 #vertreap = { path = "../vertreap" }
 vertreap = "^0.1.0-pre.0"
+
+[[bin]]
+name = "merwyni"
+path = "tools/merwyni.rs"
