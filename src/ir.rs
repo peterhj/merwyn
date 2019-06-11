@@ -1385,10 +1385,10 @@ impl LBuilder {
     }
     let toplevel_bindings: Vec<(_, _, Rc<dyn Fn() -> VMBoxCode>, Option<Rc<dyn Fn(&mut LBuilder, Vec<LVar>, LVar) -> LExpr>>)> = vec![
       ("add", 2, Rc::new(|| make_bc_add()), Some(Rc::new(|lb, args, sink| make_adj_add(lb, args, sink)))),
+      ("neg", 1, Rc::new(|| make_bc_neg()), Some(Rc::new(|lb, args, sink| make_adj_neg(lb, args, sink)))),
       ("sub", 2, Rc::new(|| make_bc_sub()), Some(Rc::new(|lb, args, sink| make_adj_sub(lb, args, sink)))),
       ("mul", 2, Rc::new(|| make_bc_mul()), Some(Rc::new(|lb, args, sink| make_adj_mul(lb, args, sink)))),
       ("div", 2, Rc::new(|| make_bc_div()), Some(Rc::new(|lb, args, sink| make_adj_div(lb, args, sink)))),
-      ("neg", 1, Rc::new(|| make_bc_neg()), Some(Rc::new(|lb, args, sink| make_adj_neg(lb, args, sink)))),
       ("eq",  2, Rc::new(|| make_bc_eq()), None),
       //("pi100", 0, Rc::new(|| make_bc_pi100()), None),
     ];

@@ -185,7 +185,7 @@ pub fn make_adj_sub(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -
           term:   LTermRef::new(LTerm::AEnv(
               vec![(
                 LEnvKey::Var(params[0].clone()),
-                builder.lookup_term(params[0].clone()),
+                builder.lookup_term(adj_sink.clone()),
               )],
           ))
         },
@@ -199,7 +199,7 @@ pub fn make_adj_sub(builder: &mut LBuilder, params: Vec<LVar>, adj_sink: LVar) -
                       LEnvKey::Var(params[1].clone()),
                       builder.apply_term(
                           &mut |builder| builder.lookup_term(op.clone()),
-                          vec![&mut |builder| builder.lookup_term(params[1].clone())],
+                          vec![&mut |builder| builder.lookup_term(adj_sink.clone())],
                       )
                     )],
                 ))
