@@ -1390,7 +1390,7 @@ impl LBuilder {
       ("div", 2, Rc::new(|| make_bc_div()), Some(Rc::new(|lb, args, sink| make_adj_div(lb, args, sink)))),
       ("neg", 1, Rc::new(|| make_bc_neg()), Some(Rc::new(|lb, args, sink| make_adj_neg(lb, args, sink)))),
       ("eq",  2, Rc::new(|| make_bc_eq()), None),
-      ("pi100", 0, Rc::new(|| make_bc_pi100()), None),
+      //("pi100", 0, Rc::new(|| make_bc_pi100()), None),
     ];
     let ltree = bind_next(
         self,

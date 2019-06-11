@@ -14,6 +14,7 @@ use vertreap::{VertreapMap};
 use std::any::{Any};
 use std::cell::{RefCell};
 use std::collections::{HashMap, VecDeque};
+use std::fmt;
 use std::iter::{FromIterator};
 use std::rc::{Rc};
 
@@ -165,6 +166,28 @@ pub enum VMVal {
   Ref(RefCell<VMValRef>),
   RState,
   IOState,
+}
+
+impl fmt::Debug for VMVal {
+  fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    // TODO
+    match self {
+      &VMVal::AEnv(_) => write!(f, "AEnv(...)"),
+      &VMVal::Clo(_) => write!(f, "Clo(...)"),
+      &VMVal::STup(_) => write!(f, "STup(...)"),
+      &VMVal::Tup(_) => write!(f, "STup(...)"),
+      &VMVal::Bit(x) => write!(f, "Bit({:?})", x),
+      &VMVal::Int(x) => {
+        let u: i64 = x.into();
+        write!(f, "Int({:?})", u)
+      }
+      &VMVal::Flo(x) => write!(f, "Flo({:?})", x),
+      &VMVal::Box(_) => write!(f, "Box(...)"),
+      &VMVal::Ref(_) => write!(f, "Ref(...)"),
+      &VMVal::RState => write!(f, "RState"),
+      &VMVal::IOState => write!(f, "IOState"),
+    }
+  }
 }
 
 impl VMUnpack<bool> for VMVal {
