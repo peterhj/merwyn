@@ -1,0 +1,9 @@
+let x = 3.14;
+let y1 = x + x;         # = 2. * x
+let y2 = y1 + y1;       # = 4. * x
+let y3 = y2 + y2;       # = 8. * x
+let y4 = y3 + y3;       # = 16. * x
+let y5 = y4 + y4;       # = 32. * x
+let z = y5 + y3 + y1;   # = 42. * x
+let dz = (adj z)[1.0];
+dz.x                    # = 42.

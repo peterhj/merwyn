@@ -1,0 +1,5 @@
+let x = 3.14;
+let y = x + x;
+let z = x + y;
+let dz = (adj z)[1.0];
+dz.x
