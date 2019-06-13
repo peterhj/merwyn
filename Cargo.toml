@@ -20,7 +20,8 @@ lazycell = "^1.2"
 #parking_lot = { version = "*", features = ["nightly"] }
 #plex = "*"
 #plex = { path = "../plex", default-features = false, features = ["lexer"] }
-plex = { git = "https://github.com/goffrie/plex", rev = "a4c1068fc31293b209677f6347aa51bbf73c1e53", default-features = false, features = ["lexer"] }
+#plex = { git = "https://github.com/goffrie/plex", rev = "a4c1068fc31293b209677f6347aa51bbf73c1e53", default-features = false, features = ["lexer"] }
+plex = { version = "~0.2.4", default-features = false, features = ["lexer"] }
 rand = "^0.6"
 rand_chacha = "^0.1"
 rdrand = "^0.5"

@@ -1,0 +1,7 @@
+(* 2nd example via @jrslepak *)
+let r = 1.0;
+let s = 2.0;
+let y = s + r - s;
+let dy = (adj y)[1.0];
+#dy.r (* == 1.0 *)
+dy.s (* == 0.0 *)

@@ -253,6 +253,7 @@ impl Debug for LTermVMExt {
 #[derive(Debug)]
 //#[derive(Debug, Serialize)]
 pub enum LTerm<E=LExpr, X=LVMExt> {
+  End,
   Break(E),
   Trace(E),
   NoRet,
@@ -267,10 +268,13 @@ pub enum LTerm<E=LExpr, X=LVMExt> {
   ERet(Vec<LVar>, E),
   EHashSelect(E, LHash),
   ESelect(E, LVar),
+  EImport(E, E),
   Lambda(Vec<LVar>, E),
   LambdaEnv(Vec<(Option<LHash>, LVar)>, LVar, Vec<LVar>, E),
+  D(E),
   Adj(E),
   //AdjEnv(Vec<(Option<LHash>, LVar)>, E),
+  Tng(E),
   Let(LVar, E, E),
   Fix(LVar, E),
   Switch(E, E, E),
@@ -1462,6 +1466,9 @@ impl LBuilder {
   pub fn _htree_to_ltree_lower_pass(&mut self, htree: Rc<HExpr>) -> LExpr {
     // TODO
     match &*htree {
+      &HExpr::End => {
+        LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::End)}
+      }
       &HExpr::Lambda(ref params, ref body) => {
         let mut param_vars = Vec::with_capacity(params.len());
         let mut saved_params = Vec::with_capacity(params.len());
@@ -1500,6 +1507,10 @@ impl LBuilder {
         }).collect();
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::Tuple(elems)), /*info: LExprInfo::default()*/}
       }
+      &HExpr::D(ref target) => {
+        let target = self._htree_to_ltree_lower_pass(target.clone());
+        LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::D(target))}
+      }
       &HExpr::Adj(ref sink) => {
         let sink = self._htree_to_ltree_lower_pass(sink.clone());
         /*let sink_var = match &*sink.term {
@@ -1513,6 +1524,10 @@ impl LBuilder {
         let body = self._htree_to_ltree_lower_pass(body.clone());
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::AdjDyn(body)), /*info: LExprInfo::default()*/}
       }*/
+      &HExpr::Tng(ref sink) => {
+        let sink = self._htree_to_ltree_lower_pass(sink.clone());
+        LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Tng(sink))}
+      }
       &HExpr::Let(ref lhs, ref body, ref rest, ref maybe_attrs) => {
         let attrs = maybe_attrs.clone().unwrap_or_default();
         match &**lhs {
@@ -1738,22 +1753,37 @@ impl LBuilder {
           })
         })
       }
+      &LTerm::D(ref target) => {
+        self._ltree_normalize_pass_kont_name(target.clone(), &mut |this, target| {
+          let new_ltree = LExpr{
+            label:  this.labels.fresh(),
+            term:   LTermRef::new(LTerm::D(target)),
+          };
+          kont(this, new_ltree)
+        })
+      }
       &LTerm::Adj(ref sink) => {
         self._ltree_normalize_pass_kont_name(sink.clone(), &mut |this, sink| {
           let new_ltree = LExpr{
-            //gen:    this._gen(),
             label:  this.labels.fresh(),
             term:   LTermRef::new(LTerm::Adj(sink)),
           };
           kont(this, new_ltree)
         })
       }
+      &LTerm::Tng(ref sink) => {
+        self._ltree_normalize_pass_kont_name(sink.clone(), &mut |this, sink| {
+          let new_ltree = LExpr{
+            label:  this.labels.fresh(),
+            term:   LTermRef::new(LTerm::Tng(sink)),
+          };
+          kont(this, new_ltree)
+        })
+      }
       &LTerm::AEnv(ref kvs) => {
-        // TODO
         kont(self, ltree)
       }
       &LTerm::AConcat(ref lhs, ref rhs) => {
-        // TODO
         self._ltree_normalize_pass_kont_name(lhs.clone(), &mut |this, lhs| {
           this._ltree_normalize_pass_kont_name(rhs.clone(), &mut |this, rhs| {
             let new_ltree = LExpr{
@@ -2247,6 +2277,13 @@ impl LBuilder {
       info: LTreeInfo::default(),
       root,
     }
+  }
+}
+
+impl LBuilder {
+  pub fn rewrite_differential(&mut self, ltree: LTree) -> LTree {
+    // TODO
+    unimplemented!();
   }
 }
 

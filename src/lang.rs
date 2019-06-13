@@ -15,13 +15,21 @@ lexer! {
 
   r#"extern"#       => HLToken::Extern,
   r#"intern"#       => HLToken::Intern,
+  r#"req"#          => HLToken::Require,
+  r#"require"#      => HLToken::Require,
+  r#"lam"#          => HLToken::Lambda,
   r#"lambda"#       => HLToken::Lambda,
   //r#"λ"#            => HLToken::Lambda,
+  r#"D"#            => HLToken::D,
   r#"adj"#          => HLToken::Adj,
+  r#"tng"#          => HLToken::Tng,
   r#"dyn"#          => HLToken::Dyn,
+  r#"mod"#          => HLToken::Mod,
   r#"pub"#          => HLToken::Pub,
+  r#"ref"#          => HLToken::Ref,
   r#"let"#          => HLToken::Let,
   r#"alt"#          => HLToken::Alt,
+  r#"const"#        => HLToken::Const,
   r#"rec"#          => HLToken::Rec,
   r#"rnd"#          => HLToken::Rnd,
   r#"seq"#          => HLToken::Seq,
@@ -103,12 +111,18 @@ pub enum HLToken {
   BlockComment,
   Extern,
   Intern,
+  Require,
   Lambda,
+  D,
   Adj,
+  Tng,
   Dyn,
+  Mod,
   Pub,
+  Ref,
   Let,
   Alt,
+  Const,
   Rec,
   Rnd,
   Seq,
@@ -246,13 +260,16 @@ pub enum HTypat {
 
 #[derive(Clone, Debug)]
 pub enum HExpr {
+  End,
   //Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
   Intern(String, Rc<HExpr>),
   Lambda(Vec<Rc<HExpr>>, Rc<HExpr>),
   Apply(Rc<HExpr>, Vec<Rc<HExpr>>),
   STuple(Vec<Rc<HExpr>>),
   Tuple(Vec<Rc<HExpr>>),
+  D(Rc<HExpr>),
   Adj(Rc<HExpr>),
+  Tng(Rc<HExpr>),
   AdjDyn(Rc<HExpr>),
   Let(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>, Option<HLetAttrs>),
   LetRand(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
@@ -381,9 +398,12 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
   fn lbp(&self, tok: &HLToken) -> i32 {
     // TODO
     match tok {
+      &HLToken::End |
       &HLToken::Extern |
       &HLToken::Intern |
+      &HLToken::D |
       &HLToken::Adj |
+      &HLToken::Tng |
       &HLToken::Dyn |
       &HLToken::Pub |
       &HLToken::Let |
@@ -451,6 +471,9 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
   fn nud(&mut self, tok: HLToken) -> Result<HExpr, ()> {
     // TODO
     match tok {
+      HLToken::End => {
+        Ok(HExpr::End)
+      }
       HLToken::Extern => {
         // TODO
         unimplemented!();
@@ -471,6 +494,20 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
           _ => panic!(),
         }
       }
+      HLToken::D => {
+        match self.current_token() {
+          HLToken::LBrack => {}
+          _ => panic!(),
+        }
+        self.advance();
+        let e = self.expression(0, -1)?;
+        match self.current_token() {
+          HLToken::RBrack => {}
+          _ => panic!(),
+        }
+        self.advance();
+        Ok(HExpr::D(Rc::new(e)))
+      }
       HLToken::Adj => {
         match self.current_token() {
           HLToken::Dyn => {
@@ -483,6 +520,10 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
             Ok(HExpr::Adj(Rc::new(e)))
           }
         }
+      }
+      HLToken::Tng => {
+        let e = self.expression(0, -1)?;
+        Ok(HExpr::Tng(Rc::new(e)))
       }
       HLToken::Pub => {
         match self.current_token() {
