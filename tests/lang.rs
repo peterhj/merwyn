@@ -76,6 +76,14 @@ fn test_lang_cons_2() {
 }
 
 #[test]
+fn test_lang_differential() {
+  let lexer = HLexer::new("D[x]");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
 fn test_lang_ident_infix() {
   let lexer = HLexer::new("1 `add 2");
   let parser = HParser::new(lexer);

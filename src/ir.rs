@@ -2281,9 +2281,136 @@ impl LBuilder {
 }
 
 impl LBuilder {
-  pub fn rewrite_differential(&mut self, ltree: LTree) -> LTree {
+  pub fn _ltree_rewrite_differential_pass(&mut self, ltree: LExpr) -> LExpr {
     // TODO
-    unimplemented!();
+    match &*ltree.term {
+      &LTerm::D(ref target) => {
+        LExpr{
+          label:    self.labels.fresh(),
+          term:     LTermRef::new(LTerm::Apply(
+              LExpr{
+                label:  self.labels.fresh(),
+                term:   LTermRef::new(LTerm::Adj(target.clone()))
+              },
+              vec![LExpr{
+                label:  self.labels.fresh(),
+                // TODO: generalized identity.
+                term:   LTermRef::new(LTerm::FloLit(1.0))
+              }],
+          ))
+        }
+      }
+      &LTerm::Adj(ref sink) => {
+        let sink = self._ltree_rewrite_differential_pass(sink.clone());
+        LExpr{
+          label:    self.labels.fresh(),
+          term:     LTermRef::new(LTerm::Adj(sink))
+        }
+      }
+      &LTerm::EHashSelect(ref target, ref hash) => {
+        let target = self._ltree_rewrite_differential_pass(target.clone());
+        LExpr{
+          label:    self.labels.fresh(),
+          term:     LTermRef::new(LTerm::EHashSelect(
+              target,
+              hash.clone(),
+          ))
+        }
+      }
+      &LTerm::Apply(ref head, ref args) => {
+        let head = self._ltree_rewrite_differential_pass(head.clone());
+        let args: Vec<_> = args.iter().map(|a| self._ltree_rewrite_differential_pass(a.clone())).collect();
+        LExpr{
+          label:    self.labels.fresh(),
+          term:     LTermRef::new(LTerm::Apply(
+              head,
+              args,
+          )),
+        }
+      }
+      &LTerm::Lambda(ref params, ref body) => {
+        let body = self._ltree_rewrite_differential_pass(body.clone());
+        LExpr{
+          label:    self.labels.fresh(),
+          term:     LTermRef::new(LTerm::Lambda(
+              params.clone(),
+              body,
+          )),
+        }
+      }
+      &LTerm::VMExt(LVMExt::BCLambda(..)) => {
+        ltree
+      }
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        let body = self._ltree_rewrite_differential_pass(body.clone());
+        let rest = self._ltree_rewrite_differential_pass(rest.clone());
+        LExpr{
+          label:  self.labels.fresh(),
+          term:   LTermRef::new(LTerm::Let(
+              name.clone(),
+              body,
+              rest,
+          ))
+        }
+      }
+      &LTerm::Switch(ref pred, ref top, ref bot) => {
+        let pred = self._ltree_rewrite_differential_pass(pred.clone());
+        let top = self._ltree_rewrite_differential_pass(top.clone());
+        let bot = self._ltree_rewrite_differential_pass(bot.clone());
+        LExpr{
+          label:    self.labels.fresh(),
+          term:     LTermRef::new(LTerm::Switch(
+              pred,
+              top,
+              bot,
+          )),
+        }
+      }
+      &LTerm::Match(ref query, ref pat_arms) => {
+        let query = self._ltree_rewrite_differential_pass(query.clone());
+        let pat_arms: Vec<_> = pat_arms.iter().map(|(p, a)| {
+          (p.clone(), self._ltree_rewrite_differential_pass(a.clone()))
+        }).collect();
+        LExpr{
+          label:    self.labels.fresh(),
+          term:     LTermRef::new(LTerm::Match(
+              query,
+              pat_arms,
+          )),
+        }
+      }
+      &LTerm::STuple(ref elems) => {
+        let elems: Vec<_> = elems.iter().map(|e| self._ltree_rewrite_differential_pass(e.clone())).collect();
+        LExpr{
+          label:    self.labels.fresh(),
+          term:     LTermRef::new(LTerm::STuple(elems)),
+        }
+      }
+      &LTerm::Tuple(ref elems) => {
+        let elems: Vec<_> = elems.iter().map(|e| self._ltree_rewrite_differential_pass(e.clone())).collect();
+        LExpr{
+          label:    self.labels.fresh(),
+          term:     LTermRef::new(LTerm::Tuple(elems)),
+        }
+      }
+      &LTerm::UnitLit |
+      &LTerm::BitLit(_) |
+      &LTerm::IntLit(_) |
+      &LTerm::FloLit(_) |
+      &LTerm::Lookup(_) => {
+        ltree
+      }
+      //_ => unimplemented!(),
+      _ => panic!("rewrite differential pass: unimpl expr: {:?}", ltree.term)
+    }
+  }
+
+  pub fn rewrite_differential(&mut self, ltree: LTree) -> LTree {
+    let root = self._ltree_rewrite_differential_pass(ltree.root);
+    LTree{
+      info: LTreeInfo::default(),
+      root,
+    }
   }
 }
 
@@ -4424,6 +4551,11 @@ impl<'a> LTreePrettyPrinter2<'a> {
       &LTerm::VMExt(LVMExt::BCLambda(..)) => {
         // FIXME
         write!(writer, "<bclam>").unwrap();
+      }
+      &LTerm::D(ref target) => {
+        write!(writer, "D[").unwrap();
+        self._write(lroot, target.clone(), writer);
+        write!(writer, "]").unwrap();
       }
       &LTerm::Adj(ref sink) => {
         write!(writer, "adj ").unwrap();
