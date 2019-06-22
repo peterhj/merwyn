@@ -108,6 +108,46 @@ fn test_lang_ident_prime_2() {
 }
 
 #[test]
+fn test_lang_literal_flo() {
+  let lexer = HLexer::new("3.14");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_literal_flo_2() {
+  let lexer = HLexer::new("3.14f");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_literal_flo_3() {
+  let lexer = HLexer::new("3f");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_literal_int() {
+  let lexer = HLexer::new("3");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_literal_int_2() {
+  let lexer = HLexer::new("3n");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
 fn test_lang_literal_logical_bot() {
   let lexer = HLexer::new("bot");
   let parser = HParser::new(lexer);

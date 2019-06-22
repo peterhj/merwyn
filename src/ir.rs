@@ -259,21 +259,20 @@ pub enum LTerm<E=LExpr, X=LVMExt> {
   NoRet,
   NonSmooth,
   Apply(E, Vec<E>),
-  OldEnv(Vec<(Option<LHash>, LVar, E)>),
-  AdjEnv(Vec<(LVar, E)>),
   AEnv(Vec<(LEnvKey, E)>),
   ACons(LEnvKey, E, E),
   AConcat(E, E),
   AApp(Vec<LVar>, Vec<LVar>, E),
   ERet(Vec<LVar>, E),
   EHashSelect(E, LHash),
+  EPosSelect(E, usize),
   ESelect(E, LVar),
   EImport(E, E),
   Lambda(Vec<LVar>, E),
-  LambdaEnv(Vec<(Option<LHash>, LVar)>, LVar, Vec<LVar>, E),
   D(E),
+  //DAdj(E),
+  //DTng(E),
   Adj(E),
-  //AdjEnv(Vec<(Option<LHash>, LVar)>, E),
   Tng(E),
   Let(LVar, E, E),
   Fix(LVar, E),
@@ -1439,7 +1438,7 @@ impl LBuilder {
       &HExpr::IntLit(x) => {
         LPat::IntLit(x)
       }
-      /*&HExpr::FloatLit(x) => {
+      /*&HExpr::FloLit(x) => {
         LPat::FloLit(x)
       }*/
       &HExpr::PlacePat => {
@@ -1696,7 +1695,7 @@ impl LBuilder {
         //let var = self.vars.int_lit(x);
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::IntLit(x)), /*info: LExprInfo::default()*/}
       }
-      &HExpr::FloatLit(x) => {
+      &HExpr::FloLit(x) => {
         // TODO: special var key for literal constants.
         //let var = self.vars.int_lit(x);
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::FloLit(x)), /*info: LExprInfo::default()*/}
@@ -1719,6 +1718,11 @@ impl LBuilder {
         let rhs_hash = self.hashes.lookup(rhs_name.clone());
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::EHashSelect(lhs, rhs_hash)), /*info: LExprInfo::default()*/}
       }
+      &HExpr::PathIndex(ref lhs, rhs_idx) => {
+        let lhs = self._htree_to_ltree_lower_pass(lhs.clone());
+        assert!(rhs_idx > 0, "path index must be positive");
+        LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::EPosSelect(lhs, rhs_idx))}
+      }
       _ => {
         // TODO
         unimplemented!();
@@ -1738,6 +1742,9 @@ impl LBuilder {
   pub fn _ltree_normalize_pass_kont(&mut self, ltree: LExpr, kont: &mut dyn FnMut(&mut Self, LExpr) -> LExpr) -> LExpr {
     // TODO
     match &*ltree.term {
+      &LTerm::End => {
+        kont(self, ltree)
+      }
       &LTerm::Apply(ref head, ref args) => {
         self._ltree_normalize_pass_kont_name(head.clone(), &mut |this, head| {
           this._ltree_normalize_pass_kont_names(VecDeque::from(args.clone()), Vec::new(), &mut |this, args| {
@@ -2095,7 +2102,9 @@ impl LBuilder {
       root,
     }
   }
+}
 
+/*impl LBuilder {
   pub fn _ltree_close_lambdas_pass_substitute(&mut self, ltree: LExpr, env_param: LVar, closed_vars: &HashSet<LVar>) -> LExpr {
     match &*ltree.term {
       &LTerm::Lookup(ref var) => {
@@ -2278,13 +2287,14 @@ impl LBuilder {
       root,
     }
   }
-}
+}*/
 
 impl LBuilder {
   pub fn _ltree_rewrite_differential_pass(&mut self, ltree: LExpr) -> LExpr {
     // TODO
     match &*ltree.term {
       &LTerm::D(ref target) => {
+        // FIXME: currently overly specialized for scalar types.
         LExpr{
           label:    self.labels.fresh(),
           term:     LTermRef::new(LTerm::Apply(
@@ -2294,7 +2304,7 @@ impl LBuilder {
               },
               vec![LExpr{
                 label:  self.labels.fresh(),
-                // TODO: generalized identity.
+                // FIXME: generalized identity.
                 term:   LTermRef::new(LTerm::FloLit(1.0))
               }],
           ))
@@ -3153,6 +3163,9 @@ impl LBuilder {
           None => panic!(),
         }
       }
+      &LTerm::End => {
+        ltree
+      }
       &LTerm::Apply(ref head, ref args) => {
         let head = self._ltree_resolve_ty_inf_pass(head.clone(), ty_inf);
         let args: Vec<_> = args.iter().map(|a| self._ltree_resolve_ty_inf_pass(a.clone(), ty_inf)).collect();
@@ -3314,6 +3327,8 @@ enum Ty {
   ERet(Vec<LVar>, TyRef),
   EHashSel(TyRef, LHash),
   ESel(TyRef, LVar, LHash),
+  //DiffF(TyRef),
+  //DiffV(TyRef),
   Fun(Vec<TyRef>, TyRef),
   STup(Vec<TyRef>),
   Tup,
@@ -3333,17 +3348,7 @@ enum TyConstraint {
   IsaEnvSelByKeyHash(Ty, Ty, LHash),
   IsaEnvSelByKeyHash2(Ty, Ty, Ty, LHash),
   //IsaEnvSelByKeyHash2(Ty, Ty, VecDeque<Ty>, LHash),
-}
-
-#[derive(Default)]
-pub struct PreAdjTyInferenceMachine {
-  tyvar_ctr:    u64,
-  tree_tyvars:  HashMap<LLabel, u64>,
-  bound_tyvars: HashMap<LVar, u64>,
-  hypotheses:   VecDeque<TyHypothesis>,
-  constraints:  VecDeque<TyConstraint>,
-  // FIXME: use a proper union-find data structure.
-  substitution: HashMap<u64, Ty>,
+  //IsaDifferential(Ty, Ty),
 }
 
 #[derive(Default)]
@@ -3450,6 +3455,9 @@ impl SimpleTyInferenceMachine {
       }
       Some(ref hyp) => {
         match &*hyp.ltree.term {
+          &LTerm::End => {
+            // TODO
+          }
           &LTerm::Apply(ref head, ref args) => {
             let mut args_tys = Vec::with_capacity(args.len());
             for a in args.iter() {
@@ -3522,7 +3530,7 @@ impl SimpleTyInferenceMachine {
                   ty:       lhs_ty_v,
                   venv:     hyp.venv.clone(),
                 });
-                self.hypotheses.push_front(TyHypothesis{
+                self.hypotheses.push_back(TyHypothesis{
                   ltree:    rhs.clone(),
                   ty:       rhs_ty_v,
                   venv:     hyp.venv.clone(),
@@ -4426,6 +4434,9 @@ impl<'a> LTreePrettyPrinter2<'a> {
 
   fn _write<W: Write>(&mut self, lroot: &LTree, ltree: LExpr, writer: &mut W) {
     match &*ltree.term {
+      &LTerm::End => {
+        write!(writer, "end").unwrap();
+      }
       &LTerm::Apply(ref head, ref args) => {
         write!(writer, "(").unwrap();
         self._write(lroot, head.clone(), writer);
@@ -4438,7 +4449,7 @@ impl<'a> LTreePrettyPrinter2<'a> {
         }
         write!(writer, "]").unwrap();
       }
-      &LTerm::OldEnv(ref kvs) => {
+      /*&LTerm::OldEnv(ref kvs) => {
         write!(writer, "<env>{{").unwrap();
         for (kv_idx, &(_, ref k, ref v)) in kvs.iter().enumerate() {
           write!(writer, "${} => ", k.0).unwrap();
@@ -4463,7 +4474,7 @@ impl<'a> LTreePrettyPrinter2<'a> {
           }
         }
         write!(writer, "}}").unwrap();
-      }
+      }*/
       &LTerm::AEnv(ref kvs) => {
         write!(writer, "<a-env>{{").unwrap();
         for (kv_idx, &(ref k, ref v)) in kvs.iter().enumerate() {

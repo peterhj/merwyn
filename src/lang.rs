@@ -13,13 +13,18 @@ lexer! {
   r#"#[^\n]*"#      => HLToken::LineComment,
   r#"\([*](~(.*[*]\).*))[*]\)"# => HLToken::BlockComment,
 
-  r#"extern"#       => HLToken::Extern,
-  r#"intern"#       => HLToken::Intern,
+  r#"export"#       => HLToken::Export,
+  r#"import"#       => HLToken::Import,
+  r#"mod"#          => HLToken::Module,
+  r#"module"#       => HLToken::Module,
   r#"req"#          => HLToken::Require,
   r#"require"#      => HLToken::Require,
+  r#"break"#        => HLToken::Break,
+  r#"trace"#        => HLToken::Trace,
   r#"lam"#          => HLToken::Lambda,
   r#"lambda"#       => HLToken::Lambda,
   //r#"λ"#            => HLToken::Lambda,
+  r#"D'"#           => HLToken::DAlt,
   r#"D"#            => HLToken::D,
   r#"adj"#          => HLToken::Adj,
   r#"tng"#          => HLToken::Tng,
@@ -40,8 +45,6 @@ lexer! {
   r#"switch"#       => HLToken::Switch,
   r#"match"#        => HLToken::Match,
   r#"end"#          => HLToken::End,
-  r#"break"#        => HLToken::Break,
-  r#"trace"#        => HLToken::Trace,
   r#":-"#           => HLToken::If,
   r#":="#           => HLToken::Assigns,
   r#"<="#           => HLToken::LtEquals,
@@ -57,6 +60,7 @@ lexer! {
   r#"\.\."#         => HLToken::DotDot,
   r#"\."#           => HLToken::Dot,
   r#","#            => HLToken::Comma,
+  r#";;"#           => HLToken::SemiSemi,
   r#";"#            => HLToken::Semi,
   r#"::"#           => HLToken::ColonColon,
   r#":"#            => HLToken::Colon,
@@ -93,8 +97,10 @@ lexer! {
   r#"'_"#           => HLToken::PlaceTylit,
   r#"'\?"#          => HLToken::TopTylit,
 
-  r#"[0-9]+\.[0-9]*"#       => HLToken::FloatLit(text.parse().unwrap()),
-  //r#"[0-9]+\.[0-9]*[f]?"#   => HLToken::FloatLit(text.parse().unwrap()),
+  r#"[0-9]+\.[0-9]*[f]"#    => HLToken::FloLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"[0-9]+\.[0-9]*"#       => HLToken::FloLit(text.parse().unwrap()),
+  r#"[0-9]+[f]"#            => HLToken::FloLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"[0-9]+[n]"#            => HLToken::IntLit(text[ .. text.len() - 1].parse().unwrap()),
   r#"[0-9]+"#               => HLToken::IntLit(text.parse().unwrap()),
 
   r#"[a-zA-Z_][a-zA-Z0-9_]*[']*"#   => HLToken::Ident(text.to_owned()),
@@ -109,11 +115,15 @@ pub enum HLToken {
   Whitespace,
   LineComment,
   BlockComment,
-  Extern,
-  Intern,
+  Export,
+  Import,
+  Module,
   Require,
+  Break,
+  Trace,
   Lambda,
   D,
+  DAlt,
   Adj,
   Tng,
   Dyn,
@@ -133,8 +143,6 @@ pub enum HLToken {
   Switch,
   Match,
   End,
-  Break,
-  Trace,
   If,
   Assigns,
   Equals,
@@ -151,6 +159,7 @@ pub enum HLToken {
   Ellipsis,
   Comma,
   Semi,
+  SemiSemi,
   Colon,
   ColonColon,
   Bar,
@@ -181,7 +190,7 @@ pub enum HLToken {
   BotLit,
   TeeLit,
   IntLit(i64),
-  FloatLit(f64),
+  FloLit(f64),
   Ident(String),
   InfixIdent(String),
   PlaceTylit,
@@ -261,13 +270,15 @@ pub enum HTypat {
 #[derive(Clone, Debug)]
 pub enum HExpr {
   End,
-  //Extern(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
-  Intern(String, Rc<HExpr>),
+  //Export(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
+  Import(String, Rc<HExpr>),
+  Break(Rc<HExpr>),
   Lambda(Vec<Rc<HExpr>>, Rc<HExpr>),
   Apply(Rc<HExpr>, Vec<Rc<HExpr>>),
   STuple(Vec<Rc<HExpr>>),
   Tuple(Vec<Rc<HExpr>>),
   D(Rc<HExpr>),
+  DirD(Rc<HExpr>, Rc<HExpr>),
   Adj(Rc<HExpr>),
   Tng(Rc<HExpr>),
   AdjDyn(Rc<HExpr>),
@@ -309,10 +320,11 @@ pub enum HExpr {
   BotLit,
   TeeLit,
   IntLit(i64),
-  FloatLit(f64),
+  FloLit(f64),
   Ident(String),
+  PathIndex(Rc<HExpr>, usize),
   PathLookup(Rc<HExpr>, String),
-  KeyLookup(Rc<HExpr>, String),
+  //KeyLookup(Rc<HExpr>, String),
   Tyvar(String),
   Tylam(Vec<Rc<HTypat>>, Rc<HTypat>),
 }
@@ -399,9 +411,14 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     // TODO
     match tok {
       &HLToken::End |
-      &HLToken::Extern |
-      &HLToken::Intern |
+      &HLToken::Export |
+      &HLToken::Import |
+      &HLToken::Module |
+      &HLToken::Require |
+      &HLToken::Break |
+      &HLToken::Trace |
       &HLToken::D |
+      &HLToken::DAlt |
       &HLToken::Adj |
       &HLToken::Tng |
       &HLToken::Dyn |
@@ -421,6 +438,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::Tilde |
       &HLToken::Backslash |
       &HLToken::Comma |
+      &HLToken::SemiSemi |
       &HLToken::Semi |
       &HLToken::Then |
       &HLToken::RPipe |
@@ -460,7 +478,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       &HLToken::BotLit |
       &HLToken::TeeLit |
       &HLToken::IntLit(_) |
-      &HLToken::FloatLit(_) |
+      &HLToken::FloLit(_) |
       &HLToken::Ident(_) |
       &HLToken::TyvarIdent(_) => 0,
       &HLToken::Eof => 0,
@@ -474,11 +492,11 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       HLToken::End => {
         Ok(HExpr::End)
       }
-      HLToken::Extern => {
+      HLToken::Export => {
         // TODO
         unimplemented!();
       }
-      HLToken::Intern => {
+      HLToken::Import => {
         // TODO
         match self.current_token() {
           HLToken::Ident(mod_name) => {
@@ -489,7 +507,7 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
             }
             self.advance();
             let e = self.expression(0, -1)?;
-            Ok(HExpr::Intern(mod_name, Rc::new(e)))
+            Ok(HExpr::Import(mod_name, Rc::new(e)))
           }
           _ => panic!(),
         }
@@ -502,6 +520,16 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
         self.advance();
         let e = self.expression(0, -1)?;
         match self.current_token() {
+          HLToken::Semi => {
+            self.advance();
+            let dir_e = self.expression(0, -1)?;
+            match self.current_token() {
+              HLToken::RBrack => {}
+              _ => panic!(),
+            }
+            self.advance();
+            return Ok(HExpr::DirD(Rc::new(e), Rc::new(dir_e)));
+          }
           HLToken::RBrack => {}
           _ => panic!(),
         }
@@ -1010,8 +1038,8 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
       HLToken::IntLit(x) => {
         Ok(HExpr::IntLit(x))
       }
-      HLToken::FloatLit(x) => {
-        Ok(HExpr::FloatLit(x))
+      HLToken::FloLit(x) => {
+        Ok(HExpr::FloLit(x))
       }
       HLToken::Ident(name) => {
         Ok(HExpr::Ident(name))
@@ -1030,6 +1058,13 @@ impl<Toks: Iterator<Item=HLToken> + Clone> HParser<Toks> {
     match tok {
       HLToken::Dot => {
         match self.current_token() {
+          HLToken::IntLit(idx) => {
+            self.advance();
+            if idx < 1 {
+              return Err(());
+            }
+            Ok(HExpr::PathIndex(Rc::new(left), idx as _))
+          }
           HLToken::Ident(name) => {
             self.advance();
             Ok(HExpr::PathLookup(Rc::new(left), name))

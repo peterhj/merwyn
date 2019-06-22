@@ -749,6 +749,14 @@ impl VMachine {
     }
   }
 
+  pub fn take_lbuilder(&mut self) -> Option<LBuilder> {
+    self.lbuilder.take()
+  }
+
+  pub fn put_lbuilder(&mut self, lbuilder: LBuilder) {
+    self.lbuilder = Some(lbuilder);
+  }
+
   pub fn _debug_dump_ctrl(&self) {
     match &self.ctrl {
       &VMReg::Uninit => println!("DEBUG: vm: ctrl: uninit"),
@@ -893,7 +901,7 @@ impl VMachine {
 
   pub fn _is_paused(&self) -> bool {
     match (&self.ctrl, &*self.kont) {
-      (&VMReg::MVal(_), &VMKont::Pause) => true,
+      (&VMReg::Uninit, &VMKont::Pause) => true,
       _ => false,
     }
   }
@@ -911,6 +919,13 @@ impl VMachine {
       }
       VMReg::Code(ltree) => {
         match (&*ltree.term, &*kont) {
+          (&LTerm::End, &VMKont::Pause) => {
+            println!("TRACE: vm:   expr: end");
+            let next_ctrl = VMReg::Uninit;
+            let next_env = env;
+            let next_kont = kont;
+            (next_ctrl, next_env, next_kont)
+          }
           (&LTerm::Apply(ref head, ref args), &VMKont::Ret(ref saved_env, ref saved_kont)) => {
             println!("TRACE: vm:   expr: apply (tail)");
             let next_ctrl = VMReg::Code(head.clone());

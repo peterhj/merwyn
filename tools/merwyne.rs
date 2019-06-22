@@ -1,13 +1,12 @@
 extern crate merwyn;
 
-//use merwyn::ir::{LBuilder};
-use merwyn::ir2::{LBuilder, LCtxRef};
+use merwyn::ir::{LBuilder};
 use merwyn::lang::{HLexer, HParser};
 use merwyn::vm::{VMachine};
 
 use std::env::{args};
 use std::fs::{File};
-use std::io::{Read, Write, stdin, stdout};
+use std::io::{Read};
 use std::path::{PathBuf};
 use std::str::{from_utf8};
 
@@ -35,7 +34,7 @@ fn main() {
   } else {
     unreachable!();
   };
-  let mut file = match File::open(&file_path) {
+  let mut file = match File::open(file_path) {
     Err(_) => {
       println!("error opening file");
       return;
@@ -60,10 +59,9 @@ fn main() {
   let lexer = HLexer::new(text);
   let parser = HParser::new(lexer);
   let htree = parser.parse();
-  let mut builder = LBuilder::default();
-  let code = builder.compile(htree, LCtxRef::default());
-  println!("merwyn# loaded module `{}`", file_path.display());
-  /*if verbose {
+  let mut builder = LBuilder::new();
+  let ltree = builder.lower_with_toplevel(htree);
+  if verbose {
     println!("DEBUG: ltree, pretty printed:");
     builder.pretty_print(ltree.clone());
   }
@@ -89,53 +87,6 @@ fn main() {
   }
   let ltree = ltree.root;
   let mut vm = VMachine::with_lbuilder(builder);
-  vm.load_interactive(ltree);*/
-  let mut linebuf = String::new();
-  loop {
-    print!("merwyn> ");
-    stdout().flush().unwrap();
-    linebuf.clear();
-    stdin().read_line(&mut linebuf).unwrap();
-    if linebuf == "\n" {
-      continue;
-    } else if linebuf == ":help\n" || linebuf == ":h\n" || linebuf == ":?\n" {
-      println!("merwyn# help yourself!");
-      continue;
-    }
-    let lexer = HLexer::new(&linebuf);
-    let parser = HParser::new(lexer);
-    let htree = parser.parse();
-    //let mut builder = vm.take_lbuilder().unwrap();
-    //let ltree = builder.lower_with_toplevel(htree);
-    //let ltree = builder.lower(htree);
-    let code = builder.compile(htree, code.ctx.clone().unwrap_or_else(|| LCtxRef::default()));
-    /*if verbose {
-      println!("DEBUG: ltree, pretty printed:");
-      builder.pretty_print(ltree.clone());
-    }
-    let ltree = builder.normalize(ltree);
-    if verbose {
-      println!("DEBUG: a-normalized ltree, pretty printed:");
-      builder.pretty_print(ltree.clone());
-    }
-    /*let ltree = builder.expand_adj(ltree);
-    if verbose {
-      println!("DEBUG: adj-expanded ltree, pretty printed:");
-      builder.pretty_print(ltree.clone());
-    }
-    let ltree = builder.normalize(ltree);
-    if verbose {
-      println!("DEBUG: adj-expanded, a-normalized ltree, pretty printed:");
-      builder.pretty_print(ltree.clone());
-    }
-    let ltree = builder.resolve_ty_inf(ltree);
-    if verbose {
-      println!("DEBUG: ty-inf-resolved ltree, pretty printed:");
-      builder.pretty_print(ltree.clone());
-    }*/
-    let ltree = ltree.root;
-    vm.put_lbuilder(builder);
-    vm.eval_interactive(ltree);*/
-    //println!();
-  }
+  let halt_mval = vm.eval(ltree);
+  println!("done: {:?}", halt_mval);
 }

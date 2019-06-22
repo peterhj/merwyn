@@ -26,10 +26,15 @@ rand = "^0.6"
 rand_chacha = "^0.1"
 rdrand = "^0.5"
 #rearray = { path = "../rearray" }
+rpds = "^0.6"
 serde = "^1.0"
 serde_derive = "^1.0"
 #vertreap = { path = "../vertreap" }
 vertreap = "^0.1.0-pre.0"
+
+[[bin]]
+name = "merwyne"
+path = "tools/merwyne.rs"
 
 [[bin]]
 name = "merwyni"
