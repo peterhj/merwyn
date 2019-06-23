@@ -29,7 +29,7 @@ fn test_ty_1() {
 fn test_ty_2() {
   println!();
   //let lexer = HLexer::new("let x = 1; let y = 2; let z = x + y; z");
-  let lexer = HLexer::new("let x = 1; let y = 2; let z = x; {x, y, z}");
+  let lexer = HLexer::new("let x = 1; let y = 2; let z = x; [x, y, z]");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
@@ -134,7 +134,7 @@ fn test_ty_adj_2() {
   println!();
   //let lexer = HLexer::new("let x = 3.14; let y = let w = x in w; let z = adj y; z");
   //let lexer = HLexer::new("let x = 3.14; let y = x; let dy = (adj y)[1.0]; dy.x");
-  let lexer = HLexer::new("let x = 3.14; let y = x; let z = y; let dz = (adj z)[1.0]; {dz.x, dz.y}");
+  let lexer = HLexer::new("let x = 3.14; let y = x; let z = y; let dz = (adj z)[1.0]; [dz.x, dz.y]");
   //let lexer = HLexer::new("let x = 3.14; let y = x; let z = y; let dz = D[z]; {dz.x, dz.y}");
   //let lexer = HLexer::new("let x = 3.14; let y = \\t. 3.14; let y' = y[x]; let z = adj y'; z");
   //let lexer = HLexer::new("let x = 3.14; let y = \\t. t; let y' = y[x]; let z = adj y'; z");
@@ -178,7 +178,7 @@ fn test_ty_adj_3() {
   println!();
   //let lexer = HLexer::new("let x = 3.14; let y = let w = x in w; let z = adj y; z");
   //let lexer = HLexer::new("let x = 3.14; let y = x; let dy = (adj y)[1.0]; dy.x");
-  let lexer = HLexer::new("let x = 3.14; let y = x; let z = y; let dz = (adj z)[1.0]; {dz.x, dz.y}");
+  let lexer = HLexer::new("let x = 3.14; let y = x; let z = y; let dz = (adj z)[1.0]; [dz.x, dz.y]");
   //let lexer = HLexer::new("let x = 3.14; let y = \\t. 3.14; let y' = y[x]; let z = adj y'; z");
   //let lexer = HLexer::new("let x = 3.14; let y = \\t. t; let y' = y[x]; let z = adj y'; z");
   //let lexer = HLexer::new("let x = 3.14; let y = \\t. x; let y' = y[x]; let z = adj y'; let dy = z[1.0]; dy.x");

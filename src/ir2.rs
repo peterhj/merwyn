@@ -3,10 +3,12 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::lang::{HExpr};
+use crate::mach::{MAddr, MBModule, MCModule};
 
 use rpds::{HashTrieMap};
 
-use std::collections::{HashMap, VecDeque};
+use std::cell::{RefCell};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ops::{Deref};
 use std::rc::{Rc};
 
@@ -18,6 +20,15 @@ pub struct LHash(u64);
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct LVar(u64);
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub enum LEnvKey {
+  Var(LVar),
+  Pos(usize),
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct LTyvar(u64);
 
 #[derive(Default)]
 pub struct LBuilder {
@@ -55,17 +66,18 @@ impl LBuilder {
     }).clone()
   }
 
-  pub fn compile(&mut self, htree: Rc<HExpr>, ctx: LCtxRef) -> LCode {
+  pub fn compile(&mut self, htree: Rc<HExpr>, ctx: LCtxRef) -> LModule {
     // TODO
     let ltree = self._lower(htree, ctx);
     //let ltree = self._lower_with_toplevel(htree, ctx);
     let ltree = self._normalize(ltree);
-    let ltree = self._rederive_ctxs(ltree);
-    // TODO: take the final ctxtree and convert it into an end ctx, if possible.
-    //unimplemented!();
-    LCode{
+    //let ltree = self._rederive_ctxs(ltree);
+    // FIXME: take the final ctxtree and convert it into an end ctx, if possible.
+    let end_ctx = None;
+    //let end_ctx = Some(ltree.ctxs[ltree.ctxs.len() - 1].clone());
+    LModule{
       tree: ltree,
-      ctx:  None,
+      end_ctx,
     }
   }
 }
@@ -76,7 +88,8 @@ impl LBuilder {
     unimplemented!();
   }
 
-  pub fn _lower_unop(&mut self, op_name: &str, arg: Rc<HExpr>, ctx: LCtxRef, stack: &mut VecDeque<(LExpr, LCtxRef, usize)>, pos: usize) -> (LLabel, usize) {
+  //pub fn _lower_unop(&mut self, op_name: &str, arg: Rc<HExpr>, ctx: LCtxRef, stack: &mut VecDeque<(LExpr, LCtxRef, usize)>, pos: usize) -> (LLabel, usize) {
+  pub fn _lower_unop(&mut self, op_name: &str, arg: Rc<HExpr>, ctx: LCtxRef, stack: &mut BTreeMap<usize, (LExpr, LCtxRef, usize)>, pos: usize) -> (LLabel, usize) {
     let op_hash = self.lookup_name(op_name);
     let op_var = match ctx.lookup_hash(&op_hash) {
       Some(v) => v,
@@ -90,24 +103,26 @@ impl LBuilder {
       label:    op_label.clone(),
       term:     LTerm::Lookup(op_var)
     };
-    let op_ = LRel::new(op_label, pos + 1, pos);
+    let op_ = LLoc::new2(op_label, pos + 1, pos);
     let mut curr_pos = pos + 2;
     let (arg_label, next_pos) = self._lower_rec(arg, ctx.clone(), stack, curr_pos);
-    let arg_ = LRel::new(arg_label, curr_pos, pos);
+    let arg_ = LLoc::new2(arg_label, curr_pos, pos);
     curr_pos = next_pos;
     let label = self.fresh_label();
     let e = LExpr{
       label:    label.clone(),
       term:     LTerm::Apply(op_, vec![arg_])
     };
-    stack.push_front((op_e, ctx.clone(), pos + 1));
-    stack.push_front((e, ctx, pos));
+    //stack.push_front((op_e, ctx.clone(), pos + 1));
+    //stack.push_front((e, ctx, pos));
+    stack.insert(pos + 1, (op_e, ctx.clone(), pos + 1));
+    stack.insert(pos, (e, ctx, pos));
     (label, curr_pos)
   }
 
-  pub fn _lower_binop(&mut self, op_name: &str, lhs: Rc<HExpr>, rhs: Rc<HExpr>, ctx: LCtxRef, stack: &mut VecDeque<(LExpr, LCtxRef, usize)>, pos: usize) -> (LLabel, usize) {
+  //pub fn _lower_binop(&mut self, op_name: &str, lhs: Rc<HExpr>, rhs: Rc<HExpr>, ctx: LCtxRef, stack: &mut VecDeque<(LExpr, LCtxRef, usize)>, pos: usize) -> (LLabel, usize) {
+  pub fn _lower_binop(&mut self, op_name: &str, lhs: Rc<HExpr>, rhs: Rc<HExpr>, ctx: LCtxRef, stack: &mut BTreeMap<usize, (LExpr, LCtxRef, usize)>, pos: usize) -> (LLabel, usize) {
     let op_hash = self.lookup_name(op_name);
-    //let op_var = ctx.lookup_hash(&op_hash);
     let op_var = match ctx.lookup_hash(&op_hash) {
       Some(v) => v,
       None => {
@@ -120,26 +135,28 @@ impl LBuilder {
       label:    op_label.clone(),
       term:     LTerm::Lookup(op_var)
     };
-    let op_ = LRel::new(op_label, pos + 1, pos);
+    let op_ = LLoc::new2(op_label, pos + 1, pos);
     let mut curr_pos = pos + 2;
     let (lhs_label, next_pos) = self._lower_rec(lhs, ctx.clone(), stack, curr_pos);
-    let lhs_ = LRel::new(lhs_label, curr_pos, pos);
+    let lhs_ = LLoc::new2(lhs_label, curr_pos, pos);
     curr_pos = next_pos;
     let (rhs_label, next_pos) = self._lower_rec(rhs, ctx.clone(), stack, curr_pos);
-    let rhs_ = LRel::new(rhs_label, curr_pos, pos);
+    let rhs_ = LLoc::new2(rhs_label, curr_pos, pos);
     curr_pos = next_pos;
     let label = self.fresh_label();
     let e = LExpr{
       label:    label.clone(),
       term:     LTerm::Apply(op_, vec![lhs_, rhs_])
     };
-    stack.push_front((op_e, ctx.clone(), pos + 1));
-    stack.push_front((e, ctx, pos));
+    //stack.push_front((op_e, ctx.clone(), pos + 1));
+    //stack.push_front((e, ctx, pos));
+    stack.insert(pos + 1, (op_e, ctx.clone(), pos + 1));
+    stack.insert(pos, (e, ctx, pos));
     (label, curr_pos)
   }
 
-  pub fn _lower_rec(&mut self, htree: Rc<HExpr>, ctx: LCtxRef, stack: &mut VecDeque<(LExpr, LCtxRef, usize)>, /*ltree: &mut LTree, ctxtree: &mut LCtxTree,*/ pos: usize) -> (LLabel, usize) {
-    // TODO
+  //pub fn _lower_rec(&mut self, htree: Rc<HExpr>, ctx: LCtxRef, stack: &mut VecDeque<(LExpr, LCtxRef, usize)>, /*ltree: &mut LTree, ctxtree: &mut LCtxTree,*/ pos: usize) -> (LLabel, usize) {
+  pub fn _lower_rec(&mut self, htree: Rc<HExpr>, ctx: LCtxRef, stack: &mut BTreeMap<usize, (LExpr, LCtxRef, usize)>, /*ltree: &mut LTree, ctxtree: &mut LCtxTree,*/ pos: usize) -> (LLabel, usize) {
     match &*htree {
       &HExpr::End => {
         let label = self.fresh_label();
@@ -147,7 +164,8 @@ impl LBuilder {
           label:    label.clone(),
           term:     LTerm::End
         };
-        stack.push_front((e, ctx, pos));
+        //stack.push_front((e, ctx, pos));
+        stack.insert(pos, (e, ctx, pos));
         (label, pos + 1)
       }
       &HExpr::Lambda(ref params, ref body) => {
@@ -168,20 +186,21 @@ impl LBuilder {
         let label = self.fresh_label();
         let e = LExpr{
           label:    label.clone(),
-          term:     LTerm::Lambda(param_vars, LRel::new(body_label, body_pos, pos))
+          term:     LTerm::Lambda(param_vars, LLoc::new2(body_label, body_pos, pos))
         };
-        stack.push_front((e, ctx, pos));
+        //stack.push_front((e, ctx, pos));
+        stack.insert(pos, (e, ctx, pos));
         (label, next_pos)
       }
       &HExpr::Apply(ref head, ref args) => {
         let mut curr_pos = pos + 1;
         let (head_label, next_pos) = self._lower_rec(head.clone(), ctx.clone(), stack, curr_pos);
-        let head_ = LRel::new(head_label, curr_pos, pos);
+        let head_ = LLoc::new2(head_label, curr_pos, pos);
         curr_pos = next_pos;
         let mut args_: Vec<_> = Vec::with_capacity(args.len());
         for arg in args.iter() {
           let (arg_label, next_pos) = self._lower_rec(arg.clone(), ctx.clone(), stack, curr_pos);
-          args_.push(LRel::new(arg_label, curr_pos, pos));
+          args_.push(LLoc::new2(arg_label, curr_pos, pos));
           curr_pos = next_pos;
         }
         let label = self.fresh_label();
@@ -189,10 +208,12 @@ impl LBuilder {
           label:    label.clone(),
           term:     LTerm::Apply(head_, args_)
         };
-        stack.push_front((e, ctx, pos));
+        //stack.push_front((e, ctx, pos));
+        stack.insert(pos, (e, ctx, pos));
         (label, curr_pos)
       }
       &HExpr::Let(ref lhs, ref body, ref rest, ref maybe_attrs) => {
+        let body_ctx = ctx.clone();
         let mut rest_ctx = ctx.clone();
         let name = match &**lhs {
           &HExpr::Ident(ref name) => name,
@@ -202,17 +223,18 @@ impl LBuilder {
         let n_var = self.fresh_var();
         rest_ctx.bind_mut(n_hash, n_var.clone());
         let body_pos = pos + 1;
-        let (body_label, next_pos) = self._lower_rec(body.clone(), ctx.clone(), stack, body_pos);
-        let body_ = LRel::new(body_label, body_pos, pos);
+        let (body_label, next_pos) = self._lower_rec(body.clone(), body_ctx, stack, body_pos);
+        let body_ = LLoc::new2(body_label, body_pos, pos);
         let rest_pos = next_pos;
         let (rest_label, next_pos) = self._lower_rec(rest.clone(), rest_ctx, stack, rest_pos);
-        let rest_ = LRel::new(rest_label, rest_pos, pos);
+        let rest_ = LLoc::new2(rest_label, rest_pos, pos);
         let label = self.fresh_label();
         let e = LExpr{
           label:    label.clone(),
           term:     LTerm::Let(n_var, body_, rest_)
         };
-        stack.push_front((e, ctx, pos));
+        //stack.push_front((e, ctx, pos));
+        stack.insert(pos, (e, ctx, pos));
         (label, next_pos)
       }
       /*&HExpr::LetFun(ref lhs, ref body, ref rest, ref maybe_attrs) => {
@@ -253,7 +275,8 @@ impl LBuilder {
           label:    label.clone(),
           term:     LTerm::BitLit(false)
         };
-        stack.push_front((e, ctx, pos));
+        //stack.push_front((e, ctx, pos));
+        stack.insert(pos, (e, ctx, pos));
         (label, pos + 1)
       }
       &HExpr::TeeLit => {
@@ -262,7 +285,8 @@ impl LBuilder {
           label:    label.clone(),
           term:     LTerm::BitLit(true)
         };
-        stack.push_front((e, ctx, pos));
+        //stack.push_front((e, ctx, pos));
+        stack.insert(pos, (e, ctx, pos));
         (label, pos + 1)
       }
       &HExpr::IntLit(x) => {
@@ -271,7 +295,8 @@ impl LBuilder {
           label:    label.clone(),
           term:     LTerm::IntLit(x)
         };
-        stack.push_front((e, ctx, pos));
+        //stack.push_front((e, ctx, pos));
+        stack.insert(pos, (e, ctx, pos));
         (label, pos + 1)
       }
       &HExpr::FloLit(x) => {
@@ -280,12 +305,12 @@ impl LBuilder {
           label:    label.clone(),
           term:     LTerm::FloLit(x)
         };
-        stack.push_front((e, ctx, pos));
+        //stack.push_front((e, ctx, pos));
+        stack.insert(pos, (e, ctx, pos));
         (label, pos + 1)
       }
       &HExpr::Ident(ref name) => {
         let name_hash = self.lookup_name(name);
-        let name_var = ctx.lookup_hash(&name_hash);
         let name_var = match ctx.lookup_hash(&name_hash) {
           Some(v) => v,
           None => {
@@ -298,7 +323,8 @@ impl LBuilder {
           label:    label.clone(),
           term:     LTerm::Lookup(name_var)
         };
-        stack.push_front((e, ctx, pos));
+        //stack.push_front((e, ctx, pos));
+        stack.insert(pos, (e, ctx, pos));
         (label, pos + 1)
       }
       &HExpr::PathLookup(ref lhs, ref rhs_name) => {
@@ -339,42 +365,103 @@ impl LBuilder {
   }
 
   pub fn _lower(&mut self, htree: Rc<HExpr>, ctx: LCtxRef) -> LTree {
-    let mut stack = VecDeque::new();
-    // FIXME
-    self._lower_rec(htree, ctx, &mut stack, /*&mut queue,*/ 0);
-    let mut cache = HashMap::new();
+    let mut stack = BTreeMap::new();
+    self._lower_rec(htree, ctx, &mut stack, 0);
     let mut ltree = LTree::default();
-    loop {
-      match stack.pop_front() {
-        None => break,
-        Some((e, ctx, pos)) => {
-          let q = ltree.exps.len();
-          if q == pos {
-            ltree.exps.push(e);
-            ltree.ctxs.push(ctx);
-          } else {
-            if cache.contains_key(&q) {
-              let (e, ctx) = cache.remove(&q).unwrap();
-              ltree.exps.push(e);
-              ltree.ctxs.push(ctx);
-            }
-            cache.insert(pos, (e, ctx));
-          }
-        }
-      }
-    }
-    while !cache.is_empty() {
-      let q = ltree.exps.len();
-      if cache.contains_key(&q) {
-        let (e, ctx) = cache.remove(&q).unwrap();
-        ltree.exps.push(e);
-        ltree.ctxs.push(ctx);
-      } else {
-        // FIXME: better error handling!
-        panic!();
-      }
+    for (&pos, &(ref e, ref ctx, pos2)) in stack.iter() {
+      assert_eq!(pos, pos2);
+      assert_eq!(pos, ltree.exps.len());
+      assert_eq!(pos, ltree.ctxs.len());
+      ltree.exps.push(e.clone());
+      ltree.ctxs.push(ctx.clone());
     }
     ltree
+  }
+}
+
+impl LBuilder {
+  pub fn _normalize_kont(&mut self, exp: LExprCell, kont: &mut dyn FnMut(&mut Self, LExprCell) -> LExprCell) -> LExprCell {
+    // TODO
+    match &exp.term {
+      &LTerm::End => kont(self, exp),
+      &LTerm::Apply(ref head, ref args) => {
+        // TODO
+        unimplemented!();
+      }
+      &LTerm::Lambda(ref params, ref body) => {
+        let body = self._normalize_term(exp.lookup(body));
+        let new_exp = exp.append(self, &mut |_| LTerm::Lambda(
+            params.clone(),
+            body.loc(),
+        ));
+        kont(self, new_exp)
+      }
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        let body = exp.lookup(body);
+        let rest = exp.lookup(rest);
+        self._normalize_kont(body, &mut |this, body| {
+          let rest = this._normalize_kont(rest.clone(), kont);
+          exp.append(this, &mut |_| LTerm::Let(
+              name.clone(),
+              body.loc(),
+              rest.loc(),
+          ))
+        })
+      }
+      &LTerm::BitLit(_) => kont(self, exp),
+      &LTerm::IntLit(_) => kont(self, exp),
+      &LTerm::FloLit(_) => kont(self, exp),
+      &LTerm::Lookup(_) => kont(self, exp),
+      _ => {
+        unimplemented!();
+      }
+    }
+  }
+
+  pub fn _normalize_term(&mut self, exp: LExprCell) -> LExprCell {
+    self._normalize_kont(exp, &mut |_, e| e)
+  }
+
+  pub fn _normalize_names(&mut self, pre_exps: VecDeque<LExprCell>, post_exps: VecDeque<LExprCell>, kont: &mut dyn FnMut(&mut Self, LExprCell) -> ()) -> () {
+    // TODO
+  }
+
+  pub fn _normalize_name(&mut self, exp: LExprCell, kont: &mut dyn FnMut(&mut Self, LExprCell) -> LExprCell) -> LExprCell {
+    // TODO
+    self._normalize_kont(exp, &mut |this, exp| {
+      match &exp.term {
+        &LTerm::BitLit(_) => kont(this, exp),
+        &LTerm::IntLit(_) => kont(this, exp),
+        &LTerm::FloLit(_) => kont(this, exp),
+        &LTerm::Lookup(_) => kont(this, exp),
+        // TODO
+        _ => {
+          let new_var = this.fresh_var();
+          let new_var_e1 = exp.append(this, &mut |this| {
+            LTerm::Lookup(new_var.clone())
+          });
+          let new_var_e = kont(this, new_var_e1);
+          let bind_e = exp.append(this, &mut |_| LTerm::Let(
+              new_var.clone(),
+              exp.loc(),
+              new_var_e.loc(),
+          ));
+          bind_e
+        }
+      }
+    })
+  }
+
+  pub fn _normalize(&mut self, tree: LTree) -> LTree {
+    let tree = LTreeCell::new(tree);
+    let new_head = self._normalize_term(tree.start());
+    let old_tree = tree.inner.borrow();
+    LTree{
+      root: new_head.pos,
+      mlib: old_tree.mlib.clone(),
+      exps: old_tree.exps.clone(),
+      ctxs: Vec::new(),
+    }
   }
 }
 
@@ -386,23 +473,17 @@ impl LBuilder {
   }
 }
 
-impl LBuilder {
-  pub fn _normalize(&mut self, ltree: LTree) -> LTree {
-    // FIXME
-    //unimplemented!();
-    ltree
-  }
-}
-
-pub struct LCode {
-  pub tree: LTree,
-  pub ctx:  Option<LCtxRef>,
+pub struct LModule {
+  // TODO
+  pub tree:     LTree,
+  //pub code:     LCodeRef,
+  pub end_ctx:  Option<LCtxRef>,
 }
 
 #[derive(Clone)]
 pub enum LCtxBinder {
-  Fresh,
   Hash(LHash),
+  Anon,
 }
 
 #[derive(Clone, Default)]
@@ -423,55 +504,250 @@ impl LCtxRef {
     self.hash_to_var.insert_mut(hash.clone(), var.clone());
     self.var_to_bind.insert_mut(var, LCtxBinder::Hash(hash));
   }
+
+  pub fn bind_anon_mut(&mut self, var: LVar) {
+    self.var_to_bind.insert_mut(var, LCtxBinder::Anon);
+  }
 }
 
 #[derive(Clone, Default)]
 pub struct LTyctxRef {
+  var_to_tyvar: HashTrieMap<LVar, LTyvar>,
 }
 
-pub enum LTy {
-}
-
-/*#[derive(Default)]
-pub struct LTyTree {
-  pub tys:      Vec<LTy>,
-}*/
-
-#[derive(Default)]
-pub struct LTree {
-  pub mlib:     Vec<LMExpr>,
-  pub exps:     Vec<LExpr>,
-  pub ctxs:     Vec<LCtxRef>,
-  //pub tctxs:    Vec<LTyctxRef>,
-}
-
-pub struct LRel {
-  pub label:    LLabel,
-  pub offset:   usize,
-}
-
-impl LRel {
-  pub fn new(label: LLabel, pos: usize, this_pos: usize) -> LRel {
-    assert!(pos > this_pos);
-    LRel{
-      label,
-      offset:   pos - this_pos,
+impl LTyctxRef {
+  pub fn lookup_var(&self, var: &LVar) -> Option<LTyvar> {
+    match self.var_to_tyvar.get(var) {
+      None => None,
+      Some(tv) => Some(tv.clone()),
     }
   }
 }
 
-pub struct LMIdx {
-  pub label:    LLabel,
-  pub index:    usize,
+pub type LTyRef = Rc<LTy>;
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub enum LTy {
+  Var(LTyvar),
+  EnvNil,
+  //Env(HashTrieMap<LEnvKey, LTyRef>),
+  ACons(LEnvKey, LTyRef, LTyRef),
+  AConcat(LTyRef, LTyRef),
+  Fun(Vec<LTyRef>, LTyRef),
+  STup(Vec<LTyRef>),
+  Tup,
+  Bit,
+  Int,
+  Flo,
 }
 
-pub struct LExpr {
+struct TyUnionFind {
+  db:   HashMap<LTy, LTy>,
+}
+
+impl TyUnionFind {
+  fn insert(&mut self, lhs: LTy, rhs: LTy) {
+    // TODO
+  }
+
+  fn find(&mut self, ) -> () {
+    // TODO
+  }
+}
+
+struct TyHyp {
+}
+
+struct TyCon {
+}
+
+struct IncTyInfMachine {
+  hyps: VecDeque<TyHyp>,
+  cons: VecDeque<TyCon>,
+  sub:  TyUnionFind,
+}
+
+#[derive(Clone)]
+pub struct LRel {
+  pub label:    LLabel,
+  pub offset:   isize,
+}
+
+impl LRel {
+  pub fn new(label: LLabel, pos: usize, ref_pos: usize) -> LRel {
+    // NB: Should not assume anything about the relative order of this expr
+    // vs the reference expr!
+    /*assert!(pos > ref_pos);*/
+    LRel{
+      label,
+      offset:   pos as isize - ref_pos as isize,
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct LLoc {
+  pub label:    LLabel,
+  pub pos:      usize,
+}
+
+impl LLoc {
+  pub fn new(label: LLabel, pos: usize) -> LLoc {
+    LLoc{
+      label,
+      pos,
+    }
+  }
+
+  pub fn new2(label: LLabel, pos: usize, _: usize) -> LLoc {
+    LLoc{
+      label,
+      pos,
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct LMLoc {
+  pub label:    LLabel,
+  pub pos:      usize,
+}
+
+pub type LCodeRef = Rc<LCode>;
+
+pub struct LCode {
+  pub mlib:     Vec<LMExpr>,
+  pub exps:     Vec<LExpr>,
+}
+
+#[derive(Clone)]
+pub struct LTreeCell {
+  inner:    Rc<RefCell<LTree>>,
+}
+
+impl LTreeCell {
+  pub fn new(inner: LTree) -> LTreeCell {
+    LTreeCell{inner: Rc::new(RefCell::new(inner))}
+  }
+
+  pub fn start(&self) -> LExprCell {
+    let tree = self.inner.borrow();
+    let exp = tree.exps[tree.root].clone();
+    LExprCell{
+      tree:     self.clone(),
+      pos:      tree.root,
+      label:    exp.label,
+      term:     exp.term,
+    }
+  }
+}
+
+#[derive(Default)]
+pub struct LTree {
   // TODO
+  pub root:     usize,
+  pub mlib:     Vec<LMExpr>,
+  pub exps:     Vec<LExpr>,
+  pub ctxs:     Vec<LCtxRef>,
+  //pub ctxs:     HashMap<LLabel, LCtxRef>,
+  //pub etys:     HashMap<LLabel, LTyvar>,
+  //pub tyctxs:   HashMap<LLabel, LTyctxRef>,
+}
+
+#[derive(Default)]
+pub struct LTreeData {
+  // TODO
+  pub mexps:    Vec<LMExpr>,
+  pub exps:     Vec<LExpr>,
+  pub ctxs:     HashMap<LLabel, LCtxRef>,
+  pub etys:     HashMap<LLabel, LTyvar>,
+  pub tyctxs:   HashMap<LLabel, LTyctxRef>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LExpr {
   pub label:    LLabel,
   pub term:     LTerm,
 }
 
-#[derive(Debug)]
+#[derive(Clone)]
+pub struct LExprCell {
+  pub tree:     LTreeCell,
+  pub pos:      usize,
+  pub label:    LLabel,
+  pub term:     LTerm,
+}
+
+impl LExprCell {
+  pub fn loc(&self) -> LLoc {
+    LLoc{
+      label:    self.label.clone(),
+      pos:      self.pos,
+    }
+  }
+
+  pub fn ctx(&self) -> LCtxRef {
+    // TODO
+    unimplemented!();
+  }
+
+  pub fn lookup(&self, loc: &LLoc) -> LExprCell {
+    let tree = self.tree.inner.borrow();
+    assert_eq!(loc.label, tree.exps[loc.pos].label);
+    LExprCell{
+      tree:     self.tree.clone(),
+      pos:      loc.pos,
+      label:    loc.label.clone(),
+      term:     tree.exps[loc.pos].term.clone(),
+    }
+  }
+
+  pub fn append(&self, builder: &mut LBuilder, mk_term: &mut dyn FnMut(&mut LBuilder) -> LTerm) -> LExprCell {
+    let new_term = (mk_term)(builder);
+    let (new_pos, new_label, new_term) = {
+      let mut tree = self.tree.inner.borrow_mut();
+      let new_pos = tree.exps.len();
+      let new_label = builder.fresh_label();
+      tree.exps.push(LExpr{
+        label:    new_label.clone(),
+        term:     new_term.clone(),
+      });
+      (new_pos, new_label, new_term)
+    };
+    LExprCell{
+      tree:     self.tree.clone(),
+      pos:      new_pos,
+      label:    new_label,
+      term:     new_term,
+    }
+  }
+}
+
+#[derive(Clone)]
+pub struct LExprRef {
+  pub code:     LCodeRef,
+  pub pos:      usize,
+  pub label:    LLabel,
+  pub term:     LTerm,
+}
+
+impl LExprRef {
+  pub fn jump(self, rel: LRel) -> LExprRef {
+    let new_posi = self.pos as isize + rel.offset;
+    assert!(new_posi >= 0);
+    let new_pos = new_posi as usize;
+    let new_exp = self.code.exps[new_pos].clone();
+    assert_eq!(new_exp.label, rel.label);
+    LExprRef{
+      code:     self.code,
+      pos:      new_pos,
+      label:    new_exp.label,
+      term:     new_exp.term,
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
 pub enum LPat {
   Cons(LPatRef, LPatRef),
   Concat(LPatRef, LPatRef),
@@ -509,13 +785,18 @@ impl Deref for LPatRef {
   }
 }
 
-pub enum LTerm<E=LRel> {
+#[derive(Clone, Debug)]
+pub enum LTerm<E=LLoc> {
   End,
   Module(Vec<E>, E),
+  TodoRequire,
   Break(E),
   Apply(E, Vec<E>),
   Lambda(Vec<LVar>, E),
+  //EImport(E, E),
   D(E),
+  //DirD(E, E),
+  //SpkD(E),
   //DAdj(E),
   //DTng(E),
   Adj(E),
@@ -531,17 +812,28 @@ pub enum LTerm<E=LRel> {
   IntLit(i64),
   FloLit(f64),
   Lookup(LVar),
-  Reclaim(LVar, E),
-  MExt(LMIdx),
+  PathLookupHash(E, LHash),
+  Unbind(LVar, E),
+  MExt(LMLoc),
 }
 
+#[derive(Clone)]
 pub struct LMExpr {
   pub label:    LLabel,
   pub mterm:    LMTerm,
 }
 
+#[derive(Clone)]
 pub enum LMTerm {
-  Deref,
-  BLambda,
-  //CLambda,
+  Deref(MAddr),
+  BLambda(LMLambdaDef<MBModule>),
+  CLambda(LMLambdaDef<MCModule>),
+}
+
+#[derive(Clone)]
+pub struct LMLambdaDef<Module> {
+  pub ar:   usize,
+  pub cg:   Option<Rc<dyn Fn() -> Module>>,
+  pub ty:   Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef*/) -> (Vec<LTy>, LTy)>>,
+  pub adj:  Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef,*/ Vec<LVar>, LVar) -> LExpr>>,
 }

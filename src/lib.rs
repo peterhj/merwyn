@@ -4,6 +4,7 @@
 
 #![feature(non_ascii_idents)]
 #![feature(proc_macro_hygiene)]
+#![feature(ptr_offset_from)]
 
 extern crate envy;
 extern crate fixedbitset;
@@ -25,6 +26,7 @@ pub mod cfg;
 pub mod ir;
 pub mod ir2;
 pub mod lang;
+pub mod mach;
 pub mod num_util;
 pub mod rngs;
 pub mod vm;
