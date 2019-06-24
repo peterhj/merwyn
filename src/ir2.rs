@@ -5,7 +5,7 @@
 use crate::lang::{HExpr};
 use crate::mach::{MAddr, MBModule, MCModule};
 
-use rpds::{HashTrieMap};
+use rpds::{HashTrieMap, RedBlackTreeMap};
 
 use std::cell::{RefCell};
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -18,16 +18,16 @@ pub struct LLabel(u64);
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct LHash(u64);
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LVar(u64);
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum LEnvKey {
   Var(LVar),
   Pos(usize),
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LTyvar(u64);
 
 #[derive(Default)]
@@ -526,14 +526,11 @@ impl LTyctxRef {
 
 pub type LTyRef = Rc<LTy>;
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum LTy {
   Var(LTyvar),
-  EnvNil,
-  //Env(HashTrieMap<LEnvKey, LTyRef>),
-  ACons(LEnvKey, LTyRef, LTyRef),
-  AConcat(LTyRef, LTyRef),
   Fun(Vec<LTyRef>, LTyRef),
+  Env(RedBlackTreeMap<LEnvKey, LTyRef>),
   STup(Vec<LTyRef>),
   Tup,
   Bit,
@@ -542,29 +539,118 @@ pub enum LTy {
 }
 
 struct TyUnionFind {
-  db:   HashMap<LTy, LTy>,
+  db:   BTreeMap<LTyvar, LTyvar>,
+  _mgu: BTreeMap<LTyvar, LTy>,
 }
 
 impl TyUnionFind {
-  fn insert(&mut self, lhs: LTy, rhs: LTy) {
-    // TODO
+  fn head(&mut self, query: LTyvar) -> LTyvar {
+    if !self.db.contains_key(&query) {
+      self.db.insert(query.clone(), query.clone());
+      return query;
+    }
+    let mut cursor = query;
+    let mut next = self.db.get(&cursor).unwrap().clone();
+    while cursor != next {
+      let next2 = match self.db.get(&next) {
+        None => next.clone(),
+        Some(next2) => next2.clone(),
+      };
+      self.db.insert(next.clone(), next2.clone());
+      cursor = next;
+      next = next2;
+    }
+    cursor
   }
 
-  fn find(&mut self, ) -> () {
-    // TODO
+  fn mgu(&mut self, query: LTyvar) -> Option<LTy> {
+    let head = self.head(query);
+    match self._mgu.get(&head) {
+      None => None,
+      Some(ty) => Some(ty.clone()),
+    }
+  }
+
+  fn unify(&mut self, lhs: LTy, rhs: LTy) {
+    match (lhs, rhs) {
+      (LTy::Var(lv), LTy::Var(rv)) => {
+        // TODO
+        unimplemented!();
+      }
+      (LTy::Var(v), ty) => {
+        // TODO: there might already be a MGU, in which case unify failed.
+        let w = self.head(v);
+        self._mgu.insert(w, ty);
+      }
+      (ty, LTy::Var(v)) => {
+        // TODO: there might already be a MGU, in which case unify failed.
+        let w = self.head(v);
+        self._mgu.insert(w, ty);
+      }
+      (_, _) => unreachable!(),
+    }
   }
 }
 
 struct TyHyp {
 }
 
-struct TyCon {
+type TyConRef = Rc<TyCon>;
+
+enum TyCon {
+  Nil,
+  Cnj(TyConRef, TyConRef),
+  Eq(LTy, LTy),
+  IsACons(LEnvKey, LTy, LTy, LTy),
+  IsAConcat(LTy, LTy, LTy),
+  IsAApp(Vec<(usize, LVar)>, LTy, LTy),
+  IsERet(Vec<(usize, LVar)>, LTy, LTy),
+  IsEHash(LTy, LHash, LTy),
 }
 
 struct IncTyInfMachine {
-  hyps: VecDeque<TyHyp>,
-  cons: VecDeque<TyCon>,
+  //hyps: VecDeque<TyHyp>,
+  //cons: VecDeque<TyCon>,
   sub:  TyUnionFind,
+}
+
+impl IncTyInfMachine {
+  fn _solve(&mut self, con: TyConRef) -> Result<(), TyConRef> {
+    match &*con {
+      &TyCon::Nil => Ok(()),
+      &TyCon::Cnj(ref lhs, ref rhs) => {
+        self._solve(lhs.clone())?;
+        self._solve(rhs.clone())
+      }
+      &TyCon::Eq(ref lty, ref rty) => {
+        match (lty, rty) {
+          // TODO: more cases.
+          (&LTy::Fun(ref lhs_dom, ref lhs_cod), &LTy::Fun(ref rhs_dom, ref rhs_cod)) => {
+            if lhs_dom.len() != rhs_dom.len() {
+              return Err(con);
+            }
+            let mut con = con.clone();
+            for (lty, rty) in lhs_dom.iter().zip(rhs_dom.iter()) {
+              con = TyConRef::new(TyCon::Cnj(
+                  TyConRef::new(TyCon::Eq((**lty).clone(), (**rty).clone())),
+                  con,
+              ));
+            }
+            con = TyConRef::new(TyCon::Cnj(
+                TyConRef::new(TyCon::Eq((**lhs_cod).clone(), (**rhs_cod).clone())),
+                con,
+            ));
+            self._solve(con)
+          }
+          _ => {
+            // TODO: unification may fail.
+            self.sub.unify(lty.clone(), rty.clone());
+            Ok(())
+          }
+        }
+      }
+    }
+  }
 }
 
 #[derive(Clone)]
