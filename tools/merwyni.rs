@@ -65,7 +65,7 @@ fn main() {
   /*let mut vm = VMachine::with_lbuilder(builder);
   vm.load_interactive(ltree);*/
   println!("merwyn# loaded module `{}`", file_path.display());
-  println!("merwyn# --  debug tree: {:?}", module.tree.exps);
+  //println!("merwyn# --  debug tree: {:?}", module.tree.exps);
   let mut linebuf = String::new();
   loop {
     print!("merwyn> ");
