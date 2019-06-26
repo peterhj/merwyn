@@ -20,6 +20,8 @@ pub type MStore = MRcStore;
 
 pub type MValRef = Rc<MVal>;
 
+pub type MThunkRef = Rc<MThunk>;
+
 #[repr(C)]
 pub struct MCValRef {
   // TODO
@@ -39,13 +41,13 @@ pub enum MVal {
 }
 
 pub struct MRecord {
-  pub key_addr: HashTrieMap<LEnvKey, MAddr>,
+  pub keys: HashTrieMap<LEnvKey, MAddr>,
 }
 
 pub struct MClosure {
   // TODO
   pub env:  MEnvRef,
-  //pub lam:  _,
+  pub exp:  LExprRef,
 }
 
 #[derive(Clone)]
@@ -61,6 +63,7 @@ pub struct MCModule {
   pub cfun: Option<extern "C" fn (*mut MCValRef, usize) -> MCValRef>,
 }
 
+#[derive(Clone)]
 pub enum MReg {
   Rst,
   Val(MValRef),
@@ -95,12 +98,12 @@ impl Default for MKont {
 
 #[derive(Clone, Default)]
 pub struct MNamedEnvRef {
-  v_addr:   HashTrieMap<LVar, MAddr>,
+  vars: HashTrieMap<LVar, MAddr>,
 }
 
 impl MNamedEnvRef {
   pub fn lookup(&self, name: LVar) -> MAddr {
-    match self.v_addr.get(&name) {
+    match self.vars.get(&name) {
       None => {
         eprintln!("mach: runtime error: missing var");
         panic!();
@@ -111,13 +114,13 @@ impl MNamedEnvRef {
 
   pub fn bind(&self, name: LVar, addr: MAddr) -> MNamedEnvRef {
     MNamedEnvRef{
-      v_addr:   self.v_addr.insert(name, addr),
+      vars: self.vars.insert(name, addr),
     }
   }
 
   pub fn unbind(&self, name: LVar) -> MNamedEnvRef {
     MNamedEnvRef{
-      v_addr:   self.v_addr.remove(&name),
+      vars: self.vars.remove(&name),
     }
   }
 }
@@ -142,15 +145,20 @@ impl MRcStore {
 
   pub fn update(&mut self, thk_a: MRcAddr, val: MValRef) {
     // TODO
+    let mut data = thk_a.ptr.data.borrow_mut();
+    match &mut *data {
+      &mut MThunkData::Emp => panic!("machine: runtime error"),
+      &mut MThunkData::Blk => {
+        *data = MThunkData::Val(val);
+      }
+      &mut MThunkData::Val(_) => panic!("machine: runtime error"),
+    }
   }
 }
 
-pub type MThunkRef = Rc<MThunk>;
-
 pub struct MThunk {
-  // TODO
   pub env:  MEnvRef,
-  //pub lam:  MLam,
+  pub exp:  LExprRef,
   pub data: RefCell<MThunkData>,
 }
 
@@ -171,5 +179,22 @@ pub struct Machine {
 impl Machine {
   pub fn _step(&mut self) {
     // TODO
+    let ctrl = self.ctrl.clone();
+    let env = self.env.clone();
+    let kont = self.kont.clone();
+    /*let (next_ctrl, next_env, next_kont) =*/ match ctrl {
+      MReg::Rst => {
+        panic!("machine: reset");
+      }
+      MReg::Val(val) => {
+        // TODO
+        unimplemented!();
+      }
+      MReg::Expr(exp) => {
+        // TODO
+        unimplemented!();
+      }
+      _ => unimplemented!(),
+    };
   }
 }

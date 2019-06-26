@@ -1,5 +1,6 @@
 extern crate merwyn;
 
+use merwyn::builtins::top2::{build_top_level};
 use merwyn::ir2::{LBuilder, LCtxRef};
 use merwyn::lang::{HLexer, HParser};
 use merwyn::mach::{Machine};
@@ -60,10 +61,14 @@ fn main() {
   let lexer = HLexer::new(text);
   let parser = HParser::new(lexer);
   let htree = parser.parse();
-  let module = builder.compile(htree, LCtxRef::default());
-  let mut ctx = module.end_ctx.clone().unwrap_or_else(|| LCtxRef::default());
-  /*let mut vm = VMachine::with_lbuilder(builder);
-  vm.load_interactive(ltree);*/
+  let mut ctx = LCtxRef::default();
+  /*let top_module = build_top_level(&mut builder, ctx);
+  ctx = top_module.end_ctx.clone().unwrap_or_else(|| LCtxRef::default());
+  //mach.eval(top_module.code.clone());
+  println!("merwyn# loaded top level");*/
+  let module = builder.compile(htree, ctx);
+  ctx = module.end_ctx.clone().unwrap_or_else(|| LCtxRef::default());
+  //mach.eval(module.code.clone());
   println!("merwyn# loaded module `{}`", file_path.display());
   //println!("merwyn# --  debug tree: {:?}", module.tree.exps);
   let mut linebuf = String::new();
@@ -84,7 +89,6 @@ fn main() {
     let module = builder.compile(htree, ctx);
     ctx = module.end_ctx.clone().unwrap_or_else(|| LCtxRef::default());
     //println!("merwyn# --  debug tree: {:?}", module.tree.exps);
-    /*vm.put_lbuilder(builder);
-    vm.eval_interactive(ltree);*/
+    //mach.eval(module.code.clone());
   }
 }

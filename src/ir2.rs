@@ -5,7 +5,7 @@
 use crate::lang::{HExpr};
 use crate::mach::{MAddr, MBModule, MCModule};
 
-use rpds::{HashTrieMap, Queue, RedBlackTreeMap};
+use rpds::{HashTrieMap, Queue, RedBlackTreeMap, Stack};
 
 use std::cell::{RefCell};
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -31,6 +31,109 @@ pub enum LEnvKey {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LTyvar(u64);
 
+#[derive(Clone, Debug)]
+pub enum LPat {
+  Cons(LPatRef, LPatRef),
+  Concat(LPatRef, LPatRef),
+  STuple(Vec<LPatRef>),
+  Tuple(Vec<LPatRef>),
+  BitLit(bool),
+  IntLit(i64),
+  Place,
+  Var(LVar),
+  Alias(LPatRef, LVar),
+}
+
+#[derive(Debug)]
+pub struct LPatRef {
+  inner:    Rc<LPat>,
+}
+
+impl LPatRef {
+  pub fn new(pat: LPat) -> LPatRef {
+    LPatRef{inner: Rc::new(pat)}
+  }
+}
+
+impl Clone for LPatRef {
+  fn clone(&self) -> LPatRef {
+    LPatRef{inner: self.inner.clone()}
+  }
+}
+
+impl Deref for LPatRef {
+  type Target = LPat;
+
+  fn deref(&self) -> &LPat {
+    &*self.inner
+  }
+}
+
+#[derive(Clone, Debug)]
+pub enum LTerm<E=LLoc> {
+  End,
+  Module(Vec<E>, E),
+  TodoRequire,
+  Break(E),
+  Apply(E, Vec<E>),
+  Lambda(Vec<LVar>, E),
+  EImport(E, E),
+  D(E),
+  //DirD(E, E),
+  //SpkD(E),
+  //DAdj(E),
+  //DTng(E),
+  Adj(E),
+  //Tng(E),
+  Let(LVar, E, E),
+  Fix(LVar, E),
+  Match(E, Vec<(LPat, E)>),
+  Cons(E, E),
+  Concat(E, E),
+  STuple(Vec<E>),
+  Tuple(Vec<E>),
+  BitLit(bool),
+  IntLit(i64),
+  FloLit(f64),
+  Lookup(LVar),
+  PathLookupHash(E, LHash),
+  Unbind(LVar, E),
+  MExt(LMLoc),
+}
+
+#[derive(Clone)]
+pub struct LMExpr {
+  pub label:    LLabel,
+  pub mterm:    LMTerm,
+}
+
+#[derive(Clone)]
+pub enum LMTerm {
+  Deref(MAddr),
+  BLambda(LMLambdaDef<MBModule>),
+  CLambda(LMLambdaDef<MCModule>),
+}
+
+#[derive(Clone)]
+pub struct LMLambdaDef<Module> {
+  pub ar:   usize,
+  pub cg:   Option<Rc<dyn Fn() -> Module>>,
+  pub ty:   Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef*/) -> (Vec<LTy>, LTy)>>,
+  pub adj:  Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef,*/ Vec<LVar>, LVar) -> LExpr>>,
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum LVarBinder {
+  Hash(LHash),
+  Anon,
+}
+
+impl From<LHash> for LVarBinder {
+  fn from(hash: LHash) -> LVarBinder {
+    LVarBinder::Hash(hash)
+  }
+}
+
 #[derive(Default)]
 pub struct LBuilder {
   label_ctr:    u64,
@@ -38,6 +141,7 @@ pub struct LBuilder {
   var_ctr:      u64,
   name_to_hash: HashMap<String, LHash>,
   hash_to_name: HashMap<LHash, String>,
+  var_to_bind:  HashMap<LVar, LVarBinder>,
 }
 
 impl LBuilder {
@@ -47,10 +151,27 @@ impl LBuilder {
     LLabel(self.label_ctr)
   }
 
-  pub fn fresh_var(&mut self) -> LVar {
+  pub fn fresh_anon_var(&mut self) -> LVar {
     self.var_ctr += 1;
     assert!(self.var_ctr != 0);
-    LVar(self.var_ctr)
+    let new_var = LVar(self.var_ctr);
+    assert!(self.var_to_bind.insert(new_var.clone(), LVarBinder::Anon).is_none());
+    new_var
+  }
+
+  pub fn fresh_hash_var(&mut self, hash: LHash) -> LVar {
+    self.var_ctr += 1;
+    assert!(self.var_ctr != 0);
+    let new_var = LVar(self.var_ctr);
+    assert!(self.var_to_bind.insert(new_var.clone(), LVarBinder::Hash(hash.clone())).is_none());
+    new_var
+  }
+
+  pub fn lookup_var(&mut self, var: &LVar) -> LVarBinder {
+    match self.var_to_bind.get(var) {
+      None => panic!("bug"),
+      Some(binder) => binder.clone(),
+    }
   }
 
   pub fn lookup_name(&mut self, name: &str) -> LHash {
@@ -69,15 +190,13 @@ impl LBuilder {
 
   pub fn compile(&mut self, htree: Rc<HExpr>, ctx: LCtxRef) -> LModule {
     // TODO
-    let ltree = self._lower(htree, ctx);
-    //let ltree = self._lower_with_toplevel(htree, ctx);
-    let ltree = self._normalize(ltree);
-    //let ltree = self._gc(ltree);
-    // FIXME: take the final ctxtree and convert it into an end ctx, if possible.
-    let end_ctx = None;
-    //let end_ctx = Some(ltree.ctxs[ltree.ctxs.len() - 1].clone());
+    let tree = self._lower(htree, ctx);
+    let tree = self._normalize(tree);
+    let tree = self._recontext(tree);
+    //let tree = self._gc(tree);
+    let end_ctx = tree.end_ctx();
     LModule{
-      tree: ltree,
+      tree: tree,
       end_ctx,
     }
   }
@@ -91,11 +210,11 @@ impl LBuilder {
 
   pub fn _lower_unop(&mut self, op_name: &str, arg: Rc<HExpr>, ctx: LCtxRef, stack: &mut BTreeMap<usize, (LExpr, LCtxRef, usize)>, pos: usize) -> (LLabel, usize) {
     let op_hash = self.lookup_name(op_name);
-    let op_var = match ctx.lookup_hash(&op_hash) {
+    let op_var = match ctx.lookup_hash(op_hash) {
       Some(v) => v,
       None => {
         println!("error: unknown var '{}'", op_name);
-        self.fresh_var()
+        self.fresh_anon_var()
       }
     };
     let op_label = self.fresh_label();
@@ -122,11 +241,11 @@ impl LBuilder {
 
   pub fn _lower_binop(&mut self, op_name: &str, lhs: Rc<HExpr>, rhs: Rc<HExpr>, ctx: LCtxRef, stack: &mut BTreeMap<usize, (LExpr, LCtxRef, usize)>, pos: usize) -> (LLabel, usize) {
     let op_hash = self.lookup_name(op_name);
-    let op_var = match ctx.lookup_hash(&op_hash) {
+    let op_var = match ctx.lookup_hash(op_hash) {
       Some(v) => v,
       None => {
         println!("error: unknown var '{}'", op_name);
-        self.fresh_var()
+        self.fresh_anon_var()
       }
     };
     let op_label = self.fresh_label();
@@ -195,7 +314,7 @@ impl LBuilder {
             _ => panic!(),
           };
           let p_hash = self.lookup_name(p_name);
-          let p_var = self.fresh_var();
+          let p_var = self.fresh_hash_var(p_hash.clone());
           body_ctx.bind_mut(p_hash, p_var.clone());
           param_vars.push(p_var);
         }
@@ -230,7 +349,7 @@ impl LBuilder {
           _ => unimplemented!(),
         };
         let n_hash = self.lookup_name(name);
-        let n_var = self.fresh_var();
+        let n_var = self.fresh_hash_var(n_hash.clone());
         rest_ctx.bind_mut(n_hash, n_var.clone());
         let body_pos = pos + 1;
         let (body_label, next_pos) = self._lower_rec(body.clone(), body_ctx, stack, body_pos);
@@ -321,11 +440,11 @@ impl LBuilder {
       }
       &HExpr::Ident(ref name) => {
         let name_hash = self.lookup_name(name);
-        let name_var = match ctx.lookup_hash(&name_hash) {
+        let name_var = match ctx.lookup_hash(name_hash) {
           Some(v) => v,
           None => {
             println!("error: unknown var '{}'", name);
-            self.fresh_var()
+            self.fresh_anon_var()
           }
         };
         let label = self.fresh_label();
@@ -378,11 +497,6 @@ impl LBuilder {
     }
   }
 
-  pub fn _lower_with_toplevel(&mut self, htree: Rc<HExpr>, ctx: LCtxRef) -> LTreeCell {
-    // FIXME
-    unimplemented!();
-  }
-
   pub fn _lower(&mut self, htree: Rc<HExpr>, ctx: LCtxRef) -> LTreeCell {
     let mut stack = BTreeMap::new();
     self._lower_rec(htree, ctx, &mut stack, 0);
@@ -405,7 +519,7 @@ impl LBuilder {
 
 impl LBuilder {
   pub fn _normalize_kont(&mut self, exp: LExprCell, kont: &mut dyn FnMut(&mut Self, LExprCell) -> LExprCell) -> LExprCell {
-    match &exp.term {
+    match &exp.term() {
       // TODO: cases.
       &LTerm::End => kont(self, exp),
       &LTerm::Break(ref inner) => {
@@ -465,6 +579,14 @@ impl LBuilder {
           ))
         })
       }
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        let fixbody = self._normalize_term(exp.lookup(fixbody));
+        let new_exp = exp.append(self, &mut |_| LTerm::Fix(
+            fixname.clone(),
+            fixbody.loc(),
+        ));
+        kont(self, new_exp)
+      }
       &LTerm::BitLit(_) => kont(self, exp),
       &LTerm::IntLit(_) => kont(self, exp),
       &LTerm::FloLit(_) => kont(self, exp),
@@ -486,7 +608,7 @@ impl LBuilder {
   }
 
   pub fn _normalize_term(&mut self, exp: LExprCell) -> LExprCell {
-    self._normalize_kont(exp, &mut |_, e| e)
+    self._normalize_kont(exp, &mut |_, exp| exp)
   }
 
   pub fn _normalize_names(&mut self, mut pre_exps: Queue<LExprCell>, post_exps: Queue<LExprCell>, kont: &mut dyn FnMut(&mut Self, Queue<LExprCell>) -> LExprCell) -> LExprCell {
@@ -506,14 +628,14 @@ impl LBuilder {
 
   pub fn _normalize_name(&mut self, exp: LExprCell, kont: &mut dyn FnMut(&mut Self, LExprCell) -> LExprCell) -> LExprCell {
     self._normalize_kont(exp, &mut |this, exp| {
-      match &exp.term {
+      match &exp.term() {
         &LTerm::BitLit(_) => kont(this, exp),
         &LTerm::IntLit(_) => kont(this, exp),
         &LTerm::FloLit(_) => kont(this, exp),
         &LTerm::Lookup(_) => kont(this, exp),
         // TODO: cases.
         _ => {
-          let new_var = this.fresh_var();
+          let new_var = this.fresh_anon_var();
           let new_var_e1 = exp.append(this, &mut |this| {
             LTerm::Lookup(new_var.clone())
           });
@@ -544,6 +666,65 @@ impl LBuilder {
 }
 
 impl LBuilder {
+  pub fn _recontext_exp(&mut self, exp: LExprCell, ctx: LCtxRef) {
+    exp.unsafe_set_ctx(ctx.clone());
+    match &exp.term() {
+      &LTerm::End => {}
+      &LTerm::Break(ref inner) => {
+        self._recontext_exp(exp.lookup(inner), ctx);
+      }
+      &LTerm::Apply(ref head, ref args) => {
+        self._recontext_exp(exp.lookup(head), ctx.clone());
+        for arg in args.iter() {
+          self._recontext_exp(exp.lookup(arg), ctx.clone());
+        }
+      }
+      &LTerm::Lambda(ref params, ref body) => {
+        let mut body_ctx = ctx.clone();
+        for p in params.iter() {
+          body_ctx.bind_mut(self.lookup_var(p), p.clone());
+        }
+        self._recontext_exp(exp.lookup(body), body_ctx);
+      }
+      &LTerm::EImport(ref env, ref body) => {
+        let env = exp.lookup(env);
+        let body = exp.lookup(body);
+        self._recontext_exp(env, ctx);
+        // TODO
+        body.unsafe_unset_ctx();
+      }
+      &LTerm::D(ref target) => {
+        self._recontext_exp(exp.lookup(target), ctx.clone());
+      }
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        let mut rest_ctx = ctx.clone();
+        rest_ctx.bind_mut(self.lookup_var(name), name.clone());
+        self._recontext_exp(exp.lookup(body), ctx);
+        self._recontext_exp(exp.lookup(rest), rest_ctx);
+      }
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        let mut fixctx = ctx.clone();
+        fixctx.bind_mut(self.lookup_var(fixname), fixname.clone());
+        self._recontext_exp(exp.lookup(fixbody), fixctx);
+      }
+      &LTerm::BitLit(_) => {}
+      &LTerm::IntLit(_) => {}
+      &LTerm::FloLit(_) => {}
+      &LTerm::Lookup(_) => {}
+      &LTerm::PathLookupHash(ref env, _) => {
+        self._recontext_exp(exp.lookup(env), ctx);
+      }
+      _ => unimplemented!(),
+    }
+  }
+
+  pub fn _recontext(&mut self, tree: LTreeCell) -> LTreeCell {
+    self._recontext_exp(tree.root(), LCtxRef::default());
+    tree
+  }
+}
+
+impl LBuilder {
   pub fn _gc(&mut self, tree: LTreeCell) -> LTreeCell {
     unimplemented!();
   }
@@ -556,33 +737,26 @@ pub struct LModule {
   pub end_ctx:  Option<LCtxRef>,
 }
 
-#[derive(Clone)]
-pub enum LCtxBinder {
-  Hash(LHash),
-  Anon,
-}
-
 #[derive(Clone, Default)]
 pub struct LCtxRef {
-  hash_to_var:  HashTrieMap<LHash, LVar>,
-  var_to_bind:  HashTrieMap<LVar, LCtxBinder>,
+  bind_to_var:  HashTrieMap<LVarBinder, LVar>,
+  var_to_depth: HashTrieMap<LVar, usize>,
+  var_stack:    Stack<LVar>,
 }
 
 impl LCtxRef {
-  pub fn lookup_hash(&self, hash: &LHash) -> Option<LVar> {
-    match self.hash_to_var.get(hash) {
+  pub fn lookup_hash(&self, hash: LHash) -> Option<LVar> {
+    match self.bind_to_var.get(&LVarBinder::Hash(hash)) {
       None => None,
       Some(v) => Some(v.clone()),
     }
   }
 
-  pub fn bind_mut(&mut self, hash: LHash, var: LVar) {
-    self.hash_to_var.insert_mut(hash.clone(), var.clone());
-    self.var_to_bind.insert_mut(var, LCtxBinder::Hash(hash));
-  }
-
-  pub fn bind_anon_mut(&mut self, var: LVar) {
-    self.var_to_bind.insert_mut(var, LCtxBinder::Anon);
+  pub fn bind_mut<B: Into<LVarBinder>>(&mut self, into_binder: B, var: LVar) {
+    let binder: LVarBinder = into_binder.into();
+    self.bind_to_var.insert_mut(binder, var.clone());
+    self.var_to_depth.insert_mut(var.clone(), self.var_stack.size());
+    self.var_stack.push_mut(var);
   }
 }
 
@@ -615,6 +789,7 @@ pub enum LTy {
   Bit,
   Int,
   Flo,
+  //Unit,
 }
 
 struct TyUnionFind {
@@ -832,7 +1007,7 @@ impl IncTyInfMachine {
   }
 }
 
-#[derive(Clone)]
+/*#[derive(Clone)]
 pub struct LRel {
   pub label:    LLabel,
   pub offset:   isize,
@@ -848,7 +1023,7 @@ impl LRel {
       offset:   pos as isize - ref_pos as isize,
     }
   }
-}
+}*/
 
 #[derive(Clone, Debug)]
 pub struct LLoc {
@@ -878,11 +1053,20 @@ pub struct LMLoc {
   pub pos:      usize,
 }
 
-pub type LCodeRef = Rc<LCode>;
+#[derive(Clone, Debug)]
+pub struct LExpr {
+  pub label:    LLabel,
+  pub term:     LTerm,
+}
 
-pub struct LCode {
-  pub mlib:     Vec<LMExpr>,
-  pub exps:     Vec<LExpr>,
+#[derive(Default)]
+pub struct LTreeData {
+  mexps:    Vec<LMExpr>,
+  exps:     Vec<LExpr>,
+  deltas:   Vec<LLoc>,
+  ctxs:     HashMap<LLabel, LCtxRef>,
+  etys:     HashMap<LLabel, LTyvar>,
+  tyctxs:   HashMap<LLabel, LTyctxRef>,
 }
 
 #[derive(Clone)]
@@ -896,30 +1080,31 @@ pub struct LTreeCell {
 impl LTreeCell {
   pub fn root(&self) -> LExprCell {
     let data = self.data.borrow();
-    let exp = data.exps[self.root].clone();
+    let label = data.exps[self.root].label.clone();
     LExprCell{
       tree:     self.clone(),
       pos:      self.root,
-      label:    exp.label,
-      term:     exp.term,
+      label,
     }
   }
-}
 
-#[derive(Default)]
-pub struct LTreeData {
-  mexps:    Vec<LMExpr>,
-  exps:     Vec<LExpr>,
-  deltas:   Vec<LLoc>,
-  ctxs:     HashMap<LLabel, LCtxRef>,
-  etys:     HashMap<LLabel, LTyvar>,
-  tyctxs:   HashMap<LLabel, LTyctxRef>,
-}
-
-#[derive(Clone, Debug)]
-pub struct LExpr {
-  pub label:    LLabel,
-  pub term:     LTerm,
+  pub fn end_ctx(&self) -> Option<LCtxRef> {
+    let mut exp = self.root();
+    loop {
+      match exp.term() {
+        LTerm::End => {
+          break;
+        }
+        LTerm::Let(_, _, ref rest) => {
+          exp = exp.lookup(rest);
+        }
+        _ => {
+          return None;
+        }
+      }
+    }
+    Some(exp.ctx())
+  }
 }
 
 #[derive(Clone)]
@@ -927,7 +1112,6 @@ pub struct LExprCell {
   pub tree:     LTreeCell,
   pub pos:      usize,
   pub label:    LLabel,
-  pub term:     LTerm,
 }
 
 impl LExprCell {
@@ -938,9 +1122,29 @@ impl LExprCell {
     }
   }
 
+  pub fn term(&self) -> LTerm {
+    let tree = self.tree.data.borrow();
+    let exp = tree.exps[self.pos].clone();
+    assert_eq!(self.label, exp.label);
+    exp.term
+  }
+
+  pub fn unsafe_set_ctx(&self, new_ctx: LCtxRef) {
+    let mut tree = self.tree.data.borrow_mut();
+    tree.ctxs.insert(self.label.clone(), new_ctx);
+  }
+
+  pub fn unsafe_unset_ctx(&self) {
+    let mut tree = self.tree.data.borrow_mut();
+    tree.ctxs.remove(&self.label);
+  }
+
   pub fn ctx(&self) -> LCtxRef {
-    // TODO
-    unimplemented!();
+    let tree = self.tree.data.borrow();
+    match tree.ctxs.get(&self.label) {
+      None => panic!("bug"),
+      Some(ctx) => ctx.clone()
+    }
   }
 
   pub fn lookup(&self, loc: &LLoc) -> LExprCell {
@@ -950,31 +1154,30 @@ impl LExprCell {
       tree:     self.tree.clone(),
       pos:      loc.pos,
       label:    loc.label.clone(),
-      term:     tree.exps[loc.pos].term.clone(),
     }
   }
 
   pub fn append(&self, builder: &mut LBuilder, mk_term: &mut dyn FnMut(&mut LBuilder) -> LTerm) -> LExprCell {
     let new_term = (mk_term)(builder);
-    let (new_pos, new_label, new_term) = {
+    let (new_pos, new_label, /*new_term*/) = {
       let mut tree = self.tree.data.borrow_mut();
       let new_pos = tree.exps.len();
       let new_label = builder.fresh_label();
       tree.exps.push(LExpr{
         label:    new_label.clone(),
-        term:     new_term.clone(),
+        term:     new_term,
       });
-      (new_pos, new_label, new_term)
+      (new_pos, new_label, /*new_term*/)
     };
     LExprCell{
       tree:     self.tree.clone(),
       pos:      new_pos,
       label:    new_label,
-      term:     new_term,
     }
   }
 
   pub fn rewrite(self, mk_term: &dyn Fn() -> LTerm) -> LExprCell {
+    // FIXME: should invalidate associated info, like the ctx tree.
     let new_term = (mk_term)();
     {
       let mut tree = self.tree.data.borrow_mut();
@@ -982,16 +1185,22 @@ impl LExprCell {
       tree.deltas.push(LLoc::new(self.label.clone(), self.pos));
       tree.exps[self.pos] = LExpr{
         label:  self.label.clone(),
-        term:   new_term.clone(),
+        term:   new_term,
       };
     }
     LExprCell{
       tree:     self.tree.clone(),
       pos:      self.pos,
       label:    self.label,
-      term:     new_term,
     }
   }
+}
+
+pub type LCodeRef = Rc<LCode>;
+
+pub struct LCode {
+  pub mexps:    Vec<LMExpr>,
+  pub exps:     Vec<LExpr>,
 }
 
 #[derive(Clone)]
@@ -1003,7 +1212,7 @@ pub struct LExprRef {
 }
 
 impl LExprRef {
-  pub fn jump(self, rel: LRel) -> LExprRef {
+  /*pub fn jump(self, rel: LRel) -> LExprRef {
     let new_posi = self.pos as isize + rel.offset;
     assert!(new_posi >= 0);
     let new_pos = new_posi as usize;
@@ -1015,96 +1224,10 @@ impl LExprRef {
       label:    new_exp.label,
       term:     new_exp.term,
     }
+  }*/
+
+  pub fn jump(&self, loc: LLoc) -> LExprRef {
+    // TODO
+    unimplemented!();
   }
-}
-
-#[derive(Clone, Debug)]
-pub enum LPat {
-  Cons(LPatRef, LPatRef),
-  Concat(LPatRef, LPatRef),
-  STuple(Vec<LPatRef>),
-  Tuple(Vec<LPatRef>),
-  BitLit(bool),
-  IntLit(i64),
-  Place,
-  Var(LVar),
-  Alias(LPatRef, LVar),
-}
-
-#[derive(Debug)]
-pub struct LPatRef {
-  inner:    Rc<LPat>,
-}
-
-impl LPatRef {
-  pub fn new(pat: LPat) -> LPatRef {
-    LPatRef{inner: Rc::new(pat)}
-  }
-}
-
-impl Clone for LPatRef {
-  fn clone(&self) -> LPatRef {
-    LPatRef{inner: self.inner.clone()}
-  }
-}
-
-impl Deref for LPatRef {
-  type Target = LPat;
-
-  fn deref(&self) -> &LPat {
-    &*self.inner
-  }
-}
-
-#[derive(Clone, Debug)]
-pub enum LTerm<E=LLoc> {
-  End,
-  Module(Vec<E>, E),
-  TodoRequire,
-  Break(E),
-  Apply(E, Vec<E>),
-  Lambda(Vec<LVar>, E),
-  EImport(E, E),
-  D(E),
-  //DirD(E, E),
-  //SpkD(E),
-  //DAdj(E),
-  //DTng(E),
-  Adj(E),
-  //Tng(E),
-  Let(LVar, E, E),
-  Fix(LVar, E),
-  Match(E, Vec<(LPat, E)>),
-  Cons(E, E),
-  Concat(E, E),
-  STuple(Vec<E>),
-  Tuple(Vec<E>),
-  BitLit(bool),
-  IntLit(i64),
-  FloLit(f64),
-  Lookup(LVar),
-  PathLookupHash(E, LHash),
-  Unbind(LVar, E),
-  MExt(LMLoc),
-}
-
-#[derive(Clone)]
-pub struct LMExpr {
-  pub label:    LLabel,
-  pub mterm:    LMTerm,
-}
-
-#[derive(Clone)]
-pub enum LMTerm {
-  Deref(MAddr),
-  BLambda(LMLambdaDef<MBModule>),
-  CLambda(LMLambdaDef<MCModule>),
-}
-
-#[derive(Clone)]
-pub struct LMLambdaDef<Module> {
-  pub ar:   usize,
-  pub cg:   Option<Rc<dyn Fn() -> Module>>,
-  pub ty:   Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef*/) -> (Vec<LTy>, LTy)>>,
-  pub adj:  Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef,*/ Vec<LVar>, LVar) -> LExpr>>,
 }
