@@ -188,15 +188,18 @@ impl LBuilder {
     }).clone()
   }
 
-  pub fn compile(&mut self, htree: Rc<HExpr>, ctx: LCtxRef) -> LModule {
+  pub fn compile(&mut self, htree: Rc<HExpr>, top_ctx: LCtxRef) -> LModule {
     // TODO
-    let tree = self._lower(htree, ctx);
+    let tree = self._lower(htree, top_ctx.clone());
     let tree = self._normalize(tree);
-    let tree = self._recontext(tree);
+    let tree = self._recontext(tree, top_ctx.clone());
     //let tree = self._gc(tree);
+    let mut tyinf = IncTyInfMachine::default();
+    let ty_con = tyinf.gen(&tree);
+    //println!("DEBUG: compile: generated ty constraint: {:?}", ty_con);
     let end_ctx = tree.end_ctx();
     LModule{
-      tree: tree,
+      tree,
       end_ctx,
     }
   }
@@ -213,6 +216,7 @@ impl LBuilder {
     let op_var = match ctx.lookup_hash(op_hash) {
       Some(v) => v,
       None => {
+        // TODO: propagate errors.
         println!("error: unknown var '{}'", op_name);
         self.fresh_anon_var()
       }
@@ -244,6 +248,7 @@ impl LBuilder {
     let op_var = match ctx.lookup_hash(op_hash) {
       Some(v) => v,
       None => {
+        // TODO: propagate errors.
         println!("error: unknown var '{}'", op_name);
         self.fresh_anon_var()
       }
@@ -273,11 +278,12 @@ impl LBuilder {
     (label, curr_pos)
   }
 
-  pub fn _lower_rec(&mut self, htree: Rc<HExpr>, ctx: LCtxRef, stack: &mut BTreeMap<usize, (LExpr, LCtxRef, usize)>, /*ltree: &mut LTree, ctxtree: &mut LCtxTree,*/ pos: usize) -> (LLabel, usize) {
+  pub fn _lower_rec(&mut self, htree: Rc<HExpr>, ctx: LCtxRef, stack: &mut BTreeMap<usize, (LExpr, LCtxRef, usize)>, /*up: LLoc, label: LLabel,*/ pos: usize) -> (LLabel, usize) {
     match &*htree {
       &HExpr::End => {
         let label = self.fresh_label();
         let e = LExpr{
+          //up,
           label:    label.clone(),
           term:     LTerm::End
         };
@@ -443,6 +449,7 @@ impl LBuilder {
         let name_var = match ctx.lookup_hash(name_hash) {
           Some(v) => v,
           None => {
+            // TODO: propagate errors.
             println!("error: unknown var '{}'", name);
             self.fresh_anon_var()
           }
@@ -499,6 +506,8 @@ impl LBuilder {
 
   pub fn _lower(&mut self, htree: Rc<HExpr>, ctx: LCtxRef) -> LTreeCell {
     let mut stack = BTreeMap::new();
+    //let root_label = self.fresh_label();
+    //self._lower_rec(htree, ctx, &mut stack, LLoc::new(root_label.clone(), 0), root_label, 0);
     self._lower_rec(htree, ctx, &mut stack, 0);
     let mut ltree = LTreeData::default();
     for (&pos, &(ref e, ref ctx, pos2)) in stack.iter() {
@@ -694,7 +703,7 @@ impl LBuilder {
         body.unsafe_unset_ctx();
       }
       &LTerm::D(ref target) => {
-        self._recontext_exp(exp.lookup(target), ctx.clone());
+        self._recontext_exp(exp.lookup(target), ctx);
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
         let mut rest_ctx = ctx.clone();
@@ -718,8 +727,8 @@ impl LBuilder {
     }
   }
 
-  pub fn _recontext(&mut self, tree: LTreeCell) -> LTreeCell {
-    self._recontext_exp(tree.root(), LCtxRef::default());
+  pub fn _recontext(&mut self, tree: LTreeCell, ctx: LCtxRef) -> LTreeCell {
+    self._recontext_exp(tree.root(), ctx);
     tree
   }
 }
@@ -779,7 +788,8 @@ pub type LTyRef = Rc<LTy>;
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum LTy {
   Var(LTyvar),
-  Fun(Vec<LTyRef>, LTyRef),
+  Fun(Vec<LTyvar>, LTyvar),
+  //Fun(Vec<LTyRef>, LTyRef),
   //Env(RedBlackTreeMap<LEnvKey, LTyRef>),
   Env(RedBlackTreeMap<LEnvKey, LTyRef>, RedBlackTreeMap<LHash, LVar>),
   ESel(LTyRef, LVar),
@@ -789,9 +799,10 @@ pub enum LTy {
   Bit,
   Int,
   Flo,
-  //Unit,
+  Unit,
 }
 
+#[derive(Default)]
 struct TyUnionFind {
   db:   BTreeMap<LTyvar, LTyvar>,
   _mgu: BTreeMap<LTyvar, LTy>,
@@ -861,68 +872,201 @@ impl TyUnionFind {
   }
 }
 
-struct TyHyp {
-}
-
 type TyConRef = Rc<TyCon>;
 
+#[derive(Debug)]
 enum TyCon {
   Nil,
-  Cnj(TyConRef, TyConRef),
+  Cnj(Queue<TyConRef>),
+  Cnj2(TyConRef, TyConRef),
   Eq(LTy, LTy),
+  EqE(LTyvar, LTy),
+  EqV(LTyvar, LTyvar),
   IsACons(LVar, LTy, LTy, LTy),
   IsAConcat(LTy, LTy, LTy),
   IsAApp(Vec<(usize, LVar)>, LTyvar, LTy),
   IsERet(Vec<(usize, LVar)>, LTyvar, LTy),
-  IsEHash(LTyvar, LHash, LTy),
+  //IsEHashSel(LTyvar, LHash, LTy),
+  IsEHashSel(LTyvar, LTyvar, LHash),
 }
 
+fn conj_ty2(lhs: TyConRef, rhs: TyConRef) -> TyConRef {
+  match &*lhs {
+    &TyCon::Cnj(ref cons) => {
+      TyConRef::new(TyCon::Cnj(cons.enqueue(rhs)))
+    }
+    _ => {
+      let mut cons = Queue::new();
+      cons.enqueue_mut(lhs);
+      cons.enqueue_mut(rhs);
+      TyConRef::new(TyCon::Cnj(cons))
+    }
+  }
+}
+
+fn conj_tys(cons: Vec<TyConRef>) -> TyConRef {
+  if cons.is_empty() {
+    return TyConRef::new(TyCon::Nil);
+  }
+  match &*cons[0] {
+    &TyCon::Cnj(ref cons_) => {
+      let mut cons_ = cons_.clone();
+      for c in cons[1 .. ].iter() {
+        cons_.enqueue_mut(c.clone());
+      }
+      TyConRef::new(TyCon::Cnj(cons_))
+    }
+    _ => {
+      let mut cons_ = Queue::new();
+      for c in cons.iter() {
+        cons_.enqueue_mut(c.clone());
+      }
+      TyConRef::new(TyCon::Cnj(cons_))
+    }
+  }
+}
+
+#[derive(Default)]
 struct IncTyInfMachine {
-  //hyps: VecDeque<TyHyp>,
-  //cons: VecDeque<TyCon>,
+  tyv_ctr:  u64,
   sub:      TyUnionFind,
-  def_cons: VecDeque<TyConRef>,
+  // TODO: index deferred constraints.
+  def_cons: Queue<TyConRef>,
 }
 
 impl IncTyInfMachine {
-  fn _gen(&mut self, tree: &LTreeCell) -> TyConRef {
+  fn fresh_tyvar(&mut self) -> LTyvar {
+    self.tyv_ctr += 1;
+    assert!(self.tyv_ctr != 0);
+    LTyvar(self.tyv_ctr)
+  }
+
+  fn _gen_exp(&mut self, exp: LExprCell) -> TyConRef {
+    let ety = exp.unsafe_set_fresh_ety(self);
+    match &exp.term() {
+      &LTerm::End => {
+        TyConRef::new(TyCon::EqE(ety, LTy::Unit))
+      }
+      &LTerm::Break(ref inner) => {
+        let inner_con = self._gen_exp(exp.lookup(inner));
+        let brk_con = TyConRef::new(TyCon::EqV(ety, exp.lookup_ety(inner)));
+        conj_ty2(inner_con, brk_con)
+      }
+      &LTerm::Apply(ref head, ref args) => {
+        let mut new_cons = Vec::with_capacity(args.len() + 2);
+        let head_con = self._gen_exp(exp.lookup(head));
+        new_cons.push(head_con);
+        let mut arg_tys = Vec::with_capacity(args.len());
+        for a in args.iter() {
+          let a_con = self._gen_exp(exp.lookup(a));
+          arg_tys.push(exp.lookup_ety(a));
+          new_cons.push(a_con);
+        }
+        let app_con = TyConRef::new(TyCon::EqE(exp.lookup_ety(head), LTy::Fun(arg_tys, ety)));
+        new_cons.push(app_con);
+        conj_tys(new_cons)
+      }
+      &LTerm::Lambda(ref params, ref body) => {
+        let mut param_tys = Vec::with_capacity(params.len());
+        for p in params.iter() {
+          let p_vty = exp.lookup_vty(p, self);
+          param_tys.push(p_vty);
+        }
+        let body_con = self._gen_exp(exp.lookup(body));
+        let lam_con = TyConRef::new(TyCon::EqE(ety, LTy::Fun(param_tys, exp.lookup_ety(body))));
+        conj_ty2(body_con, lam_con)
+      }
+      /*&LTerm::EImport(ref env, ref body) => {
+      }*/
+      /*&LTerm::D(ref target) => {
+      }*/
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        let name_vty = exp.lookup_vty(name, self);
+        let body_con = self._gen_exp(exp.lookup(body));
+        let rest_con = self._gen_exp(exp.lookup(rest));
+        let let_con1 = TyConRef::new(TyCon::EqV(name_vty, exp.lookup_ety(body)));
+        let let_con2 = TyConRef::new(TyCon::EqV(ety, exp.lookup_ety(rest)));
+        conj_tys(vec![rest_con, body_con, let_con1, let_con2])
+      }
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        let fixname_vty = exp.lookup_vty(fixname, self);
+        let fixbody_con = self._gen_exp(exp.lookup(fixbody));
+        let fix_con1 = TyConRef::new(TyCon::EqV(fixname_vty, exp.lookup_ety(fixbody)));
+        let fix_con2 = TyConRef::new(TyCon::EqV(ety, exp.lookup_ety(fixbody)));
+        conj_tys(vec![fixbody_con, fix_con1, fix_con2])
+      }
+      &LTerm::BitLit(_) => {
+        TyConRef::new(TyCon::EqE(ety, LTy::Bit))
+      }
+      &LTerm::IntLit(_) => {
+        TyConRef::new(TyCon::EqE(ety, LTy::Int))
+      }
+      &LTerm::FloLit(_) => {
+        TyConRef::new(TyCon::EqE(ety, LTy::Flo))
+      }
+      &LTerm::Lookup(ref name) => {
+        let name_vty = exp.lookup_vty(name, self);
+        TyConRef::new(TyCon::EqV(ety, name_vty))
+      }
+      &LTerm::PathLookupHash(ref env, ref hash) => {
+        let env_con = self._gen_exp(exp.lookup(env));
+        let hashsel_con = TyConRef::new(TyCon::IsEHashSel(ety, exp.lookup_ety(env), hash.clone()));
+        conj_ty2(env_con, hashsel_con)
+      }
+      _ => unimplemented!(),
+    }
+  }
+
+  fn gen(&mut self, tree: &LTreeCell) -> TyConRef {
+    self._gen_exp(tree.root())
+  }
+
+  fn gen_inc(&mut self, old_tree: &LTreeCell, new_tree: &LTreeCell) -> TyConRef {
     // TODO
+    if !Rc::ptr_eq(&old_tree.data, &new_tree.data) {
+      return self.gen(new_tree);
+    }
     unimplemented!();
   }
 
-  fn _gen_inc(&mut self, old_tree: &LTreeCell, new_tree: &LTreeCell) -> TyConRef {
-    // TODO
-    assert!(Rc::ptr_eq(&old_tree.data, &new_tree.data));
-    unimplemented!();
-  }
-
-  fn _solve(&mut self, con: TyConRef) -> Result<usize, TyConRef> {
+  fn solve(&mut self, con: TyConRef) -> Result<usize, TyConRef> {
     match &*con {
       &TyCon::Nil => Ok(1),
-      &TyCon::Cnj(ref lhs, ref rhs) => {
-        let lhs_ct = self._solve(lhs.clone())?;
-        let rhs_ct = self._solve(rhs.clone())?;
-        Ok(lhs_ct + rhs_ct)
+      &TyCon::Cnj(ref cons) => {
+        match cons.peek() {
+          None => Ok(0),
+          Some(c) => {
+            let con = TyConRef::new(TyCon::Cnj(cons.dequeue().unwrap()));
+            Ok(self.solve(c.clone())? + self.solve(con)?)
+          }
+        }
+      }
+      &TyCon::Cnj2(ref lhs, ref rhs) => {
+        Ok(self.solve(lhs.clone())? + self.solve(rhs.clone())?)
       }
       &TyCon::Eq(ref lty, ref rty) => {
         match (lty, rty) {
           // TODO: more cases.
           (&LTy::Fun(ref lhs_dom, ref lhs_cod), &LTy::Fun(ref rhs_dom, ref rhs_cod)) => {
+            // TODO
+            //unimplemented!();
             if lhs_dom.len() != rhs_dom.len() {
               return Err(con);
             }
             let mut con = con.clone();
             for (lty, rty) in lhs_dom.iter().zip(rhs_dom.iter()) {
-              con = TyConRef::new(TyCon::Cnj(
-                  TyConRef::new(TyCon::Eq((**lty).clone(), (**rty).clone())),
+              con = TyConRef::new(TyCon::Cnj2(
+                  //TyConRef::new(TyCon::Eq((**lty).clone(), (**rty).clone())),
+                  TyConRef::new(TyCon::EqV(lty.clone(), rty.clone())),
                   con,
               ));
             }
-            con = TyConRef::new(TyCon::Cnj(
-                TyConRef::new(TyCon::Eq((**lhs_cod).clone(), (**rhs_cod).clone())),
+            con = TyConRef::new(TyCon::Cnj2(
+                //TyConRef::new(TyCon::Eq((**lhs_cod).clone(), (**rhs_cod).clone())),
+                TyConRef::new(TyCon::EqV(lhs_cod.clone(), rhs_cod.clone())),
                 con,
             ));
-            self._solve(con)
+            self.solve(con)
           }
           _ => {
             match self.sub.unify(lty.clone(), rty.clone()) {
@@ -935,14 +1079,14 @@ impl IncTyInfMachine {
       &TyCon::IsAApp(ref args, ref env_tv, ref ty) => {
         match self.sub.mgu(env_tv.clone()) {
           None => {
-            self.def_cons.push_back(con);
+            self.def_cons.enqueue_mut(con);
             Ok(0)
           }
           Some(LTy::Env(..)) => {
             // FIXME: do the 'AApp' type transform.
             let new_env_ty = unimplemented!();
             let new_con = TyConRef::new(TyCon::Eq(new_env_ty, ty.clone()));
-            self._solve(new_con)
+            self.solve(new_con)
           }
           Some(_) => {
             Err(con)
@@ -952,27 +1096,28 @@ impl IncTyInfMachine {
       &TyCon::IsERet(ref params, ref env_tv, ref ty) => {
         match self.sub.mgu(env_tv.clone()) {
           None => {
-            self.def_cons.push_back(con);
+            self.def_cons.enqueue_mut(con);
             Ok(0)
           }
           Some(LTy::Env(..)) => {
             // FIXME: do the 'ERet' type transform.
             let new_env_ty = unimplemented!();
             let new_con = TyConRef::new(TyCon::Eq(new_env_ty, ty.clone()));
-            self._solve(new_con)
+            self.solve(new_con)
           }
           Some(_) => {
             Err(con)
           }
         }
       }
-      &TyCon::IsEHash(ref env_tv, ref hash, ref ty) => {
+      &TyCon::IsEHashSel(ref ety, ref env_tv, ref hash) => {
         match self.sub.mgu(env_tv.clone()) {
           None => {
-            self.def_cons.push_back(con);
+            self.def_cons.enqueue_mut(con);
             Ok(0)
           }
           Some(LTy::Diff(tg_ty)) => {
+            // TODO
             let tg_ty = match &*tg_ty {
               &LTy::Var(ref tg_tv) => self.sub.mgu(tg_tv.clone()),
               t => Some(t.clone()),
@@ -981,7 +1126,7 @@ impl IncTyInfMachine {
               None |
               Some(LTy::Fun(..)) |
               Some(LTy::Flo) => {
-                self.def_cons.push_back(con);
+                self.def_cons.enqueue_mut(con);
                 Ok(0)
               }
               Some(_) => {
@@ -994,8 +1139,8 @@ impl IncTyInfMachine {
             let env_ty: LTy = unimplemented!();
             let var = unimplemented!();
             let new_sel_ty = LTy::ESel(LTyRef::new(env_ty.clone()), var);
-            let new_con = TyConRef::new(TyCon::Eq(new_sel_ty, ty.clone()));
-            self._solve(new_con)
+            let new_con = TyConRef::new(TyCon::EqE(ety.clone(), new_sel_ty));
+            self.solve(new_con)
           }
           Some(_) => {
             Err(con)
@@ -1055,6 +1200,8 @@ pub struct LMLoc {
 
 #[derive(Clone, Debug)]
 pub struct LExpr {
+  // TODO
+  //pub up:       LLoc,
   pub label:    LLabel,
   pub term:     LTerm,
 }
@@ -1066,7 +1213,8 @@ pub struct LTreeData {
   deltas:   Vec<LLoc>,
   ctxs:     HashMap<LLabel, LCtxRef>,
   etys:     HashMap<LLabel, LTyvar>,
-  tyctxs:   HashMap<LLabel, LTyctxRef>,
+  vtys:     HashMap<LVar, LTyvar>,
+  //tyctxs:   HashMap<LLabel, LTyctxRef>,
 }
 
 #[derive(Clone)]
@@ -1129,12 +1277,12 @@ impl LExprCell {
     exp.term
   }
 
-  pub fn unsafe_set_ctx(&self, new_ctx: LCtxRef) {
+  fn unsafe_set_ctx(&self, new_ctx: LCtxRef) {
     let mut tree = self.tree.data.borrow_mut();
     tree.ctxs.insert(self.label.clone(), new_ctx);
   }
 
-  pub fn unsafe_unset_ctx(&self) {
+  fn unsafe_unset_ctx(&self) {
     let mut tree = self.tree.data.borrow_mut();
     tree.ctxs.remove(&self.label);
   }
@@ -1144,6 +1292,33 @@ impl LExprCell {
     match tree.ctxs.get(&self.label) {
       None => panic!("bug"),
       Some(ctx) => ctx.clone()
+    }
+  }
+
+  fn unsafe_set_fresh_ety(&self, tyinf: &mut IncTyInfMachine) -> LTyvar {
+    let mut tree = self.tree.data.borrow_mut();
+    let ety = tyinf.fresh_tyvar();
+    tree.etys.insert(self.label.clone(), ety.clone());
+    ety
+  }
+
+  fn lookup_ety(&self, loc: &LLoc) -> LTyvar {
+    let tree = self.tree.data.borrow();
+    match tree.etys.get(&loc.label) {
+      None => panic!(),
+      Some(v) => v.clone(),
+    }
+  }
+
+  fn lookup_vty(&self, var: &LVar, tyinf: &mut IncTyInfMachine) -> LTyvar {
+    let mut tree = self.tree.data.borrow_mut();
+    match tree.vtys.get(&var) {
+      None => {
+        let vty = tyinf.fresh_tyvar();
+        tree.vtys.insert(var.clone(), vty.clone());
+        vty
+      }
+      Some(v) => v.clone(),
     }
   }
 
@@ -1176,7 +1351,7 @@ impl LExprCell {
     }
   }
 
-  pub fn rewrite(self, mk_term: &dyn Fn() -> LTerm) -> LExprCell {
+  pub fn unsafe_rewrite(self, mk_term: &dyn Fn() -> LTerm) -> LExprCell {
     // FIXME: should invalidate associated info, like the ctx tree.
     let new_term = (mk_term)();
     {

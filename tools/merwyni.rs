@@ -62,12 +62,12 @@ fn main() {
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   let mut ctx = LCtxRef::default();
-  /*let top_module = build_top_level(&mut builder, ctx);
-  ctx = top_module.end_ctx.clone().unwrap_or_else(|| LCtxRef::default());
+  /*let top_module = build_top_level(&mut builder, ctx.clone());
+  ctx = top_module.end_ctx.clone().unwrap_or_else(|| ctx);
   //mach.eval(top_module.code.clone());
   println!("merwyn# loaded top level");*/
-  let module = builder.compile(htree, ctx);
-  ctx = module.end_ctx.clone().unwrap_or_else(|| LCtxRef::default());
+  let module = builder.compile(htree, ctx.clone());
+  ctx = module.end_ctx.clone().unwrap_or_else(|| ctx);
   //mach.eval(module.code.clone());
   println!("merwyn# loaded module `{}`", file_path.display());
   //println!("merwyn# --  debug tree: {:?}", module.tree.exps);
@@ -86,8 +86,8 @@ fn main() {
     let lexer = HLexer::new(&linebuf);
     let parser = HParser::new(lexer);
     let htree = parser.parse();
-    let module = builder.compile(htree, ctx);
-    ctx = module.end_ctx.clone().unwrap_or_else(|| LCtxRef::default());
+    let module = builder.compile(htree, ctx.clone());
+    ctx = module.end_ctx.clone().unwrap_or_else(|| ctx);
     //println!("merwyn# --  debug tree: {:?}", module.tree.exps);
     //mach.eval(module.code.clone());
   }
