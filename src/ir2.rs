@@ -78,11 +78,9 @@ pub enum LTerm<E=LLoc> {
   Apply(E, Vec<E>),
   Lambda(Vec<LVar>, E),
   EImport(E, E),
-  D(E),
-  //DirD(E, E),
-  //SpkD(E),
-  //DAdj(E),
-  //DTng(E),
+  PD(E),
+  //AdjD(E),
+  //TngD(E),
   Adj(E),
   //Tng(E),
   Let(LVar, E, E),
@@ -189,14 +187,17 @@ impl LBuilder {
   }
 
   pub fn compile(&mut self, htree: Rc<HExpr>, top_ctx: LCtxRef) -> LModule {
+  //pub fn compile(&mut self, htree: Rc<HExpr>, top_ctx: LCtxRef) -> Result<LModule, ()> {
     // TODO
     let tree = self._lower(htree, top_ctx.clone());
     let tree = self._normalize(tree);
     let tree = self._recontext(tree, top_ctx.clone());
     //let tree = self._gc(tree);
     let mut tyinf = IncTyInfMachine::default();
-    let ty_con = tyinf.gen(&tree);
+    let mut ty_cons = tyinf.gen(&tree);
     //println!("DEBUG: compile: generated ty constraint: {:?}", ty_con);
+    let ty_res = tyinf.solve(tree.root(), &mut ty_cons);
+    println!("DEBUG: compile: tyinf result: {:?}", ty_res);
     let end_ctx = tree.end_ctx();
     LModule{
       tree,
@@ -335,14 +336,14 @@ impl LBuilder {
         stack.insert(pos, (e, ctx, pos));
         (label, next_pos)
       }
-      &HExpr::D(ref target) => {
+      &HExpr::PD(ref target) => {
         let target_pos = pos + 1;
         let (target_label, next_pos) = self._lower_rec(target.clone(), ctx.clone(), stack, target_pos);
         let target_ = LLoc::new(target_label, target_pos);
         let label = self.fresh_label();
         let e = LExpr{
           label:    label.clone(),
-          term:     LTerm::D(target_)
+          term:     LTerm::PD(target_)
         };
         stack.insert(pos, (e, ctx, pos));
         (label, next_pos)
@@ -569,10 +570,10 @@ impl LBuilder {
           kont(this, new_exp)
         })
       }
-      &LTerm::D(ref target) => {
+      &LTerm::PD(ref target) => {
         let target = exp.lookup(target);
         self._normalize_name(target, &mut |this, target| {
-          let new_exp = exp.append(this, &mut |_| LTerm::D(target.loc()));
+          let new_exp = exp.append(this, &mut |_| LTerm::PD(target.loc()));
           kont(this, new_exp)
         })
       }
@@ -702,7 +703,7 @@ impl LBuilder {
         // TODO
         body.unsafe_unset_ctx();
       }
-      &LTerm::D(ref target) => {
+      &LTerm::PD(ref target) => {
         self._recontext_exp(exp.lookup(target), ctx);
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
@@ -783,6 +784,52 @@ impl LTyctxRef {
   }
 }
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum LTyexp {
+  Var(LTyvar),
+  Fun(Vec<LTyexpRef>, LTyexpRef),
+  Env(RedBlackTreeMap<LEnvKey, LTyvar>, RedBlackTreeMap<LHash, LVar>),
+  //ESel(LTyRef, LVar),
+  //Diff(LTyRef),
+  STup(Vec<LTyexpRef>),
+  Tup,
+  Bit,
+  Int,
+  Flo,
+  Unit,
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct LTyexpRef {
+  inner:    Rc<LTyexp>,
+}
+
+impl LTyexpRef {
+  pub fn new(e: LTyexp) -> LTyexpRef {
+    LTyexpRef{inner: Rc::new(e)}
+  }
+}
+
+impl From<LTyexp> for LTyexpRef {
+  fn from(e: LTyexp) -> LTyexpRef {
+    LTyexpRef::new(e)
+  }
+}
+
+impl From<LTyvar> for LTyexpRef {
+  fn from(v: LTyvar) -> LTyexpRef {
+    LTyexpRef::new(LTyexp::Var(v))
+  }
+}
+
+impl Deref for LTyexpRef {
+  type Target = LTyexp;
+
+  fn deref(&self) -> &LTyexp {
+    &*self.inner
+  }
+}
+
 pub type LTyRef = Rc<LTy>;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -802,10 +849,16 @@ pub enum LTy {
   Unit,
 }
 
+enum TyUnifyRes {
+  OK,
+  Maybe,
+  No,
+}
+
 #[derive(Default)]
 struct TyUnionFind {
   db:   BTreeMap<LTyvar, LTyvar>,
-  _mgu: BTreeMap<LTyvar, LTy>,
+  term: BTreeMap<LTyvar, LTyexpRef>,
 }
 
 impl TyUnionFind {
@@ -828,65 +881,34 @@ impl TyUnionFind {
     cursor
   }
 
-  fn mgu(&mut self, query: LTyvar) -> Option<LTy> {
-    let head = self.head(query);
-    match self._mgu.get(&head) {
-      None => None,
-      Some(ty) => Some(ty.clone()),
-    }
-  }
-
-  fn _generalize(&mut self, v: LTyvar, query: LTy) -> Result<(), ()> {
-    let w = self.head(v);
-    match self._mgu.get(&w) {
-      None => {
-        self._mgu.insert(w, query);
-        Ok(())
-      }
-      Some(result) => if result == &query {
-        Ok(())
-      } else {
-        // FIXME: dont error if the MGU can be further generalized to be
-        // compatible with the query type, on a case-by-case basis.
-        Err(())
-      }
-    }
-  }
-
-  fn unify(&mut self, lhs: LTy, rhs: LTy) -> Result<(), ()> {
-    match (lhs, rhs) {
-      (LTy::Var(lv), LTy::Var(rv)) => {
-        let lw = self.head(lv);
-        let rw = self.head(rv);
-        self.db.insert(lw, rw);
-        Ok(())
-      }
-      (LTy::Var(v), query) => {
-        self._generalize(v, query)
-      }
-      (query, LTy::Var(v)) => {
-        self._generalize(v, query)
-      }
-      (_, _) => unreachable!(),
-    }
+  fn mgu(&mut self, v: LTyvar) -> Option<LTy> {
+    // TODO
+    //unimplemented!();
+    None
   }
 }
 
 type TyConRef = Rc<TyCon>;
 
+// TODO
+/*struct TyConRef {
+  inner:    Rc<(Cell<bool>, TyCon)>,
+}*/
+
 #[derive(Debug)]
 enum TyCon {
-  Nil,
+  Top,
   Cnj(Queue<TyConRef>),
-  Cnj2(TyConRef, TyConRef),
-  Eq(LTy, LTy),
-  EqE(LTyvar, LTy),
+  //Cnj2(TyConRef, TyConRef),
+  //Eq(LTy, LTy),
   EqV(LTyvar, LTyvar),
-  IsACons(LVar, LTy, LTy, LTy),
-  IsAConcat(LTy, LTy, LTy),
-  IsAApp(Vec<(usize, LVar)>, LTyvar, LTy),
-  IsERet(Vec<(usize, LVar)>, LTyvar, LTy),
-  //IsEHashSel(LTyvar, LHash, LTy),
+  EqE(LTyvar, LTyexpRef),
+  //EqT(LTyvar, LTytrm),
+  Eq_(LTyexpRef, LTyexpRef),
+  //IsACons(LVar, LTy, LTy, LTy),
+  //IsAConcat(LTy, LTy, LTy),
+  //IsAApp(Vec<(usize, LVar)>, LTyvar, LTy),
+  //IsERet(Vec<(usize, LVar)>, LTyvar, LTy),
   IsEHashSel(LTyvar, LTyvar, LHash),
 }
 
@@ -906,21 +928,18 @@ fn conj_ty2(lhs: TyConRef, rhs: TyConRef) -> TyConRef {
 
 fn conj_tys(cons: Vec<TyConRef>) -> TyConRef {
   if cons.is_empty() {
-    return TyConRef::new(TyCon::Nil);
+    return TyConRef::new(TyCon::Top);
   }
   match &*cons[0] {
-    &TyCon::Cnj(ref cons_) => {
-      let mut cons_ = cons_.clone();
+    &TyCon::Cnj(ref cons0) => {
+      let mut cons0 = cons0.clone();
       for c in cons[1 .. ].iter() {
-        cons_.enqueue_mut(c.clone());
+        cons0.enqueue_mut(c.clone());
       }
-      TyConRef::new(TyCon::Cnj(cons_))
+      TyConRef::new(TyCon::Cnj(cons0))
     }
     _ => {
-      let mut cons_ = Queue::new();
-      for c in cons.iter() {
-        cons_.enqueue_mut(c.clone());
-      }
+      let cons_ = Queue::from_iter(cons.into_iter());
       TyConRef::new(TyCon::Cnj(cons_))
     }
   }
@@ -930,8 +949,8 @@ fn conj_tys(cons: Vec<TyConRef>) -> TyConRef {
 struct IncTyInfMachine {
   tyv_ctr:  u64,
   sub:      TyUnionFind,
-  // TODO: index deferred constraints.
   def_cons: Queue<TyConRef>,
+  defindex: HashMap<LTyvar, TyConRef>,
 }
 
 impl IncTyInfMachine {
@@ -941,210 +960,393 @@ impl IncTyInfMachine {
     LTyvar(self.tyv_ctr)
   }
 
-  fn _gen_exp(&mut self, exp: LExprCell) -> TyConRef {
+  fn _gen_exp(&mut self, exp: LExprCell, cons: &mut VecDeque<TyConRef>) {
     let ety = exp.unsafe_set_fresh_ety(self);
     match &exp.term() {
       &LTerm::End => {
-        TyConRef::new(TyCon::EqE(ety, LTy::Unit))
+        let con = TyConRef::new(TyCon::EqE(ety, LTyexp::Unit.into()));
+        //let con = TyConRef::new(TyCon::EqT(ety, LTytrm::Unit.into()));
+        cons.push_front(con);
       }
       &LTerm::Break(ref inner) => {
-        let inner_con = self._gen_exp(exp.lookup(inner));
+        let inner_con = self._gen_exp(exp.lookup(inner), cons);
         let brk_con = TyConRef::new(TyCon::EqV(ety, exp.lookup_ety(inner)));
-        conj_ty2(inner_con, brk_con)
+        //cons.push_front(inner_con);
+        cons.push_front(brk_con);
       }
       &LTerm::Apply(ref head, ref args) => {
-        let mut new_cons = Vec::with_capacity(args.len() + 2);
-        let head_con = self._gen_exp(exp.lookup(head));
-        new_cons.push(head_con);
+        //let mut new_cons = Vec::with_capacity(args.len() + 2);
+        let head_con = self._gen_exp(exp.lookup(head), cons);
+        //cons.push_front(head_con);
         let mut arg_tys = Vec::with_capacity(args.len());
         for a in args.iter() {
-          let a_con = self._gen_exp(exp.lookup(a));
-          arg_tys.push(exp.lookup_ety(a));
-          new_cons.push(a_con);
+          let a_con = self._gen_exp(exp.lookup(a), cons);
+          arg_tys.push(exp.lookup_ety(a).into());
+          //cons.push_front(a_con);
         }
-        let app_con = TyConRef::new(TyCon::EqE(exp.lookup_ety(head), LTy::Fun(arg_tys, ety)));
-        new_cons.push(app_con);
-        conj_tys(new_cons)
+        let app_con = TyConRef::new(TyCon::EqE(exp.lookup_ety(head), LTyexp::Fun(arg_tys, ety.into()).into()));
+        //let app_con = TyConRef::new(TyCon::EqT(exp.lookup_ety(head), LTytrm::Fun(arg_tys, ety.into()).into()));
+        cons.push_front(app_con);
+        //conj_tys(new_cons)
       }
       &LTerm::Lambda(ref params, ref body) => {
         let mut param_tys = Vec::with_capacity(params.len());
         for p in params.iter() {
           let p_vty = exp.lookup_vty(p, self);
-          param_tys.push(p_vty);
+          param_tys.push(p_vty.into());
         }
-        let body_con = self._gen_exp(exp.lookup(body));
-        let lam_con = TyConRef::new(TyCon::EqE(ety, LTy::Fun(param_tys, exp.lookup_ety(body))));
-        conj_ty2(body_con, lam_con)
+        let body_con = self._gen_exp(exp.lookup(body), cons);
+        let lam_con = TyConRef::new(TyCon::EqE(ety, LTyexp::Fun(param_tys, exp.lookup_ety(body).into()).into()));
+        //let lam_con = TyConRef::new(TyCon::EqT(ety, LTytrm::Fun(param_tys, exp.lookup_ety(body).into()).into()));
+        //conj_ty2(body_con, lam_con)
+        //cons.push_front(body_con);
+        cons.push_front(lam_con);
       }
       /*&LTerm::EImport(ref env, ref body) => {
       }*/
-      /*&LTerm::D(ref target) => {
+      /*&LTerm::PD(ref target) => {
       }*/
       &LTerm::Let(ref name, ref body, ref rest) => {
         let name_vty = exp.lookup_vty(name, self);
-        let body_con = self._gen_exp(exp.lookup(body));
-        let rest_con = self._gen_exp(exp.lookup(rest));
+        let body_con = self._gen_exp(exp.lookup(body), cons);
+        let rest_con = self._gen_exp(exp.lookup(rest), cons);
         let let_con1 = TyConRef::new(TyCon::EqV(name_vty, exp.lookup_ety(body)));
         let let_con2 = TyConRef::new(TyCon::EqV(ety, exp.lookup_ety(rest)));
-        conj_tys(vec![rest_con, body_con, let_con1, let_con2])
+        //conj_tys(vec![rest_con, body_con, let_con1, let_con2])
+        //cons.push_front(rest_con);
+        //cons.push_front(body_con);
+        cons.push_front(let_con2);
+        cons.push_front(let_con1);
       }
       &LTerm::Fix(ref fixname, ref fixbody) => {
         let fixname_vty = exp.lookup_vty(fixname, self);
-        let fixbody_con = self._gen_exp(exp.lookup(fixbody));
+        let fixbody_con = self._gen_exp(exp.lookup(fixbody), cons);
         let fix_con1 = TyConRef::new(TyCon::EqV(fixname_vty, exp.lookup_ety(fixbody)));
         let fix_con2 = TyConRef::new(TyCon::EqV(ety, exp.lookup_ety(fixbody)));
-        conj_tys(vec![fixbody_con, fix_con1, fix_con2])
+        //conj_tys(vec![fixbody_con, fix_con1, fix_con2])
+        //cons.push_front(fixbody_con);
+        cons.push_front(fix_con2);
+        cons.push_front(fix_con1);
       }
       &LTerm::BitLit(_) => {
-        TyConRef::new(TyCon::EqE(ety, LTy::Bit))
+        let con = TyConRef::new(TyCon::EqE(ety, LTyexp::Bit.into()));
+        //let con = TyConRef::new(TyCon::EqT(ety, LTytrm::Bit.into()));
+        cons.push_front(con);
       }
       &LTerm::IntLit(_) => {
-        TyConRef::new(TyCon::EqE(ety, LTy::Int))
+        let con = TyConRef::new(TyCon::EqE(ety, LTyexp::Int.into()));
+        //let con = TyConRef::new(TyCon::EqT(ety, LTytrm::Int.into()));
+        cons.push_front(con);
       }
       &LTerm::FloLit(_) => {
-        TyConRef::new(TyCon::EqE(ety, LTy::Flo))
+        let con = TyConRef::new(TyCon::EqE(ety, LTyexp::Flo.into()));
+        //let con = TyConRef::new(TyCon::EqT(ety, LTytrm::Flo.into()));
+        cons.push_front(con);
       }
       &LTerm::Lookup(ref name) => {
         let name_vty = exp.lookup_vty(name, self);
-        TyConRef::new(TyCon::EqV(ety, name_vty))
+        let con = TyConRef::new(TyCon::EqV(ety, name_vty));
+        cons.push_front(con);
       }
       &LTerm::PathLookupHash(ref env, ref hash) => {
-        let env_con = self._gen_exp(exp.lookup(env));
+        let env_con = self._gen_exp(exp.lookup(env), cons);
         let hashsel_con = TyConRef::new(TyCon::IsEHashSel(ety, exp.lookup_ety(env), hash.clone()));
-        conj_ty2(env_con, hashsel_con)
+        //conj_ty2(env_con, hashsel_con)
+        //cons.push_front(env_con);
+        cons.push_front(hashsel_con);
       }
       _ => unimplemented!(),
     }
   }
 
-  fn gen(&mut self, tree: &LTreeCell) -> TyConRef {
-    self._gen_exp(tree.root())
+  fn gen(&mut self, tree: &LTreeCell) -> VecDeque<TyConRef> {
+    let mut cons = VecDeque::new();
+    self._gen_exp(tree.root(), &mut cons);
+    cons
   }
 
-  fn gen_inc(&mut self, old_tree: &LTreeCell, new_tree: &LTreeCell) -> TyConRef {
-    // TODO
+  /*fn gen_inc(&mut self, old_tree: &LTreeCell, new_tree: &LTreeCell) -> TyConRef {
+    // TODO: things that could have changed:
+    // - entirely new tree
+    // - new root
+    // - appended exprs
+    // - existing exprs mutated to point to newly appended exprs
+    // - existing exprs with more extensive term mutations
     if !Rc::ptr_eq(&old_tree.data, &new_tree.data) {
       return self.gen(new_tree);
     }
     unimplemented!();
+  }*/
+
+  fn _reduce_exp(&mut self, query: LTyexpRef) -> LTyexpRef {
+    match &*query {
+      // TODO: cases.
+      &LTyexp::Var(ref v) => {
+        let w = self.sub.head(v.clone());
+        match self.sub.term.get(&w) {
+          None => w.clone().into(),
+          Some(e) => {
+            match &**e {
+              &LTyexp::Var(ref u) => if u == &w {
+                w.into()
+              } else {
+                self._reduce_exp(e.clone())
+              },
+              _ => self._reduce_exp(e.clone())
+            }
+          }
+        }
+      }
+      &LTyexp::Fun(ref dom, ref ret) => {
+        let mut dom_ = Vec::with_capacity(dom.len());
+        for d in dom.iter() {
+          dom_.push(self._reduce_exp(d.clone()));
+        }
+        let ret_ = self._reduce_exp(ret.clone());
+        LTyexp::Fun(dom_, ret_).into()
+      }
+      &LTyexp::Tup => query,
+      &LTyexp::Bit => query,
+      &LTyexp::Int => query,
+      &LTyexp::Flo => query,
+      &LTyexp::Unit => query,
+      _ => unimplemented!(),
+    }
   }
 
-  fn solve(&mut self, con: TyConRef) -> Result<usize, TyConRef> {
+  fn _unify(&mut self, lv: LTyvar, rv: LTyvar) -> TyUnifyRes {
+    if lv == rv {
+      return TyUnifyRes::OK;
+    }
+    let lw = self.sub.head(lv);
+    let rw = self.sub.head(rv);
+    if lw == rw {
+      return TyUnifyRes::OK;
+    }
+    self.sub.db.insert(lw.clone(), rw.clone());
+    let lt = self.sub.term.get(&lw);
+    let rt = self.sub.term.get(&rw);
+    match (lt.map(|t| &**t), rt.map(|t| &**t)) {
+      (None, None) => {
+        return TyUnifyRes::OK;
+      }
+      (None, Some(_)) => {
+        return TyUnifyRes::OK;
+      }
+      (Some(t), None) => {
+        let t = t.clone().into();
+        self.sub.term.insert(rw, t);
+        self.sub.term.remove(&lw);
+        return TyUnifyRes::OK;
+      }
+      (Some(t), Some(_)) => {
+        let t = t.clone().into();
+        self.sub.term.insert(rw, t);
+        self.sub.term.remove(&lw);
+        return TyUnifyRes::OK;
+      }
+    }
+  }
+
+  //fn solve(&mut self, root: LExprCell, con: TyConRef) -> Result<usize, TyConRef> {
+  fn solve(&mut self, root: LExprCell, cons: &mut VecDeque<TyConRef>) -> Result<usize, TyConRef> {
+    let con = match cons.pop_front() {
+      None => {
+        /*println!("DEBUG: solve: done");
+        println!("DEBUG: solve:   # vtys:");
+        //println!("DEBUG: solve:   {:?}", self.root.etys);
+        println!("DEBUG: solve:   {:?}", root.tree.data.borrow().vtys);
+        println!("DEBUG: solve:   # db:");
+        for (lv, _) in self.sub.db.clone().iter() {
+          let lw = self.sub.head(lv.clone());
+          let q = match self.sub.term.get(&lw) {
+            None => None,
+            Some(e) => Some(self._reduce_exp(e.clone())),
+          };
+          println!("DEBUG: solve:   {:?} -> {:?} :: {:?}", lv, lw, q);
+        }
+        println!("DEBUG: solve:   # term:");
+        for (v, t) in self.sub.term.iter() {
+          println!("DEBUG: solve:   {:?} -> {:?}", v, t);
+        }*/
+        return Ok(0);
+      }
+      Some(c) => c,
+    };
     match &*con {
-      &TyCon::Nil => Ok(1),
-      &TyCon::Cnj(ref cons) => {
+      //&TyCon::Top => Ok(0),
+      &TyCon::Top => {
+        self.solve(root, cons)
+      }
+      /*&TyCon::Cnj(ref cons) => {
         match cons.peek() {
           None => Ok(0),
           Some(c) => {
             let con = TyConRef::new(TyCon::Cnj(cons.dequeue().unwrap()));
-            Ok(self.solve(c.clone())? + self.solve(con)?)
+            Ok(self.solve(root.clone(), c.clone())? + self.solve(root.clone(), con)?)
           }
         }
-      }
-      &TyCon::Cnj2(ref lhs, ref rhs) => {
-        Ok(self.solve(lhs.clone())? + self.solve(rhs.clone())?)
-      }
-      &TyCon::Eq(ref lty, ref rty) => {
-        match (lty, rty) {
-          // TODO: more cases.
-          (&LTy::Fun(ref lhs_dom, ref lhs_cod), &LTy::Fun(ref rhs_dom, ref rhs_cod)) => {
-            // TODO
-            //unimplemented!();
-            if lhs_dom.len() != rhs_dom.len() {
-              return Err(con);
-            }
-            let mut con = con.clone();
-            for (lty, rty) in lhs_dom.iter().zip(rhs_dom.iter()) {
-              con = TyConRef::new(TyCon::Cnj2(
-                  //TyConRef::new(TyCon::Eq((**lty).clone(), (**rty).clone())),
-                  TyConRef::new(TyCon::EqV(lty.clone(), rty.clone())),
-                  con,
-              ));
-            }
-            con = TyConRef::new(TyCon::Cnj2(
-                //TyConRef::new(TyCon::Eq((**lhs_cod).clone(), (**rhs_cod).clone())),
-                TyConRef::new(TyCon::EqV(lhs_cod.clone(), rhs_cod.clone())),
-                con,
-            ));
-            self.solve(con)
+      }*/
+      &TyCon::EqV(ref lv, ref rv) => {
+        let lw = self.sub.head(lv.clone());
+        let rw = self.sub.head(rv.clone());
+        match (self.sub.term.get(&lw), self.sub.term.get(&rw)) {
+          (Some(lquery), Some(rquery)) => {
+            let lquery = lquery.clone();
+            let rquery = rquery.clone();
+            let lquery = self._reduce_exp(lquery);
+            let rquery = self._reduce_exp(rquery);
+            let con = TyConRef::new(TyCon::Eq_(lquery, rquery));
+            cons.push_back(con);
+            self.solve(root, cons)
           }
           _ => {
-            match self.sub.unify(lty.clone(), rty.clone()) {
-              Err(_) => Err(con),
-              Ok(_) => Ok(1),
-            }
-          }
-        }
-      }
-      &TyCon::IsAApp(ref args, ref env_tv, ref ty) => {
-        match self.sub.mgu(env_tv.clone()) {
-          None => {
-            self.def_cons.enqueue_mut(con);
-            Ok(0)
-          }
-          Some(LTy::Env(..)) => {
-            // FIXME: do the 'AApp' type transform.
-            let new_env_ty = unimplemented!();
-            let new_con = TyConRef::new(TyCon::Eq(new_env_ty, ty.clone()));
-            self.solve(new_con)
-          }
-          Some(_) => {
-            Err(con)
-          }
-        }
-      }
-      &TyCon::IsERet(ref params, ref env_tv, ref ty) => {
-        match self.sub.mgu(env_tv.clone()) {
-          None => {
-            self.def_cons.enqueue_mut(con);
-            Ok(0)
-          }
-          Some(LTy::Env(..)) => {
-            // FIXME: do the 'ERet' type transform.
-            let new_env_ty = unimplemented!();
-            let new_con = TyConRef::new(TyCon::Eq(new_env_ty, ty.clone()));
-            self.solve(new_con)
-          }
-          Some(_) => {
-            Err(con)
-          }
-        }
-      }
-      &TyCon::IsEHashSel(ref ety, ref env_tv, ref hash) => {
-        match self.sub.mgu(env_tv.clone()) {
-          None => {
-            self.def_cons.enqueue_mut(con);
-            Ok(0)
-          }
-          Some(LTy::Diff(tg_ty)) => {
-            // TODO
-            let tg_ty = match &*tg_ty {
-              &LTy::Var(ref tg_tv) => self.sub.mgu(tg_tv.clone()),
-              t => Some(t.clone()),
-            };
-            match tg_ty {
-              None |
-              Some(LTy::Fun(..)) |
-              Some(LTy::Flo) => {
-                self.def_cons.enqueue_mut(con);
-                Ok(0)
-              }
-              Some(_) => {
+            match self._unify(lv.clone(), rv.clone()) {
+              TyUnifyRes::No => {
+                println!("WARNING: EqV: unify failure");
                 Err(con)
               }
+              _ => self.solve(root, cons),
             }
           }
-          Some(LTy::Env(..)) => {
-            // FIXME: search `env_ty` for a var that hashes to the given key.
-            let env_ty: LTy = unimplemented!();
-            let var = unimplemented!();
-            let new_sel_ty = LTy::ESel(LTyRef::new(env_ty.clone()), var);
-            let new_con = TyConRef::new(TyCon::EqE(ety.clone(), new_sel_ty));
-            self.solve(new_con)
+        }
+      }
+      &TyCon::EqE(ref v, ref query) => {
+        let w = self.sub.head(v.clone());
+        match self.sub.term.get(&w) {
+          None => {
+            //let w = self.sub.head(v.clone());
+            //let query = self._reduce_exp(query.clone());
+            self.sub.term.insert(w.clone(), query.clone());
+            if v != &w {
+              let lquery = w.clone().into();
+              let rquery = self._reduce_exp(query.clone());
+              let con = TyConRef::new(TyCon::Eq_(lquery, rquery));
+              cons.push_back(con);
+            }
+            self.solve(root, cons)
           }
-          Some(_) => {
+          Some(vquery) => {
+            let lquery = self._reduce_exp(vquery.clone());
+            let rquery = self._reduce_exp(query.clone());
+            let con = TyConRef::new(TyCon::Eq_(lquery, rquery));
+            cons.push_back(con);
+            self.solve(root, cons)
+          }
+        }
+      }
+      &TyCon::Eq_(ref lquery, ref rquery) => {
+        match (&**lquery, &**rquery) {
+          // TODO: cases.
+          (&LTyexp::Var(ref lv), &LTyexp::Var(ref rv)) => {
+            let con = TyConRef::new(TyCon::EqV(lv.clone(), rv.clone()));
+            cons.push_front(con);
+            self.solve(root, cons)
+          }
+          (&LTyexp::Var(ref lv), _) => {
+            let lw = self.sub.head(lv.clone());
+            match self.sub.term.get(&lw) {
+              None => {
+                //println!("WARNING: Eq_: missing term");
+                //Err(con)
+                self.sub.term.insert(lw.clone(), rquery.clone());
+                if lv != &lw {
+                  let lquery = lw.clone().into();
+                  let rquery = self._reduce_exp(rquery.clone());
+                  let con = TyConRef::new(TyCon::Eq_(lquery, rquery));
+                  cons.push_back(con);
+                }
+                self.solve(root, cons)
+              }
+              Some(lterm) => {
+                let lquery = self._reduce_exp(lterm.clone());
+                let rquery = self._reduce_exp(rquery.clone());
+                let con = TyConRef::new(TyCon::Eq_(lquery, rquery));
+                cons.push_back(con);
+                self.solve(root, cons)
+              }
+            }
+          }
+          (_, &LTyexp::Var(ref rv)) => {
+            let rw = self.sub.head(rv.clone());
+            match self.sub.term.get(&rw) {
+              None => {
+                //println!("WARNING: Eq_: missing term");
+                //Err(con)
+                self.sub.term.insert(rw.clone(), lquery.clone());
+                if rv != &rw {
+                  let rquery = rw.clone().into();
+                  let lquery = self._reduce_exp(lquery.clone());
+                  let con = TyConRef::new(TyCon::Eq_(lquery, rquery));
+                  cons.push_back(con);
+                }
+                self.solve(root, cons)
+              }
+              Some(rterm) => {
+                let rquery = self._reduce_exp(rterm.clone());
+                let lquery = self._reduce_exp(lquery.clone());
+                let con = TyConRef::new(TyCon::Eq_(lquery, rquery));
+                cons.push_back(con);
+                self.solve(root, cons)
+              }
+            }
+          }
+          (&LTyexp::Fun(ref ldom, ref lret), &LTyexp::Fun(ref rdom, ref rret)) => {
+            /*println!("DEBUG: Eq_: fun vs fun");
+            println!("DEBUG: Eq_:   {:?}", lquery);
+            println!("DEBUG: Eq_:   {:?}", rquery);*/
+            if ldom.len() != rdom.len() {
+              println!("WARNING: Eq_: fun arity mismatch");
+              return Err(con);
+            }
+            let mut new_cons = Vec::with_capacity(ldom.len() + 1);
+            for (ld, rd) in ldom.iter().zip(rdom.iter()) {
+              let ld_ = self._reduce_exp(ld.clone());
+              let rd_ = self._reduce_exp(rd.clone());
+              new_cons.push(TyConRef::new(TyCon::Eq_(ld_, rd_)));
+            }
+            let lret_ = self._reduce_exp(lret.clone());
+            let rret_ = self._reduce_exp(rret.clone());
+            new_cons.push(TyConRef::new(TyCon::Eq_(lret_, rret_)));
+            //let con = TyConRef::new(TyCon::Cnj(Queue::from_iter(new_cons.into_iter())));
+            for c in new_cons.into_iter() {
+              cons.push_back(c);
+            }
+            self.solve(root, cons)
+          }
+          (&LTyexp::Tup, &LTyexp::Tup) |
+          (&LTyexp::Bit, &LTyexp::Bit) |
+          (&LTyexp::Int, &LTyexp::Int) |
+          (&LTyexp::Flo, &LTyexp::Flo) |
+          (&LTyexp::Unit, &LTyexp::Unit) => {
+            //Ok(1)
+            self.solve(root, cons)
+          }
+          _ => {
+            println!("WARNING: Eq_: type mismatch or unimpl");
             Err(con)
           }
+        }
+      }
+      &TyCon::IsEHashSel(ref ety, ref env_ty, ref hash) => {
+        // TODO
+        match self.sub.mgu(env_ty.clone()) {
+          None => { /* FIXME: defer this constraint */ Ok(0) }
+          Some(LTy::Env(keys, hashes)) => {
+            match hashes.get(hash) {
+              None => Err(con),
+              Some(key_var) => {
+                if !keys.contains_key(&LEnvKey::Var(key_var.clone())) {
+                  Err(con)
+                } else {
+                  let con = TyConRef::new(TyCon::EqV(ety.clone(), root.lookup_vty(key_var, self)));
+                  cons.push_back(con);
+                  self.solve(root, cons)
+                }
+              }
+            }
+          }
+          Some(_) => Err(con),
         }
       }
       _ => unimplemented!(),

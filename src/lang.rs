@@ -24,7 +24,8 @@ lexer! {
   r#"lam"#          => HLToken::Lambda,
   r#"lambda"#       => HLToken::Lambda,
   //r#"λ"#            => HLToken::Lambda,
-  r#"D'"#           => HLToken::DAlt,
+  r#"d"#            => HLToken::DMinor,
+  r#"D'"#           => HLToken::DPrime,
   r#"D"#            => HLToken::D,
   r#"adj"#          => HLToken::Adj,
   r#"tng"#          => HLToken::Tng,
@@ -123,7 +124,8 @@ pub enum HLToken {
   Trace,
   Lambda,
   D,
-  DAlt,
+  DMinor,
+  DPrime,
   Adj,
   Tng,
   Dyn,
@@ -288,7 +290,9 @@ pub enum HExpr {
   Apply(Rc<HExpr>, Vec<Rc<HExpr>>),
   STuple(Vec<Rc<HExpr>>),
   Tuple(Vec<Rc<HExpr>>),
-  D(Rc<HExpr>),
+  PD(Rc<HExpr>),
+  AdjD(Rc<HExpr>),
+  TngD(Rc<HExpr>),
   DirD(Rc<HExpr>, Rc<HExpr>),
   Adj(Rc<HExpr>),
   Tng(Rc<HExpr>),
@@ -400,7 +404,8 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       &HLToken::Break |
       &HLToken::Trace |
       &HLToken::D |
-      &HLToken::DAlt |
+      &HLToken::DMinor |
+      &HLToken::DPrime |
       &HLToken::Adj |
       &HLToken::Tng |
       &HLToken::Dyn |
@@ -519,7 +524,35 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           _ => panic!(),
         }
         self.advance();
-        Ok(HExpr::D(Rc::new(e)))
+        Ok(HExpr::AdjD(Rc::new(e)))
+      }
+      HLToken::DMinor => {
+        match self.current_token() {
+          HLToken::LBrack => {}
+          _ => panic!(),
+        }
+        self.advance();
+        let e = self.expression(0)?;
+        match self.current_token() {
+          HLToken::RBrack => {}
+          _ => panic!(),
+        }
+        self.advance();
+        Ok(HExpr::PD(Rc::new(e)))
+      }
+      HLToken::DPrime => {
+        match self.current_token() {
+          HLToken::LBrack => {}
+          _ => panic!(),
+        }
+        self.advance();
+        let e = self.expression(0)?;
+        match self.current_token() {
+          HLToken::RBrack => {}
+          _ => panic!(),
+        }
+        self.advance();
+        Ok(HExpr::TngD(Rc::new(e)))
       }
       HLToken::Adj => {
         match self.current_token() {

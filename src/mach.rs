@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use crate::ir2::{LEnvKey, LExprRef, LVar};
+use crate::ir2::{LCodeRef, LEnvKey, LExprRef, LVar};
 use crate::num_util::{Checked};
 
 use rpds::{HashTrieMap};
@@ -196,5 +196,9 @@ impl Machine {
       }
       _ => unimplemented!(),
     };
+  }
+
+  pub fn eval(&mut self, code: LCodeRef) {
+    // TODO
   }
 }

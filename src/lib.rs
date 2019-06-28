@@ -23,6 +23,7 @@ extern crate vertreap;
 
 pub mod builtins;
 pub mod cfg;
+pub mod iio;
 pub mod ir;
 pub mod ir2;
 pub mod lang;

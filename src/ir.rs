@@ -1506,7 +1506,7 @@ impl LBuilder {
         }).collect();
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::Tuple(elems)), /*info: LExprInfo::default()*/}
       }
-      &HExpr::D(ref target) => {
+      &HExpr::PD(ref target) => {
         let target = self._htree_to_ltree_lower_pass(target.clone());
         LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::D(target))}
       }
