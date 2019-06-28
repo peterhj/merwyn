@@ -26,7 +26,8 @@ lexer! {
   //r#"λ"#            => HLToken::Lambda,
   r#"d"#            => HLToken::DMinor,
   r#"D'"#           => HLToken::DPrime,
-  r#"D"#            => HLToken::D,
+  r#"D"#            => HLToken::DMajor,
+  r#"J"#            => HLToken::JMajor,
   r#"adj"#          => HLToken::Adj,
   r#"tng"#          => HLToken::Tng,
   r#"dyn"#          => HLToken::Dyn,
@@ -123,9 +124,10 @@ pub enum HLToken {
   Break,
   Trace,
   Lambda,
-  D,
+  DMajor,
   DMinor,
   DPrime,
+  JMajor,
   Adj,
   Tng,
   Dyn,
@@ -290,14 +292,15 @@ pub enum HExpr {
   Apply(Rc<HExpr>, Vec<Rc<HExpr>>),
   STuple(Vec<Rc<HExpr>>),
   Tuple(Vec<Rc<HExpr>>),
-  PD(Rc<HExpr>),
-  AdjD(Rc<HExpr>),
-  TngD(Rc<HExpr>),
-  DirD(Rc<HExpr>, Rc<HExpr>),
+  PartialD(Rc<HExpr>),
+  AdjointD(Rc<HExpr>),
+  TangentD(Rc<HExpr>),
+  //DirectionalD(Rc<HExpr>, Rc<HExpr>),
+  Jacobian(Rc<HExpr>),
   Adj(Rc<HExpr>),
   Tng(Rc<HExpr>),
   AdjDyn(Rc<HExpr>),
-  Let(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>, Option<HLetAttrs>),
+  Let(Option<HLetAttrs>, Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetFun(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetMatch(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetRand(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
@@ -403,9 +406,10 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       &HLToken::Require |
       &HLToken::Break |
       &HLToken::Trace |
-      &HLToken::D |
+      &HLToken::DMajor |
       &HLToken::DMinor |
       &HLToken::DPrime |
+      &HLToken::JMajor |
       &HLToken::Adj |
       &HLToken::Tng |
       &HLToken::Dyn |
@@ -502,7 +506,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           _ => panic!(),
         }
       }
-      HLToken::D => {
+      HLToken::DMajor => {
         match self.current_token() {
           HLToken::LBrack => {}
           _ => panic!(),
@@ -510,7 +514,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
         self.advance();
         let e = self.expression(0)?;
         match self.current_token() {
-          HLToken::Semi => {
+          /*HLToken::Semi => {
             self.advance();
             let dir_e = self.expression(0)?;
             match self.current_token() {
@@ -518,13 +522,13 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
               _ => panic!(),
             }
             self.advance();
-            return Ok(HExpr::DirD(Rc::new(e), Rc::new(dir_e)));
-          }
+            return Ok(HExpr::DirectionalD(Rc::new(e), Rc::new(dir_e)));
+          }*/
           HLToken::RBrack => {}
           _ => panic!(),
         }
         self.advance();
-        Ok(HExpr::AdjD(Rc::new(e)))
+        Ok(HExpr::AdjointD(Rc::new(e)))
       }
       HLToken::DMinor => {
         match self.current_token() {
@@ -538,7 +542,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           _ => panic!(),
         }
         self.advance();
-        Ok(HExpr::PD(Rc::new(e)))
+        Ok(HExpr::PartialD(Rc::new(e)))
       }
       HLToken::DPrime => {
         match self.current_token() {
@@ -552,7 +556,21 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           _ => panic!(),
         }
         self.advance();
-        Ok(HExpr::TngD(Rc::new(e)))
+        Ok(HExpr::TangentD(Rc::new(e)))
+      }
+      HLToken::JMajor => {
+        match self.current_token() {
+          HLToken::LBrack => {}
+          _ => panic!(),
+        }
+        self.advance();
+        let e = self.expression(0)?;
+        match self.current_token() {
+          HLToken::RBrack => {}
+          _ => panic!(),
+        }
+        self.advance();
+        Ok(HExpr::Jacobian(Rc::new(e)))
       }
       HLToken::Adj => {
         match self.current_token() {
@@ -577,10 +595,10 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           _ => panic!(),
         }
         self.expression(0).map(|e| match e {
-          HExpr::Let(lhs, rhs, rest, maybe_attrs) => {
-            let mut attrs = maybe_attrs.unwrap_or_default();
+          HExpr::Let(attrs, lhs, rhs, rest) => {
+            let mut attrs = attrs.unwrap_or_default();
             attrs.pub_ = true;
-            HExpr::Let(lhs, rhs, rest, Some(attrs))
+            HExpr::Let(Some(attrs), lhs, rhs, rest)
           }
           _ => panic!(),
         })
@@ -714,7 +732,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
                   _ => panic!(),
                 }
                 let e2 = self.expression(0)?;
-                Ok(HExpr::Let(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2), maybe_attrs))
+                Ok(HExpr::Let(maybe_attrs, Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
               }
               _ => panic!(),
             }
@@ -729,7 +747,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
               _ => panic!(),
             }
             let e2 = self.expression(0)?;
-            Ok(HExpr::Let(Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2), maybe_attrs))
+            Ok(HExpr::Let(maybe_attrs, Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
           }
           HLToken::Tilde => {
             self.advance();

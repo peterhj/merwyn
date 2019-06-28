@@ -1506,7 +1506,7 @@ impl LBuilder {
         }).collect();
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::Tuple(elems)), /*info: LExprInfo::default()*/}
       }
-      &HExpr::PD(ref target) => {
+      &HExpr::PartialD(ref target) => {
         let target = self._htree_to_ltree_lower_pass(target.clone());
         LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::D(target))}
       }
@@ -1527,7 +1527,7 @@ impl LBuilder {
         let sink = self._htree_to_ltree_lower_pass(sink.clone());
         LExpr{label: self.labels.fresh(), term: LTermRef::new(LTerm::Tng(sink))}
       }
-      &HExpr::Let(ref lhs, ref body, ref rest, ref maybe_attrs) => {
+      &HExpr::Let(ref maybe_attrs, ref lhs, ref body, ref rest) => {
         let attrs = maybe_attrs.clone().unwrap_or_default();
         match &**lhs {
           &HExpr::Ident(ref lhs) => {
