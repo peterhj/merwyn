@@ -395,8 +395,17 @@ impl LBuilder {
           &HExpr::Ident(ref name) => name,
           _ => unimplemented!(),
         };
+        let attrs = attrs.clone().unwrap_or_default();
         let n_hash = self.lookup_name(name);
         let n_var = self.fresh_hash_var(n_hash.clone());
+        let prev_n_var = if attrs.alt {
+          match ctx.lookup_hash(n_hash.clone()) {
+            None => panic!(),
+            Some(prev_n_var) => Some(prev_n_var),
+          }
+        } else {
+          None
+        };
         rest_ctx.bind_mut(n_hash, n_var.clone());
         let body_pos = pos + 1;
         let (body_label, next_pos) = self._lower_rec(body.clone(), body_ctx, stack, body_pos);
@@ -405,9 +414,15 @@ impl LBuilder {
         let (rest_label, next_pos) = self._lower_rec(rest.clone(), rest_ctx, stack, rest_pos);
         let rest_ = LLoc::new2(rest_label, rest_pos, pos);
         let label = self.fresh_label();
-        let e = LExpr{
-          label:    label.clone(),
-          term:     LTerm::Let(n_var, body_, rest_)
+        let e = match prev_n_var {
+          Some(prev_n_var) => LExpr{
+            label:  label.clone(),
+            term:   LTerm::Alt(prev_n_var, n_var, body_, rest_)
+          },
+          None => LExpr{
+            label:  label.clone(),
+            term:   LTerm::Let(n_var, body_, rest_)
+          },
         };
         //stack.push_front((e, ctx, pos));
         stack.insert(pos, (e, ctx, pos));
@@ -905,6 +920,7 @@ enum TyCon {
   Top,
   Cnj(Queue<TyConRef>),
   Eq_(LTyexpRef, LTyexpRef),
+  IsPtlD(LTyexpRef, LTyexpRef),
   //IsACons(LVar, LTy, LTy, LTy),
   //IsAConcat(LTy, LTy, LTy),
   //IsAApp(Vec<(usize, LVar)>, LTyvar, LTy),
@@ -1045,8 +1061,9 @@ impl IncTyInfMachine {
       /*&LTerm::EImport(ref env, ref body) => {
       }*/
       &LTerm::PtlD(ref target) => {
-        // TODO
-        unimplemented!();
+        self._gen_exp(exp.lookup(target), cons);
+        let con = TyConRef::new(TyCon::IsPtlD(ety.into(), exp.lookup_ety(target).into()));
+        cons.push_front(con);
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
         let name_vty = exp.lookup_vty(name, self);
@@ -1305,10 +1322,46 @@ impl IncTyInfMachine {
           }
         }
       }
+      &TyCon::IsPtlD(ref e, ref target) => {
+        // TODO
+        let target = self._reduce_exp(target.clone());
+        match &*target {
+          &LTyexp::Var(_) => {
+            let con = TyConRef::new(TyCon::IsPtlD(e.clone(), target.clone()));
+            cons.push_back(con);
+            self.solve(root, cons)
+          }
+          &LTyexp::Fun(_, ref ret) => {
+            match &**ret {
+              &LTyexp::Var(_) => {
+                let con = TyConRef::new(TyCon::IsPtlD(e.clone(), target.clone()));
+                cons.push_back(con);
+                self.solve(root, cons)
+              }
+              &LTyexp::Flo => {
+                println!("DEBUG: IsPtlD: differentiating a scalar Fun (... -> Flo)");
+                self.solve(root, cons)
+              }
+              _ => {
+                println!("WARNING: IsPtlD: differentiating a nonscalar Fun");
+                Err(con)
+              }
+            }
+          }
+          &LTyexp::Flo => {
+            println!("DEBUG: IsPtlD: differentiating a Flo");
+            self.solve(root, cons)
+          }
+          _ => {
+            println!("WARNING: IsPtlD: differentiating a nonscalar type");
+            Err(con)
+          }
+        }
+      }
       &TyCon::IsEHashSel(ref ety, ref env_ty, ref hash) => {
         // TODO
         match self.sub.mgu(env_ty.clone()) {
-          None => { /* FIXME: defer this constraint */ Ok(0) }
+          None => { /* FIXME: defer this constraint */ self.solve(root, cons) }
           Some(LTy::Env(keys, hashes)) => {
             match hashes.get(hash) {
               None => Err(con),
