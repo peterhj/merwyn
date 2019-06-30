@@ -20,39 +20,39 @@ impl DefaultInteractiveIO {
   }
 
   pub fn eval_prompt(&mut self, linebuf: &mut String) {
-    print!("merwyn> ");
+    print!("{}> ", self.prefix);
     stdout().flush().unwrap();
     stdin().read_line(linebuf).unwrap();
   }
 
   pub fn stdin_line_prompt(&mut self, linebuf: &mut String) {
-    print!("merwyn| ");
+    print!("{}| ", self.prefix);
     stdout().flush().unwrap();
     stdin().read_line(linebuf).unwrap();
   }
 
   pub fn log_print(&mut self, msg: &str) {
-    println!("merwyn. {}", msg);
+    println!("{}. {}", self.prefix, msg);
     stdout().flush().unwrap();
   }
 
   pub fn debug_print(&mut self, msg: &str) {
-    println!("merwyn: {}", msg);
+    println!("{}: {}", self.prefix, msg);
     stdout().flush().unwrap();
   }
 
   pub fn error_print(&mut self, msg: &str) {
-    println!("merwyn! {}", msg);
+    println!("{}! {}", self.prefix, msg);
     stdout().flush().unwrap();
   }
 
   pub fn trace_print(&mut self, msg: &str) {
-    println!("merwyn# {}", msg);
+    println!("{}# {}", self.prefix, msg);
     stdout().flush().unwrap();
   }
 
   pub fn stdout_line_print(&mut self, msg: &str) {
-    println!("merwyn- {}", msg);
+    println!("{}- {}", self.prefix, msg);
     stdout().flush().unwrap();
   }
 }
