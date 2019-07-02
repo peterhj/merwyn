@@ -1,6 +1,6 @@
 extern crate merwyn;
 
-use merwyn::ir2::{LBuilder, LCtxRef};
+use merwyn::ir2::{LBuilder, LCtxRef, LTyctxRef};
 use merwyn::lang::{HLexer, HParser};
 use merwyn::mach::{Machine};
 
@@ -14,7 +14,7 @@ fn test_ty2_example_0() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::default();
-  let module = builder.compile(htree, LCtxRef::default());
+  let module = builder.compile(htree, LCtxRef::default(), LTyctxRef::default());
   //println!("DEBUG: ltree: {:?}", ltree.root);
   //println!("DEBUG: ltree pretty printed:");
   //builder.pretty_print(ltree.clone());
@@ -36,7 +36,7 @@ fn test_ty2_example_1() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::default();
-  let module = builder.compile(htree, LCtxRef::default());
+  let module = builder.compile(htree, LCtxRef::default(), LTyctxRef::default());
 }
 
 #[test]
@@ -49,5 +49,5 @@ fn test_ty2_example_2_fails() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::default();
-  let module = builder.compile(htree, LCtxRef::default());
+  let module = builder.compile(htree, LCtxRef::default(), LTyctxRef::default());
 }
