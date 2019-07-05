@@ -36,8 +36,10 @@ fn main() {
     unreachable!();
   };
   let mut builder = LBuilder::default();
-  let mut ctx = LCtxRef::default();
+  let mut ctx = LCtxRef::empty_top_level();
   let mut tctx = LTyctxRef::default();
+  //let mut ctx;
+  //let mut tctx;
   let mut machine = Machine::default();
   let mut int_io = DefaultInteractiveIO::default();
   /*let top_module = build_top_level(&mut builder, ctx.clone());
@@ -70,7 +72,7 @@ fn main() {
     let lexer = HLexer::new(text);
     let parser = HParser::new(lexer);
     let htree = parser.parse();
-    let module = match builder.compile(htree, ctx.clone(), tctx.clone()) {
+    let module = match builder._compile(htree, ctx.clone(), tctx.clone()) {
       Err(_) => {
         int_io.error_print("# compile failure");
         return;
@@ -104,7 +106,7 @@ fn main() {
     let lexer = HLexer::new(&eval_buf);
     let parser = HParser::new(lexer);
     let htree = parser.parse();
-    let module = match builder.compile(htree, ctx.clone(), tctx.clone()) {
+    let module = match builder._compile(htree, ctx.clone(), tctx.clone()) {
       Err(_) => {
         int_io.error_print("# compile failure");
         continue;

@@ -119,6 +119,7 @@ pub enum LTerm<E=LLoc> {
   Apply(E, Vec<E>),
   Lambda(Vec<LVar>, E),
   Import(E, E),
+  ImportR(Vec<LVar>, E, E),
   Export,
   Env(Vec<(LVar, E)>),
   PtlD(E),
@@ -135,11 +136,12 @@ pub enum LTerm<E=LLoc> {
   Concat(E, E),
   STuple(Vec<E>),
   Tuple(Vec<E>),
+  UnitLit,
   BitLit(bool),
   IntLit(i64),
   FloLit(f64),
   Lookup(LVar),
-  PathLookupHash(E, LHash),
+  ProjectHash(E, LHash),
   Unbind(LVar, E),
   MExt(LMLoc),
 }
@@ -233,7 +235,14 @@ impl LBuilder {
     }
   }
 
-  pub fn lookup_adj(&mut self, var: &LVar) -> LVar {
+  pub fn _lookup_adj_var(&mut self, var: &LVar) -> Option<LVar> {
+    match self.adj_env.vars.get(var) {
+      None => None,
+      Some(adj) => Some(adj.clone()),
+    }
+  }
+
+  pub fn lookup_adj_var(&mut self, var: &LVar) -> LVar {
     match self.adj_env.vars.get(var) {
       None => {
         let adj = self.fresh_anon_var();
@@ -244,30 +253,39 @@ impl LBuilder {
     }
   }
 
-  pub fn compile(&mut self, htree: Rc<HExpr>, top_ctx: LCtxRef, top_tctx: LTyctxRef) -> Result<LModule, ()> {
+  pub fn lookup_adj_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> LLabel {
+    // TODO
+    unimplemented!();
+  }
+
+  pub fn compile(&mut self, htree: Rc<HExpr>) -> Result<LModule, ()> {
+    // TODO
+    unimplemented!();
+  }
+
+  pub fn _compile(&mut self, htree: Rc<HExpr>, top_ctx: LCtxRef, top_tctx: LTyctxRef) -> Result<LModule, ()> {
     // TODO
     let tree = self._lower(htree, top_ctx.clone());
     let tree = self._normalize(tree);
     let tree = self._recontext(tree, top_ctx.clone());
     //let tree = self._gc(tree);
-    let mut tree = tree;
     // FIXME: derive tenv from base tctx.
     let mut tenv = TyEnv::default();
     //let mut tenv = TyEnv::from_tctx(&top_tctx);
-    let mut tcons = TyCons::default();
-    self.tyinf.gen(&tree, &mut tenv, &mut tcons);
-    let ty_res = self.tyinf.solve(tree.root(), &mut tenv, &mut tcons);
+    let mut work = TyWork::default();
+    self.tyinf.gen(&tree, &mut tenv, &mut work);
+    let ty_res = self.tyinf.solve(tree.root(), &mut tenv, &mut work);
     println!("DEBUG: compile: tyinf result: {:?}", ty_res);
-    println!("DEBUG: compile:   defer: {:?}", tcons.defer_cs);
-    println!("DEBUG: compile:   unsat: {:?}", tcons.unsat_cs);
+    println!("DEBUG: compile:   defer: {:?}", work.defer_cs);
+    println!("DEBUG: compile:   unsat: {:?}", work.unsat);
     /*loop {
-      if tcons.unsat() {
+      if work.unsat() {
         return Err(());
-      } else if tcons.defer() {
+      } else if work.defer() {
         let old_tree = tree.clone();
         let new_tree = self._resolve_tyinf(old_tree.clone(), &tenv);
-        self.tyinf.gen_inc(&old_tree, &new_tree, &mut tenv, &mut tcons);
-        self.tyinf.solve(new_tree.root(), &mut tenv, &mut tcons);
+        self.tyinf.gen_inc(&old_tree, &new_tree, &mut tenv, &mut work);
+        self.tyinf.solve(new_tree.root(), &mut tenv, &mut work);
         tree = new_tree;
       } else {
         break;
@@ -646,7 +664,7 @@ impl LBuilder {
         let e = LExpr{
           version:  0,
           label:    label.clone(),
-          term:     LTerm::PathLookupHash(lhs_, name_hash)
+          term:     LTerm::ProjectHash(lhs_, name_hash)
         };
         stack.insert(pos, (e, ctx, pos));
         (label, next_pos)
@@ -795,10 +813,10 @@ impl LBuilder {
       &LTerm::IntLit(_) => kont(self, exp),
       &LTerm::FloLit(_) => kont(self, exp),
       &LTerm::Lookup(_) => kont(self, exp),
-      &LTerm::PathLookupHash(ref env, ref name) => {
+      &LTerm::ProjectHash(ref env, ref name) => {
         let env = exp.lookup(env);
         self._normalize_name(env, &mut |this, env| {
-          let new_exp = exp.append(this, &mut |_| LTerm::PathLookupHash(
+          let new_exp = exp.append(this, &mut |_| LTerm::ProjectHash(
               env.loc(),
               name.clone(),
           ));
@@ -924,7 +942,7 @@ impl LBuilder {
       &LTerm::IntLit(_) => {}
       &LTerm::FloLit(_) => {}
       &LTerm::Lookup(_) => {}
-      &LTerm::PathLookupHash(ref env, _) => {
+      &LTerm::ProjectHash(ref env, _) => {
         self._recontext_exp(exp.lookup(env), ctx);
       }
       _ => unimplemented!(),
@@ -940,6 +958,224 @@ impl LBuilder {
 impl LBuilder {
   pub fn _gc(&mut self, tree: LTreeCell) -> LTreeCell {
     unimplemented!();
+  }
+}
+
+impl LBuilder {
+  fn _resolve_deferred_0(&mut self, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
+    // TODO
+    let defer_ct = work.defer.len();
+    for _ in 0 .. defer_ct {
+      let deferred = work.defer.pop_front().unwrap();
+      match &deferred {
+        &TyDeferral::PtlD(ref ptld, ref target) => {
+          if let Some((_, _, ty)) = tenv.mgu_exp(target) {
+            match &*ty {
+              &LTy::Flo => {
+                // TODO
+                let _ = root.append(self, &mut |this| {
+                  let adj_e = root.append(this, &mut |this| {
+                    //let tg_e = root.append(this, &mut |_| LTerm::Lookup(target.clone()));
+                    LTerm::Adj(target.clone())
+                  });
+                  let id_e = root.append(this, &mut |_| LTerm::FloLit(1.0));
+                  LTerm::Apply(
+                      adj_e.loc(),
+                      vec![id_e.loc()]
+                  )
+                });
+              }
+              _ => {
+                // TODO
+              }
+            }
+          } else {
+            work.defer.push_back(deferred);
+            continue;
+          }
+        }
+        _ => {
+          work.defer.push_back(deferred);
+          continue;
+        }
+      }
+    }
+  }
+
+  fn _adj_pat(&mut self, pat: LPatRef) -> LPatRef {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _adj_snd_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv) -> Option<LExprCell> {
+    // TODO
+    match &exp.term() {
+      &LTerm::Let(..) |
+      &LTerm::Match(..) => {
+        Some(self._adj_exp(exp, tenv))
+      }
+      &LTerm::Apply(..) => {
+        // TODO
+        unimplemented!();
+      }
+      &LTerm::Lambda(ref params, ref body) => {
+        // TODO
+        let body_e = exp.lookup(body);
+        let adj_body_e = self._adj_exp(body_e, tenv);
+        if adj_body_e.label == body.label {
+          return None;
+        }
+        let mut adj_params = Vec::with_capacity(params.len());
+        //let mut adj_vars = Vec::with_capacity(params.len());
+        for p in params.iter() {
+          match tenv.mgu_var(p.clone()) {
+            None => {
+              // FIXME: need to defer this term.
+            }
+            Some((_, _, ty)) => match &*ty {
+              // FIXME
+              &LTy::Flo => {}
+              &LTy::Fun(..) => {}
+              _ => unimplemented!(),
+            }
+          }
+        }
+        // FIXME: need to do some fixup of the adj body.
+        let adj_lam_e = exp.append(self, &mut |_| LTerm::Lambda(
+            adj_params.clone(),
+            adj_body_e.loc()
+        ));
+        Some(adj_lam_e)
+      }
+      &LTerm::STuple(ref elems) => {
+        let mut nontriv_adj_elem = false;
+        let mut adj_elems = Vec::with_capacity(elems.len());
+        for elem in elems.iter() {
+          let elem_e = exp.lookup(elem);
+          match self._adj_snd_exp(elem_e, tenv) {
+            None => {
+              let unit_e = exp.append(self, &mut |_| LTerm::UnitLit);
+              adj_elems.push(unit_e);
+            }
+            Some(adj_elem_e) => {
+              nontriv_adj_elem = true;
+              adj_elems.push(adj_elem_e);
+            }
+          }
+        }
+        if !nontriv_adj_elem {
+          return None;
+        }
+        let adj_stuple_e = exp.append(self, &mut |_| LTerm::STuple(
+            adj_elems.iter().map(|e| e.loc()).collect()
+        ));
+        Some(adj_stuple_e)
+      }
+      &LTerm::Tuple(ref elems) => {
+        // TODO
+        unimplemented!();
+      }
+      &LTerm::FloLit(_) => {
+        let adj_nil_env_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
+        let adj_mk_env_e = exp.append(self, &mut |this| LTerm::Lambda(
+            vec![this.fresh_anon_var()],
+            adj_nil_env_e.loc()
+        ));
+        Some(adj_mk_env_e)
+      }
+      &LTerm::Lookup(ref var) => {
+        // FIXME: may depend on MGU for `var`.
+        let adj_var = self.lookup_adj_var(var);
+        let adj_label = self.lookup_adj_exp(&exp);
+        let adj_lookup_e = exp.append(self, &mut |_| LTerm::Lookup(adj_var.clone()));
+        Some(adj_lookup_e)
+      }
+      &LTerm::BitLit(_) |
+      &LTerm::IntLit(_) => {
+        None
+      }
+      _ => unimplemented!(),
+    }
+  }
+
+  fn _adj_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv) -> LExprCell {
+    // TODO
+    match &exp.term() {
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        // TODO
+        let rest_e = exp.lookup(rest);
+        let adj_rest_e = self._adj_exp(rest_e, tenv);
+        if adj_rest_e.label == rest.label {
+          return exp;
+        }
+        let adj_label = self.lookup_adj_exp(&exp);
+        let new_exp = match self._lookup_adj_var(name) {
+          None => {
+            exp._append(adj_label, self, &mut |_| LTerm::Let(
+                name.clone(),
+                body.clone(),
+                adj_rest_e.loc()
+            ))
+          }
+          Some(adj_name) => {
+            let body_e = exp.lookup(body);
+            let adj_body_e = self._adj_exp(body_e, tenv);
+            exp._append(adj_label, self, &mut |_| LTerm::Match(
+                adj_body_e.loc(),
+                vec![(
+                  LPat::STuple(vec![name.clone().into(), adj_name.clone().into()]).into(),
+                  adj_rest_e.loc(),
+                )]
+            ))
+          }
+        };
+        // TODO: register `new_exp`.
+        new_exp
+      }
+      &LTerm::Match(ref query, ref pat_arms) => {
+        // TODO
+        let mut nontriv_adj_arm = false;
+        let mut adj_arms = Vec::with_capacity(pat_arms.len());
+        for &(_, ref arm) in pat_arms.iter() {
+          let arm_e = exp.lookup(arm);
+          let adj_arm_e = self._adj_exp(arm_e, tenv);
+          if adj_arm_e.label != arm.label {
+            nontriv_adj_arm = true;
+          }
+          adj_arms.push(adj_arm_e);
+        }
+        if !nontriv_adj_arm {
+          return exp;
+        }
+        let mut adj_pats = Vec::with_capacity(pat_arms.len());
+        for &(ref pat, _) in pat_arms.iter() {
+          let adj_pat = self._adj_pat(pat.clone());
+          adj_pats.push(adj_pat);
+        }
+        let query_e = exp.lookup(query);
+        let adj_query_e = self._adj_exp(query_e, tenv);
+        let adj_label = self.lookup_adj_exp(&exp);
+        let new_exp = exp.append(self, &mut |_| LTerm::Match(
+            adj_query_e.loc(),
+            adj_pats.iter().map(|pat| pat.clone())
+              .zip(adj_arms.iter().map(|e| e.loc()))
+              .collect()
+        ));
+        // TODO: register `new_exp`.
+        new_exp
+      }
+      _ => {
+        match self._adj_snd_exp(exp.clone(), tenv) {
+          None => exp,
+          Some(adj_exp) => {
+            let adj_label = self.lookup_adj_exp(&exp);
+            let new_exp = exp._append(adj_label, self, &mut |_| LTerm::STuple(vec![exp.loc(), adj_exp.loc()]));
+            // TODO: register `new_exp`.
+            new_exp
+          }
+        }
+      }
+    }
   }
 }
 
@@ -1042,7 +1278,7 @@ enum TyCon {
   //IsAConcat(LTy, LTy, LTy),
   //IsAApp(Vec<(usize, LVar)>, LTyvar, LTy),
   //IsERet(Vec<(usize, LVar)>, LTyvar, LTy),
-  IsEHashSel(TyexpRef, TyexpRef, LHash),
+  IsProjHash(TyexpRef, TyexpRef, LHash),
 }
 
 /*fn conj_ty2(lhs: TyConRef, rhs: TyConRef) -> TyConRef {
@@ -1078,17 +1314,30 @@ fn conj_tys(cons: Vec<TyConRef>) -> TyConRef {
   }
 }*/
 
-#[derive(Default)]
-struct TyCons {
-  //tenv:     TyEnv,
-  cons:     VecDeque<TyConRef>,
-  defer_cs: VecDeque<TyConRef>,
-  unsat_cs: VecDeque<TyConRef>,
+#[derive(Debug)]
+struct TyAdjHyp {
+  pri_ety:  LTyvar,
+  adj_texp: TyexpRef,
 }
 
-impl TyCons {
+#[derive(Debug)]
+enum TyDeferral {
+  PtlD(LLoc, LLoc),
+  ProjHash(LLoc, LLoc, LHash),
+}
+
+#[derive(Default, Debug)]
+struct TyWork {
+  //tenv:     TyEnv,
+  cons:     VecDeque<TyConRef>,
+  unsat:    VecDeque<TyConRef>,
+  defer_cs: VecDeque<TyConRef>,
+  defer:    VecDeque<TyDeferral>
+}
+
+impl TyWork {
   fn unsat(&self) -> bool {
-    !self.unsat_cs.is_empty()
+    !self.unsat.is_empty()
   }
 
   fn defer(&self) -> bool {
@@ -1096,9 +1345,9 @@ impl TyCons {
   }
 }
 
-enum TyReduce {
-  Exp(TyexpRef),
-  Var(LTyvar),
+#[derive(Debug)]
+struct TyBridgeWork {
+  exps: HashMap<LLoc, LLoc>,
 }
 
 /*enum TyUnify {
@@ -1135,14 +1384,24 @@ impl TyUnionFind {
   }
 }*/
 
-#[derive(Default)]
+#[derive(Debug)]
+enum TyReduce {
+  Exp(TyexpRef),
+  Var(LTyvar),
+}
+
+#[derive(Default, Debug)]
 struct TyEnv {
   // TODO
   vctr: u64,
-  tvar: HashMap<LVar, LTyvar>,
+  var:  HashMap<LVar, LTyvar>,
+  vari: HashMap<LTyvar, LVar>,
+  exp:  HashMap<LLabel, LTyvar>,
+  expi: HashMap<LTyvar, LLabel>,
   db:   HashMap<LTyvar, LTyvar>,
-  tag:  HashMap<LTyvar, Tytag>,
   texp: HashMap<LTyvar, TyexpRef>,
+  tag:  HashMap<LTyvar, Tytag>,
+  tadj: HashMap<LTyvar, LTyvar>,
 }
 
 impl TyEnv {
@@ -1157,21 +1416,54 @@ impl TyEnv {
     LTyvar(self.vctr)
   }
 
-  fn _lookup(&mut self, var: &LVar) -> Option<LTyvar> {
-    match self.tvar.get(var) {
+  fn _lookup_var(&mut self, var: &LVar) -> Option<LTyvar> {
+    match self.var.get(var) {
       None => None,
       Some(v) => Some(v.clone()),
     }
   }
 
-  fn lookup(&mut self, var: &LVar) -> LTyvar {
-    match self.tvar.get(var) {
+  fn lookup_var(&mut self, var: &LVar) -> LTyvar {
+    match self.var.get(var) {
       None => {
         let v = self.fresh_tvar();
-        self.tvar.insert(var.clone(), v.clone());
+        self.var.insert(var.clone(), v.clone());
+        self.vari.insert(v.clone(), var.clone());
         v
       }
       Some(v) => v.clone(),
+    }
+  }
+
+  fn _lookup_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> Option<LTyvar> {
+    let label = loc.as_ref();
+    match self.exp.get(label) {
+      None => None,
+      Some(v) => Some(v.clone()),
+    }
+  }
+
+  fn lookup_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> LTyvar {
+    let label = loc.as_ref();
+    match self.exp.get(label) {
+      None => {
+        let v = self.fresh_tvar();
+        self.exp.insert(label.clone(), v.clone());
+        self.expi.insert(v.clone(), label.clone());
+        v
+      }
+      Some(v) => v.clone(),
+    }
+  }
+
+  fn lookup_adj(&mut self, v: LTyvar) -> LTyvar {
+    match self.tadj.get(&v) {
+      None => {
+        let dv = self.fresh_tvar();
+        self.tadj.insert(v, dv.clone());
+        dv
+      }
+      Some(dv) => dv.clone(),
     }
   }
 
@@ -1222,7 +1514,7 @@ impl TyEnv {
     }
   }
 
-  fn unify_exp(&mut self, v: LTyvar, query: TyexpRef) {
+  fn unify_texp(&mut self, v: LTyvar, query: TyexpRef) {
     let w = self.head(v);
     self.texp.insert(w, query);
   }
@@ -1233,14 +1525,14 @@ impl TyEnv {
       None => TyReduce::Var(w),
       Some(query) => {
         let query = query.clone();
-        let query = self.reduce_exp(query);
+        let query = self.reduce_texp(query);
         self.texp.insert(w, query.clone());
         TyReduce::Exp(query)
       }
     }
   }
 
-  fn reduce_exp(&mut self, query: TyexpRef) -> TyexpRef {
+  fn reduce_texp(&mut self, query: TyexpRef) -> TyexpRef {
     match &*query {
       // TODO: cases.
       &Tyexp::Var(ref v) => {
@@ -1252,9 +1544,9 @@ impl TyEnv {
       &Tyexp::Fun(ref dom, ref ret) => {
         let mut dom_ = Vec::with_capacity(dom.len());
         for d in dom.iter() {
-          dom_.push(self.reduce_exp(d.clone()));
+          dom_.push(self.reduce_texp(d.clone()));
         }
-        let ret_ = self.reduce_exp(ret.clone());
+        let ret_ = self.reduce_texp(ret.clone());
         Tyexp::Fun(dom_, ret_).into()
       }
       &Tyexp::Tup |
@@ -1266,8 +1558,18 @@ impl TyEnv {
     }
   }
 
-  fn _mgu(&mut self, var: LVar) -> Option<(LTyvar, LTyvar, LTyRef)> {
-    match self._lookup(&var) {
+  fn mgu_var(&mut self, var: LVar) -> Option<(LTyvar, LTyvar, LTyRef)> {
+    match self._lookup_var(&var) {
+      None => None,
+      Some(v) => match self.mgu(v.clone()) {
+        None => None,
+        Some((w, e)) => Some((v, w, e)),
+      }
+    }
+  }
+
+  fn mgu_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> Option<(LTyvar, LTyvar, LTyRef)> {
+    match self._lookup_exp(loc) {
       None => None,
       Some(v) => match self.mgu(v.clone()) {
         None => None,
@@ -1282,7 +1584,7 @@ impl TyEnv {
       None => None,
       Some(query) => {
         let query = query.clone();
-        match self.mgu_exp(query) {
+        match self.mgu_texp(query) {
           None => None,
           Some(e) => Some((w, e)),
         }
@@ -1290,8 +1592,8 @@ impl TyEnv {
     }
   }
 
-  fn mgu_exp(&mut self, query: TyexpRef) -> Option<LTyRef> {
-    let query = self.reduce_exp(query);
+  fn mgu_texp(&mut self, query: TyexpRef) -> Option<LTyRef> {
+    let query = self.reduce_texp(query);
     self._mgu_reduced(query).ok()
   }
 
@@ -1318,52 +1620,52 @@ impl TyEnv {
 
 #[derive(Default)]
 struct IncTyInfMachine {
-  //tenv: TyEnv,
 }
 
 impl IncTyInfMachine {
-  fn _gen_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, cons: &mut VecDeque<TyConRef>) {
-    let ety = exp.unsafe_set_fresh_ety(tenv);
+  fn _gen_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
+    let ety = tenv.lookup_exp(&exp);
     match &exp.term() {
       &LTerm::End => {
         let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Unit.into()));
-        cons.push_front(con);
+        work.cons.push_front(con);
       }
       &LTerm::Break(ref inner) => {
-        self._gen_exp(exp.lookup(inner), tenv, cons);
-        let brk_con = TyConRef::new(TyCon::Eq_(ety.into(), exp.lookup_ety(inner).into()));
-        cons.push_front(brk_con);
+        self._gen_exp(exp.lookup(inner), tenv, work);
+        let brk_con = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(inner).into()));
+        work.cons.push_front(brk_con);
       }
       &LTerm::Apply(ref head, ref args) => {
-        self._gen_exp(exp.lookup(head), tenv, cons);
+        self._gen_exp(exp.lookup(head), tenv, work);
         let mut arg_tys = Vec::with_capacity(args.len());
         for a in args.iter() {
-          self._gen_exp(exp.lookup(a), tenv, cons);
-          arg_tys.push(exp.lookup_ety(a).into());
+          self._gen_exp(exp.lookup(a), tenv, work);
+          arg_tys.push(tenv.lookup_exp(a).into());
         }
-        let app_con = TyConRef::new(TyCon::Eq_(exp.lookup_ety(head).into(), Tyexp::Fun(arg_tys, ety.into()).into()));
-        cons.push_front(app_con);
+        let app_con = TyConRef::new(TyCon::Eq_(tenv.lookup_exp(&head).into(), Tyexp::Fun(arg_tys, ety.into()).into()));
+        work.cons.push_front(app_con);
       }
       &LTerm::Lambda(ref params, ref body) => {
         let mut param_tys = Vec::with_capacity(params.len());
         for p in params.iter() {
-          let p_v = tenv.lookup(p);
+          let p_v = tenv.lookup_var(p);
           param_tys.push(p_v.into());
         }
-        self._gen_exp(exp.lookup(body), tenv, cons);
-        let lam_con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Fun(param_tys, exp.lookup_ety(body).into()).into()));
-        cons.push_front(lam_con);
+        self._gen_exp(exp.lookup(body), tenv, work);
+        let lam_con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Fun(param_tys, tenv.lookup_exp(body).into()).into()));
+        work.cons.push_front(lam_con);
       }
       &LTerm::Import(ref _env, ref _body) => {
         // FIXME: need MGU after tyinf.
         unimplemented!();
       }
       &LTerm::Export => {
+        // TODO
         let ctx = exp.ctx();
         let mut keys: RedBlackTreeMap<LEnvKey, LTyvar> = Default::default();
         let mut hashes: RedBlackTreeMap<LHash, LVar> = Default::default();
         for (binder, var) in ctx.bind_to_var.iter() {
-          keys.insert_mut(LEnvKey::Var(var.clone()), tenv.lookup(var));
+          keys.insert_mut(LEnvKey::Var(var.clone()), tenv.lookup_var(var));
           match binder {
             &LVarBinder::Hash(ref hash) => {
               hashes.insert_mut(hash.clone(), var.clone());
@@ -1372,13 +1674,14 @@ impl IncTyInfMachine {
           }
         }
         let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Env(keys, hashes).into()));
-        cons.push_front(con);
+        work.cons.push_front(con);
       }
       &LTerm::PtlD(ref target) => {
-        // FIXME: could immediately defer the constraint here.
-        self._gen_exp(exp.lookup(target), tenv, cons);
-        let con = TyConRef::new(TyCon::IsPtlD(ety.into(), exp.lookup_ety(target).into()));
-        cons.push_front(con);
+        // FIXME: should immediately defer the constraint here.
+        self._gen_exp(exp.lookup(target), tenv, work);
+        let con = TyConRef::new(TyCon::IsPtlD(ety.into(), tenv.lookup_exp(target).into()));
+        work.cons.push_front(con);
+        /*work.defer.push_front(TyDeferral::PtlD(ety.clone(), target.clone()));*/
       }
       &LTerm::AdjD(ref _target) => {
         unimplemented!();
@@ -1387,54 +1690,52 @@ impl IncTyInfMachine {
         unimplemented!();
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
-        let name_v = tenv.lookup(name);
-        self._gen_exp(exp.lookup(body), tenv, cons);
-        self._gen_exp(exp.lookup(rest), tenv, cons);
-        let let_con1 = TyConRef::new(TyCon::Eq_(name_v.into(), exp.lookup_ety(body).into()));
-        let let_con2 = TyConRef::new(TyCon::Eq_(ety.into(), exp.lookup_ety(rest).into()));
-        cons.push_front(let_con2);
-        cons.push_front(let_con1);
+        let name_v = tenv.lookup_var(name);
+        self._gen_exp(exp.lookup(body), tenv, work);
+        self._gen_exp(exp.lookup(rest), tenv, work);
+        let let_con1 = TyConRef::new(TyCon::Eq_(name_v.into(), tenv.lookup_exp(body).into()));
+        let let_con2 = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(rest).into()));
+        work.cons.push_front(let_con2);
+        work.cons.push_front(let_con1);
       }
       &LTerm::Fix(ref fixname, ref fixbody) => {
-        let fixname_v = tenv.lookup(fixname);
-        self._gen_exp(exp.lookup(fixbody), tenv, cons);
-        let fix_con1 = TyConRef::new(TyCon::Eq_(fixname_v.into(), exp.lookup_ety(fixbody).into()));
-        let fix_con2 = TyConRef::new(TyCon::Eq_(ety.into(), exp.lookup_ety(fixbody).into()));
-        cons.push_front(fix_con2);
-        cons.push_front(fix_con1);
+        let fixname_v = tenv.lookup_var(fixname);
+        self._gen_exp(exp.lookup(fixbody), tenv, work);
+        let fix_con1 = TyConRef::new(TyCon::Eq_(fixname_v.into(), tenv.lookup_exp(fixbody).into()));
+        let fix_con2 = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(fixbody).into()));
+        work.cons.push_front(fix_con2);
+        work.cons.push_front(fix_con1);
       }
-      /*&LTerm::Alt(ref name, ref alt_name, ref body, ref rest) => {
-        // TODO
-        panic!("bug: typing of alt bindings is not yet supported");
-      }*/
       &LTerm::BitLit(_) => {
         let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Bit.into()));
-        cons.push_front(con);
+        work.cons.push_front(con);
       }
       &LTerm::IntLit(_) => {
         let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Int.into()));
-        cons.push_front(con);
+        work.cons.push_front(con);
       }
       &LTerm::FloLit(_) => {
         let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Flo.into()));
-        cons.push_front(con);
+        work.cons.push_front(con);
       }
       &LTerm::Lookup(ref name) => {
-        let name_v = tenv.lookup(name);
+        let name_v = tenv.lookup_var(name);
         let con = TyConRef::new(TyCon::Eq_(ety.into(), name_v.into()));
-        cons.push_front(con);
+        work.cons.push_front(con);
       }
-      &LTerm::PathLookupHash(ref env, ref hash) => {
-        let env_con = self._gen_exp(exp.lookup(env), tenv, cons);
-        let hashsel_con = TyConRef::new(TyCon::IsEHashSel(ety.into(), exp.lookup_ety(env).into(), hash.clone()));
-        cons.push_front(hashsel_con);
+      &LTerm::ProjectHash(ref env, ref hash) => {
+        // FIXME: should immediately defer this case.
+        let env_con = self._gen_exp(exp.lookup(env), tenv, work);
+        let hashsel_con = TyConRef::new(TyCon::IsProjHash(ety.into(), tenv.lookup_exp(env).into(), hash.clone()));
+        work.cons.push_front(hashsel_con);
+        /*work.defer.push_front(TyDeferral::ProjHash(ety.clone(), env.clone(), hash.clone()));*/
       }
       _ => unimplemented!(),
     }
   }
 
-  fn gen(&mut self, tree: &LTreeCell, tenv: &mut TyEnv, work: &mut TyCons) {
-    self._gen_exp(tree.root(), tenv, &mut work.cons);
+  fn gen(&mut self, tree: &LTreeCell, tenv: &mut TyEnv, work: &mut TyWork) {
+    self._gen_exp(tree.root(), tenv, work);
   }
 
   /*fn gen_inc(&mut self, old_tree: &LTreeCell, new_tree: &LTreeCell) -> TyConRef {
@@ -1450,7 +1751,12 @@ impl IncTyInfMachine {
     unimplemented!();
   }*/
 
-  fn _solve_eq_var(&mut self, lv: LTyvar, rv: LTyvar, root: LExprCell, tenv: &mut TyEnv, work: &mut TyCons) -> Result<(), ()> {
+  fn inc_gen_adj(&mut self, tree: &LTreeCell, tenv: &mut TyEnv, work: &mut TyWork) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _solve_eq_var(&mut self, lv: LTyvar, rv: LTyvar, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) -> Result<(), ()> {
     let lquery = tenv.reduce(lv.clone());
     let rquery = tenv.reduce(rv.clone());
     match (lquery, rquery) {
@@ -1466,9 +1772,9 @@ impl IncTyInfMachine {
     }
   }
 
-  fn _solve_eq_exp(&mut self, v: LTyvar, query: TyexpRef, root: LExprCell, tenv: &mut TyEnv, work: &mut TyCons) -> Result<(), ()> {
+  fn _solve_eq_exp(&mut self, v: LTyvar, query: TyexpRef, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) -> Result<(), ()> {
     let lquery = tenv.reduce(v.clone());
-    let rquery = tenv.reduce_exp(query.clone());
+    let rquery = tenv.reduce_texp(query.clone());
     match lquery {
       TyReduce::Exp(lquery) => {
         let con = TyConRef::new(TyCon::Eq_(lquery, rquery));
@@ -1476,32 +1782,36 @@ impl IncTyInfMachine {
         self.solve(root, tenv, work)
       }
       TyReduce::Var(_) => {
-        tenv.unify_exp(v, rquery.clone());
+        tenv.unify_texp(v, rquery.clone());
         self.solve(root, tenv, work)
       }
     }
   }
 
-  fn solve(&mut self, root: LExprCell, tenv: &mut TyEnv, work: &mut TyCons) -> Result<(), ()> {
+  fn _debug_solve_dump(&mut self) {
+    /*println!("DEBUG: solve: done");
+    println!("DEBUG: solve:   # vtys:");
+    //println!("DEBUG: solve:   {:?}", self.root.etys);
+    println!("DEBUG: solve:   {:?}", root.tree.data.borrow().vtys);
+    println!("DEBUG: solve:   # db:");
+    for (lv, _) in tenv.db.clone().iter() {
+      let lw = tenv.head(lv.clone());
+      let q = match tenv.texp.get(&lw) {
+        None => None,
+        Some(e) => Some(tenv.reduce_texp(e.clone())),
+      };
+      println!("DEBUG: solve:   {:?} => {:?} :: {:?}", lv, lw, q);
+    }
+    println!("DEBUG: solve:   # texp:");
+    for (v, t) in tenv.texp.iter() {
+      println!("DEBUG: solve:   {:?} => {:?}", v, t);
+    }*/
+  }
+
+  fn solve(&mut self, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) -> Result<(), ()> {
     let con = match work.cons.pop_front() {
       None => {
-        /*println!("DEBUG: solve: done");
-        println!("DEBUG: solve:   # vtys:");
-        //println!("DEBUG: solve:   {:?}", self.root.etys);
-        println!("DEBUG: solve:   {:?}", root.tree.data.borrow().vtys);
-        println!("DEBUG: solve:   # db:");
-        for (lv, _) in tenv.db.clone().iter() {
-          let lw = tenv.head(lv.clone());
-          let q = match tenv.texp.get(&lw) {
-            None => None,
-            Some(e) => Some(tenv.reduce_exp(e.clone())),
-          };
-          println!("DEBUG: solve:   {:?} => {:?} :: {:?}", lv, lw, q);
-        }
-        println!("DEBUG: solve:   # texp:");
-        for (v, t) in tenv.texp.iter() {
-          println!("DEBUG: solve:   {:?} => {:?}", v, t);
-        }*/
+        //self._debug_solve_dump();
         return Ok(());
       }
       Some(c) => c,
@@ -1525,7 +1835,7 @@ impl IncTyInfMachine {
           (&Tyexp::Fun(ref ldom, ref lret), &Tyexp::Fun(ref rdom, ref rret)) => {
             if ldom.len() != rdom.len() {
               println!("WARNING: Eq_: fun arity mismatch");
-              work.unsat_cs.push_back(con.clone());
+              work.unsat.push_back(con.clone());
             } else {
               for (ld, rd) in ldom.iter().zip(rdom.iter()) {
                 work.cons.push_back(TyConRef::new(TyCon::Eq_(ld.clone(), rd.clone())));
@@ -1543,14 +1853,14 @@ impl IncTyInfMachine {
           }
           _ => {
             println!("WARNING: Eq_: type mismatch or unimpl");
-            work.unsat_cs.push_back(con);
+            work.unsat.push_back(con);
             self.solve(root, tenv, work)
           }
         }
       }
       &TyCon::Tagged(ref query, ref tag) => {
         // TODO
-        //let query = tenv.reduce_exp(query.clone());
+        //let query = tenv.reduce_texp(query.clone());
         match (&**query, tag) {
           (&Tyexp::Var(ref w), _) => {
             match tenv.tag.get(w) {
@@ -1561,7 +1871,7 @@ impl IncTyInfMachine {
               Some(etag) => if etag == tag {
                 work.defer_cs.push_back(con.clone());
               } else {
-                work.unsat_cs.push_back(con);
+                work.unsat.push_back(con);
               }
             }
             self.solve(root, tenv, work)
@@ -1574,7 +1884,7 @@ impl IncTyInfMachine {
         }
       }
       &TyCon::IsPtlD(ref e, ref target) => {
-        let target = tenv.reduce_exp(target.clone());
+        let target = tenv.reduce_texp(target.clone());
         match &*target {
           // TODO: missing cases.
           &Tyexp::Var(_) => {
@@ -1597,7 +1907,7 @@ impl IncTyInfMachine {
               }
               _ => {
                 println!("WARNING: IsPtlD: differentiating a nonscalar Fun");
-                work.unsat_cs.push_back(con);
+                work.unsat.push_back(con);
                 self.solve(root, tenv, work)
               }
             }
@@ -1610,15 +1920,37 @@ impl IncTyInfMachine {
           }
           _ => {
             println!("WARNING: IsPtlD: differentiating a nonscalar type");
-            work.unsat_cs.push_back(con);
+            work.unsat.push_back(con);
             self.solve(root, tenv, work)
           }
         }
       }
-      &TyCon::IsEHashSel(ref ety, ref env_ty, ref hash) => {
+      /*&TyCon::IsPtlD(ref e, ref tg) => {
         // TODO
-        let env_mgu = tenv.mgu_exp(env_ty.clone());
-        match env_mgu.as_ref().map(|t| &**t) {
+        match tenv.mgu(tg.clone()).map(|t| &**t) {
+          None => {
+            /* FIXME: defer this constraint */
+          }
+          Some((_, &LTy::Flo)) => {
+            // TODO TODO TODO: generate an adj hyp.
+            println!("DEBUG: IsPtlD: differentiating a scalar type");
+            let adj_ret_v = tenv.fresh_tvar();
+            let adj_ty = Tyexp::Fun(vec![Tyexp::Flo.into()], adj_ret_v.into()).into();
+            let tg_dv = tenv.lookup_adj(tg.clone());
+            let con1 = TyConRef::new(TyCon::Eq_(tg_dv, adj_ty));
+            let con2 = TyConRef::new(TyCon::Adj(tg.clone(), tg_dv));
+            self.solve(root, tenv, work)
+          }
+          Some(_) => {
+            println!("WARNING: IsPtlD: differentiating a nonscalar type");
+            work.unsat.push_back(con);
+            self.solve(root, tenv, work)
+          }
+        }
+      }*/
+      &TyCon::IsProjHash(ref ety, ref env_ty, ref hash) => {
+        // TODO
+        match tenv.mgu_texp(env_ty.clone()).as_ref().map(|t| &**t) {
           None => {
             /* FIXME: defer this constraint */
             self.solve(root, tenv, work)
@@ -1634,7 +1966,7 @@ impl IncTyInfMachine {
                   // FIXME
                   self.solve(root, tenv, work)
                 } else {
-                  let key_ty = tenv.lookup(key_var).into();
+                  let key_ty = tenv.lookup_var(key_var).into();
                   let con = TyConRef::new(TyCon::Eq_(ety.clone(), key_ty));
                   work.cons.push_back(con);
                   self.solve(root, tenv, work)
@@ -1643,7 +1975,7 @@ impl IncTyInfMachine {
             }
           }
           Some(_) => {
-            work.unsat_cs.push_back(con);
+            work.unsat.push_back(con);
             self.solve(root, tenv, work)
           }
         }
@@ -1651,18 +1983,43 @@ impl IncTyInfMachine {
       _ => unimplemented!(),
     }
   }
+
+  fn resolve(&mut self, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
+    // TODO:
+    // - work through the deferred cases
+    // - if a case can be resolved with an MGU, then append a replacement
+    //   ("bridge") expr; but don't mutate the tree yet
+    // - continue to defer cases that cannot be resolved
+    // - new bridge exprs also need tvars
+    unimplemented!();
+  }
+
+  fn regen(&mut self, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
+    // TODO
+    unimplemented!();
+  }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug)]
 pub struct LCtxRef {
   // TODO
-  //version:      usize,
+  version:      usize,
+  //tree_version: usize,
   bind_to_var:  HashTrieMap<LVarBinder, LVar>,
   var_to_depth: HashTrieMap<LVar, usize>,
   var_stack:    Stack<LVar>,
 }
 
 impl LCtxRef {
+  pub fn empty_top_level() -> LCtxRef {
+    LCtxRef{
+      version:      0,
+      bind_to_var:  HashTrieMap::default(),
+      var_to_depth: HashTrieMap::default(),
+      var_stack:    Stack::default(),
+    }
+  }
+
   pub fn lookup_hash(&self, hash: LHash) -> Option<LVar> {
     match self.bind_to_var.get(&LVarBinder::Hash(hash)) {
       None => None,
@@ -1678,7 +2035,7 @@ impl LCtxRef {
   }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct LTyctxRef {
   tvar_ctr:     u64,
   var_to_ty:    HashTrieMap<LVar, (LTyvar, LTyvar, LTyRef)>,
@@ -1693,7 +2050,7 @@ impl LTyctxRef {
   }*/
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct AdjEnv {
   vars: HashMap<LVar, LVar>,
   bound_adjs: HashSet<LVar>,
@@ -1731,10 +2088,16 @@ impl LRel {
   }
 }*/
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LLoc {
   pub label:    LLabel,
   pub pos:      usize,
+}
+
+impl AsRef<LLabel> for LLoc {
+  fn as_ref(&self) -> &LLabel {
+    &self.label
+  }
 }
 
 impl LLoc {
@@ -1768,7 +2131,13 @@ pub struct LExpr {
   pub term:     LTerm,
 }
 
-#[derive(Default)]
+#[derive(Debug)]
+pub enum LDelta {
+  Append(LLoc),
+  Rewrite(LLoc),
+}
+
+#[derive(Default, Debug)]
 pub struct LTreeIndex {
   ptld:     BTreeSet<(LLoc, LLoc)>,
   adjd:     BTreeSet<(LLoc, LLoc)>,
@@ -1785,12 +2154,10 @@ pub struct LTree {
   exps:     Vec<LExpr>,
   history:  Vec<(usize, LDelta)>,
   ctxs:     HashMap<LLabel, LCtxRef>,
-  etys:     HashMap<LLabel, LTyvar>,
-  //vtys:     HashMap<LVar, LTyvar>,
   index:    LTreeIndex,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LTreeView {
   root:     LLoc,
   epoch:    usize,
@@ -1805,7 +2172,7 @@ impl From<LTreeViewCell> for LTreeView {
   }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LTreeViewCell {
   data: Rc<RefCell<LTreeView>>,
 }
@@ -1823,13 +2190,6 @@ pub struct LTreeCell {
 }
 
 impl LTreeCell {
-  /*pub fn root_loc(&self) -> LLoc {
-    let data = self.data.borrow();
-    let label = data.exps[self.view.root.pos].label.clone();
-    assert_eq!(self.view.root.label, label);
-    self.view.root.clone()
-  }*/
-
   pub fn root(&self) -> LExprCell {
     let data = self.data.borrow();
     let label = data.exps[self.view.root.pos].label.clone();
@@ -1864,7 +2224,7 @@ impl LTreeCell {
     let tree = self.data.borrow();
     let mut tctx = LTyctxRef::default();
     for var in ctx.var_stack.iter() {
-      let v = match tenv._lookup(var) {
+      let v = match tenv._lookup_var(var) {
         None => {
           println!("DEBUG: resolve_ctx: no tvar");
           return None;
@@ -1885,18 +2245,18 @@ impl LTreeCell {
   }
 }
 
-#[derive(Debug)]
-pub enum LDelta {
-  Append(LLoc),
-  Rewrite(LLoc),
-}
-
 #[derive(Clone)]
 pub struct LExprCell {
   pub view:     LTreeViewCell,
   pub tree:     LTreeCell,
   pub pos:      usize,
   pub label:    LLabel,
+}
+
+impl AsRef<LLabel> for LExprCell {
+  fn as_ref(&self) -> &LLabel {
+    &self.label
+  }
 }
 
 impl LExprCell {
@@ -1938,21 +2298,6 @@ impl LExprCell {
     }
   }
 
-  fn unsafe_set_fresh_ety(&self, tenv: &mut TyEnv) -> LTyvar {
-    let mut tree = self.tree.data.borrow_mut();
-    let ety = tenv.fresh_tvar();
-    tree.etys.insert(self.label.clone(), ety.clone());
-    ety
-  }
-
-  fn lookup_ety(&self, loc: &LLoc) -> LTyvar {
-    let tree = self.tree.data.borrow();
-    match tree.etys.get(&loc.label) {
-      None => panic!(),
-      Some(v) => v.clone(),
-    }
-  }
-
   pub fn lookup(&self, loc: &LLoc) -> LExprCell {
     let tree = self.tree.data.borrow();
     assert_eq!(loc.label, tree.exps[loc.pos].label);
@@ -1969,14 +2314,18 @@ impl LExprCell {
   }
 
   pub fn append(&self, builder: &mut LBuilder, mk_term: &mut dyn FnMut(&mut LBuilder) -> LTerm) -> LExprCell {
+    let new_label = builder.fresh_label();
+    self._append(new_label, builder, mk_term)
+  }
+
+  pub fn _append(&self, new_label: LLabel, builder: &mut LBuilder, mk_term: &mut dyn FnMut(&mut LBuilder) -> LTerm) -> LExprCell {
     //let new_term = (mk_term)(());
     let new_term = (mk_term)(builder);
-    let (new_pos, new_label) = {
+    let new_pos = {
       let mut view = self.view.data.borrow_mut();
       let mut tree = self.tree.data.borrow_mut();
       let root = view.root.clone();
       let new_pos = tree.exps.len();
-      let new_label = builder.fresh_label();
       view.version += 1;
       assert!(view.version != 0);
       // TODO
@@ -1996,7 +2345,7 @@ impl LExprCell {
       });
       tree.history.push((view.version, LDelta::Append(LLoc::new(new_label.clone(), new_pos))));
       assert_eq!(view.version, tree.history.len());
-      (new_pos, new_label)
+      new_pos
     };
     LExprCell{
       view:     self.view.clone(),
@@ -2052,7 +2401,7 @@ pub struct LExprRef {
   pub code:     LCodeRef,
   pub pos:      usize,
   pub label:    LLabel,
-  pub term:     LTerm,
+  //pub term:     LTerm,
 }
 
 impl LExprRef {

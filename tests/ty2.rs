@@ -14,7 +14,7 @@ fn test_ty2_example_0() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::default();
-  let module = builder.compile(htree, LCtxRef::default(), LTyctxRef::default());
+  let module = builder._compile(htree, LCtxRef::empty_top_level(), LTyctxRef::default());
   //println!("DEBUG: ltree: {:?}", ltree.root);
   //println!("DEBUG: ltree pretty printed:");
   //builder.pretty_print(ltree.clone());
@@ -36,7 +36,7 @@ fn test_ty2_example_1() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::default();
-  let module = builder.compile(htree, LCtxRef::default(), LTyctxRef::default());
+  let module = builder._compile(htree, LCtxRef::empty_top_level(), LTyctxRef::default());
 }
 
 #[test]
@@ -49,5 +49,5 @@ fn test_ty2_example_2_fails() {
   let htree = parser.parse();
   println!("DEBUG: htree: {:?}", htree);
   let mut builder = LBuilder::default();
-  let module = builder.compile(htree, LCtxRef::default(), LTyctxRef::default());
+  let module = builder._compile(htree, LCtxRef::empty_top_level(), LTyctxRef::default());
 }
