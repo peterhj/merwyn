@@ -1295,7 +1295,7 @@ impl LBuilder {
     }
   }
 
-  pub fn apply_term(&mut self, head: &mut FnMut(&mut Self) -> LExpr, args: Vec<&mut FnMut(&mut Self) -> LExpr>) -> LExpr {
+  pub fn apply_term(&mut self, head: &mut dyn FnMut(&mut Self) -> LExpr, args: Vec<&mut dyn FnMut(&mut Self) -> LExpr>) -> LExpr {
     LExpr{
       //gen:    self._gen(),
       label:  self.labels.fresh(),
@@ -1306,7 +1306,7 @@ impl LBuilder {
     }
   }
 
-  pub fn lambda_term(&mut self, params: Vec<LVar>, body: &mut FnMut(&mut Self) -> LExpr) -> LExpr {
+  pub fn lambda_term(&mut self, params: Vec<LVar>, body: &mut dyn FnMut(&mut Self) -> LExpr) -> LExpr {
     LExpr{
       //gen:    self._gen(),
       label:  self.labels.fresh(),
@@ -2896,7 +2896,7 @@ impl LBuilder {
     }
   }
 
-  fn _ltree_search_adj_sink_pass_kont2<'root>(&mut self, lroot: &'root LTree, ltree: LExpr, ctx: &mut AdjPassCtx, kont: &mut FnMut(&mut Self, &'root LTree, LExpr, &mut AdjPassCtx) -> LExpr) -> Option<LExpr> {
+  fn _ltree_search_adj_sink_pass_kont2<'root>(&mut self, lroot: &'root LTree, ltree: LExpr, ctx: &mut AdjPassCtx, kont: &mut dyn FnMut(&mut Self, &'root LTree, LExpr, &mut AdjPassCtx) -> LExpr) -> Option<LExpr> {
     // TODO
     match &*ltree.term {
       &LTerm::Adj(ref sink) => {
@@ -3117,7 +3117,7 @@ impl LBuilder {
     }
   }
 
-  fn _ltree_fixup_adj_app_pass_kont2<'root>(&mut self, lroot: &'root LTree, ltree: LExpr, ctx: &mut AdjPassCtx, kont: &mut FnMut(&mut Self, &'root LTree, LExpr, &mut AdjPassCtx) -> LExpr) -> Option<LExpr> {
+  fn _ltree_fixup_adj_app_pass_kont2<'root>(&mut self, lroot: &'root LTree, ltree: LExpr, ctx: &mut AdjPassCtx, kont: &mut dyn FnMut(&mut Self, &'root LTree, LExpr, &mut AdjPassCtx) -> LExpr) -> Option<LExpr> {
     // FIXME
     unimplemented!();
   }

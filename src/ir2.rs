@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::lang::{HExpr};
-use crate::mach::{MAddr, MBModule, MCModule};
+use crate::mach::{MAddr, MBLambda, MCLambda};
 
 use rpds::{HashTrieMap, Queue, RedBlackTreeMap, Stack};
 
@@ -16,8 +16,14 @@ use std::rc::{Rc};
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LLabel(u64);
 
+impl AsRef<LLabel> for LLabel {
+  fn as_ref(&self) -> &LLabel {
+    self
+  }
+}
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct LHash(u64);
+pub struct LIdent(u64);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LVar(u64);
@@ -141,7 +147,7 @@ pub enum LTerm<E=LLoc> {
   IntLit(i64),
   FloLit(f64),
   Lookup(LVar),
-  ProjectHash(E, LHash),
+  ProjectIdent(E, LIdent),
   Unbind(LVar, E),
   MExt(LMLoc),
 }
@@ -155,8 +161,8 @@ pub struct LMExpr {
 #[derive(Clone)]
 pub enum LMTerm {
   Deref(MAddr),
-  BLam(LMLambdaDef<MBModule>),
-  CLam(LMLambdaDef<MCModule>),
+  BLam(LMLambdaDef<MBLambda>),
+  CLam(LMLambdaDef<MCLambda>),
 }
 
 #[derive(Clone)]
@@ -169,26 +175,30 @@ pub struct LMLambdaDef<Module> {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum LVarBinder {
-  Hash(LHash),
+  Ident(LIdent),
   Anon,
 }
 
-impl From<LHash> for LVarBinder {
-  fn from(hash: LHash) -> LVarBinder {
-    LVarBinder::Hash(hash)
+impl From<LIdent> for LVarBinder {
+  fn from(hash: LIdent) -> LVarBinder {
+    LVarBinder::Ident(hash)
   }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct LBuilder {
   label_ctr:    u64,
   hash_ctr:     u64,
   var_ctr:      u64,
-  name_to_hash: HashMap<String, LHash>,
-  hash_to_name: HashMap<LHash, String>,
-  var_to_bind:  HashMap<LVar, LVarBinder>,
-  adj_env:      AdjEnv,
+  name_to_hash: HashTrieMap<String, LIdent>,
+  hash_to_name: HashTrieMap<LIdent, String>,
+  var_to_bind:  HashTrieMap<LVar, LVarBinder>,
+  adj_var:      HashTrieMap<LVar, LVar>,
+  adj_exp:      HashTrieMap<LLabel, LLabel>,
+  adj_snd_exp:  HashTrieMap<LLabel, LLabel>,
   tyinf:        IncTyInfMachine,
+  //ctx:          LCtxRef,
+  //tctx:         LTyctxRef,
 }
 
 impl LBuilder {
@@ -198,33 +208,35 @@ impl LBuilder {
     LLabel(self.label_ctr)
   }
 
-  pub fn lookup_name(&mut self, name: &str) -> LHash {
-    let &mut LBuilder{
-      ref mut hash_ctr,
-      ref mut name_to_hash,
-      ref mut hash_to_name, ..} = self;
-    name_to_hash.entry(name.to_owned()).or_insert_with(|| {
-      *hash_ctr += 1;
-      assert!(*hash_ctr != 0);
-      let new_hash = LHash(*hash_ctr);
-      hash_to_name.insert(new_hash.clone(), name.to_owned());
-      new_hash
-    }).clone()
+  pub fn lookup_name(&mut self, name: &str) -> LIdent {
+    match self.name_to_hash.get(name) {
+      None => {
+        self.hash_ctr += 1;
+        assert!(self.hash_ctr != 0);
+        let new_hash = LIdent(self.hash_ctr);
+        self.name_to_hash.insert_mut(name.to_owned(), new_hash.clone());
+        self.hash_to_name.insert_mut(new_hash.clone(), name.to_owned());
+        new_hash
+      }
+      Some(hash) => hash.clone(),
+    }
   }
 
   pub fn fresh_anon_var(&mut self) -> LVar {
     self.var_ctr += 1;
     assert!(self.var_ctr != 0);
     let new_var = LVar(self.var_ctr);
-    assert!(self.var_to_bind.insert(new_var.clone(), LVarBinder::Anon).is_none());
+    assert!(!self.var_to_bind.contains_key(&new_var));
+    self.var_to_bind.insert_mut(new_var.clone(), LVarBinder::Anon);
     new_var
   }
 
-  pub fn fresh_hash_var(&mut self, hash: LHash) -> LVar {
+  pub fn fresh_hash_var(&mut self, hash: LIdent) -> LVar {
     self.var_ctr += 1;
     assert!(self.var_ctr != 0);
     let new_var = LVar(self.var_ctr);
-    assert!(self.var_to_bind.insert(new_var.clone(), LVarBinder::Hash(hash.clone())).is_none());
+    assert!(!self.var_to_bind.contains_key(&new_var));
+    self.var_to_bind.insert_mut(new_var.clone(), LVarBinder::Ident(hash.clone()));
     new_var
   }
 
@@ -236,26 +248,61 @@ impl LBuilder {
   }
 
   pub fn _lookup_adj_var(&mut self, var: &LVar) -> Option<LVar> {
-    match self.adj_env.vars.get(var) {
+    match self.adj_var.get(var) {
       None => None,
       Some(adj) => Some(adj.clone()),
     }
   }
 
   pub fn lookup_adj_var(&mut self, var: &LVar) -> LVar {
-    match self.adj_env.vars.get(var) {
+    match self.adj_var.get(var) {
       None => {
         let adj = self.fresh_anon_var();
-        self.adj_env.vars.insert(var.clone(), adj.clone());
+        self.adj_var.insert_mut(var.clone(), adj.clone());
         adj
       }
       Some(adj) => adj.clone(),
     }
   }
 
+  pub fn _lookup_adj_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> Option<LLabel> {
+    let label = loc.as_ref();
+    match self.adj_exp.get(label) {
+      None => None,
+      Some(adj) => Some(adj.clone()),
+    }
+  }
+
   pub fn lookup_adj_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> LLabel {
-    // TODO
-    unimplemented!();
+    let label = loc.as_ref();
+    match self.adj_exp.get(label) {
+      None => {
+        let adj = self.fresh_label();
+        self.adj_exp.insert_mut(label.clone(), adj.clone());
+        adj
+      }
+      Some(adj) => adj.clone(),
+    }
+  }
+
+  pub fn _lookup_adj_snd_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> Option<LLabel> {
+    let label = loc.as_ref();
+    match self.adj_snd_exp.get(label) {
+      None => None,
+      Some(adj) => Some(adj.clone()),
+    }
+  }
+
+  pub fn lookup_adj_snd_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> LLabel {
+    let label = loc.as_ref();
+    match self.adj_snd_exp.get(label) {
+      None => {
+        let adj = self.fresh_label();
+        self.adj_snd_exp.insert_mut(label.clone(), adj.clone());
+        adj
+      }
+      Some(adj) => adj.clone(),
+    }
   }
 
   pub fn compile(&mut self, htree: Rc<HExpr>) -> Result<LModule, ()> {
@@ -275,9 +322,9 @@ impl LBuilder {
     let mut work = TyWork::default();
     self.tyinf.gen(&tree, &mut tenv, &mut work);
     let ty_res = self.tyinf.solve(tree.root(), &mut tenv, &mut work);
-    println!("DEBUG: compile: tyinf result: {:?}", ty_res);
-    println!("DEBUG: compile:   defer: {:?}", work.defer_cs);
-    println!("DEBUG: compile:   unsat: {:?}", work.unsat);
+    //println!("DEBUG: compile: tyinf result: {:?}", ty_res);
+    //println!("DEBUG: compile:   defer: {:?}", work.defer_cs);
+    //println!("DEBUG: compile:   unsat: {:?}", work.unsat);
     /*loop {
       if work.unsat() {
         return Err(());
@@ -296,8 +343,8 @@ impl LBuilder {
       None => None,
       Some(ref ctx) => tree.final_tctx(ctx, &mut tenv),
     };
-    println!("DEBUG: compile:   ctx? {:?} tctx? {:?}",
-        end_ctx.is_some(), end_tctx.is_some());
+    //println!("DEBUG: compile:   ctx? {:?} tctx? {:?}",
+    //    end_ctx.is_some(), end_tctx.is_some());
     Ok(LModule{
       tree,
       end_ctx,
@@ -664,7 +711,7 @@ impl LBuilder {
         let e = LExpr{
           version:  0,
           label:    label.clone(),
-          term:     LTerm::ProjectHash(lhs_, name_hash)
+          term:     LTerm::ProjectIdent(lhs_, name_hash)
         };
         stack.insert(pos, (e, ctx, pos));
         (label, next_pos)
@@ -813,10 +860,10 @@ impl LBuilder {
       &LTerm::IntLit(_) => kont(self, exp),
       &LTerm::FloLit(_) => kont(self, exp),
       &LTerm::Lookup(_) => kont(self, exp),
-      &LTerm::ProjectHash(ref env, ref name) => {
+      &LTerm::ProjectIdent(ref env, ref name) => {
         let env = exp.lookup(env);
         self._normalize_name(env, &mut |this, env| {
-          let new_exp = exp.append(this, &mut |_| LTerm::ProjectHash(
+          let new_exp = exp.append(this, &mut |_| LTerm::ProjectIdent(
               env.loc(),
               name.clone(),
           ));
@@ -942,7 +989,7 @@ impl LBuilder {
       &LTerm::IntLit(_) => {}
       &LTerm::FloLit(_) => {}
       &LTerm::Lookup(_) => {}
-      &LTerm::ProjectHash(ref env, _) => {
+      &LTerm::ProjectIdent(ref env, _) => {
         self._recontext_exp(exp.lookup(env), ctx);
       }
       _ => unimplemented!(),
@@ -1009,10 +1056,80 @@ impl LBuilder {
 
   fn _adj_snd_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv) -> Option<LExprCell> {
     // TODO
+    match self._lookup_adj_snd_exp(&exp) {
+      None => {}
+      Some(adj_snd_l) => return Some(exp.lookup_exp(&adj_snd_l)),
+    }
     match &exp.term() {
-      &LTerm::Let(..) |
-      &LTerm::Match(..) => {
-        Some(self._adj_exp(exp, tenv))
+      &LTerm::Let(ref name, ref body, ref rest) => {
+        // TODO
+        let rest_e = exp.lookup(rest);
+        let adj_rest_e = match self._adj_snd_exp(rest_e, tenv) {
+          None => return None,
+          Some(e) => e,
+        };
+        let new_label = self.lookup_adj_snd_exp(&exp);
+        let new_exp = match self._lookup_adj_var(name) {
+          None => {
+            exp._append(new_label, self, &mut |_| LTerm::Let(
+                name.clone(),
+                body.clone(),
+                adj_rest_e.loc()
+            ))
+          }
+          Some(adj_name) => {
+            let body_e = exp.lookup(body);
+            let adj_body_e = self._adj_exp(body_e, tenv);
+            exp._append(new_label, self, &mut |_| LTerm::Match(
+                adj_body_e.loc(),
+                vec![(
+                  LPat::STuple(vec![name.clone().into(), adj_name.clone().into()]).into(),
+                  adj_rest_e.loc(),
+                )]
+            ))
+          }
+        };
+        // TODO: register `new_exp`.
+        Some(new_exp)
+      }
+      &LTerm::Match(ref query, ref pat_arms) => {
+        // TODO
+        let mut nontriv_adj_arm = false;
+        let mut adj_arms = Vec::with_capacity(pat_arms.len());
+        for &(_, ref arm) in pat_arms.iter() {
+          let arm_e = exp.lookup(arm);
+          match self._adj_snd_exp(arm_e, tenv) {
+            None => {
+              let unit_e = exp.append(self, &mut |_| LTerm::UnitLit);
+              adj_arms.push(unit_e);
+            }
+            Some(adj_arm_e) => {
+              nontriv_adj_arm = true;
+              adj_arms.push(adj_arm_e);
+            }
+          }
+        }
+        if !nontriv_adj_arm {
+          return None;
+        }
+        // FIXME: test for adj var bound in pat.
+        let mut nontriv_adj_pat = false;
+        let mut adj_pats = Vec::with_capacity(pat_arms.len());
+        for &(ref pat, _) in pat_arms.iter() {
+          let adj_pat = self._adj_pat(pat.clone());
+          adj_pats.push(adj_pat);
+        }
+        let query_e = exp.lookup(query);
+        let adj_query_e = self._adj_exp(query_e, tenv);
+        let new_label = self.lookup_adj_snd_exp(&exp);
+        let new_exp = exp._append(new_label, self, &mut |_| LTerm::Match(
+            adj_query_e.loc(),
+            adj_pats.iter().map(|pat| pat.clone())
+              .zip(adj_arms.iter().map(|e| e.loc()))
+              .collect()
+        ));
+        // TODO: register `new_exp`.
+        Some(new_exp)
       }
       &LTerm::Apply(..) => {
         // TODO
@@ -1028,20 +1145,26 @@ impl LBuilder {
         let mut adj_params = Vec::with_capacity(params.len());
         //let mut adj_vars = Vec::with_capacity(params.len());
         for p in params.iter() {
-          match tenv.mgu_var(p.clone()) {
+          match self._lookup_adj_var(p) {
             None => {
-              // FIXME: need to defer this term.
+              adj_params.push(p.clone());
             }
-            Some((_, _, ty)) => match &*ty {
-              // FIXME
-              &LTy::Flo => {}
-              &LTy::Fun(..) => {}
-              _ => unimplemented!(),
+            Some(adj_p) => match tenv.mgu_var(p.clone()) {
+              None => {
+                // FIXME: need to defer this term.
+              }
+              Some((_, _, ty)) => match &*ty {
+                // FIXME
+                &LTy::Flo => {}
+                &LTy::Fun(..) => {}
+                _ => unimplemented!(),
+              }
             }
           }
         }
         // FIXME: need to do some fixup of the adj body.
-        let adj_lam_e = exp.append(self, &mut |_| LTerm::Lambda(
+        let new_label = self.lookup_adj_snd_exp(&exp);
+        let adj_lam_e = exp._append(new_label, self, &mut |_| LTerm::Lambda(
             adj_params.clone(),
             adj_body_e.loc()
         ));
@@ -1066,7 +1189,8 @@ impl LBuilder {
         if !nontriv_adj_elem {
           return None;
         }
-        let adj_stuple_e = exp.append(self, &mut |_| LTerm::STuple(
+        let new_label = self.lookup_adj_snd_exp(&exp);
+        let adj_stuple_e = exp._append(new_label, self, &mut |_| LTerm::STuple(
             adj_elems.iter().map(|e| e.loc()).collect()
         ));
         Some(adj_stuple_e)
@@ -1077,7 +1201,8 @@ impl LBuilder {
       }
       &LTerm::FloLit(_) => {
         let adj_nil_env_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
-        let adj_mk_env_e = exp.append(self, &mut |this| LTerm::Lambda(
+        let new_label = self.lookup_adj_snd_exp(&exp);
+        let adj_mk_env_e = exp._append(new_label, self, &mut |this| LTerm::Lambda(
             vec![this.fresh_anon_var()],
             adj_nil_env_e.loc()
         ));
@@ -1086,8 +1211,8 @@ impl LBuilder {
       &LTerm::Lookup(ref var) => {
         // FIXME: may depend on MGU for `var`.
         let adj_var = self.lookup_adj_var(var);
-        let adj_label = self.lookup_adj_exp(&exp);
-        let adj_lookup_e = exp.append(self, &mut |_| LTerm::Lookup(adj_var.clone()));
+        let new_label = self.lookup_adj_snd_exp(&exp);
+        let adj_lookup_e = exp._append(new_label, self, &mut |_| LTerm::Lookup(adj_var.clone()));
         Some(adj_lookup_e)
       }
       &LTerm::BitLit(_) |
@@ -1100,6 +1225,10 @@ impl LBuilder {
 
   fn _adj_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv) -> LExprCell {
     // TODO
+    match self._lookup_adj_exp(&exp) {
+      None => {}
+      Some(adj_l) => return exp.lookup_exp(&adj_l),
+    }
     match &exp.term() {
       &LTerm::Let(ref name, ref body, ref rest) => {
         // TODO
@@ -1108,10 +1237,10 @@ impl LBuilder {
         if adj_rest_e.label == rest.label {
           return exp;
         }
-        let adj_label = self.lookup_adj_exp(&exp);
+        let new_label = self.lookup_adj_exp(&exp);
         let new_exp = match self._lookup_adj_var(name) {
           None => {
-            exp._append(adj_label, self, &mut |_| LTerm::Let(
+            exp._append(new_label, self, &mut |_| LTerm::Let(
                 name.clone(),
                 body.clone(),
                 adj_rest_e.loc()
@@ -1120,7 +1249,7 @@ impl LBuilder {
           Some(adj_name) => {
             let body_e = exp.lookup(body);
             let adj_body_e = self._adj_exp(body_e, tenv);
-            exp._append(adj_label, self, &mut |_| LTerm::Match(
+            exp._append(new_label, self, &mut |_| LTerm::Match(
                 adj_body_e.loc(),
                 vec![(
                   LPat::STuple(vec![name.clone().into(), adj_name.clone().into()]).into(),
@@ -1147,6 +1276,8 @@ impl LBuilder {
         if !nontriv_adj_arm {
           return exp;
         }
+        // FIXME: test for adj var bound in pat.
+        let mut nontriv_adj_pat = false;
         let mut adj_pats = Vec::with_capacity(pat_arms.len());
         for &(ref pat, _) in pat_arms.iter() {
           let adj_pat = self._adj_pat(pat.clone());
@@ -1154,8 +1285,8 @@ impl LBuilder {
         }
         let query_e = exp.lookup(query);
         let adj_query_e = self._adj_exp(query_e, tenv);
-        let adj_label = self.lookup_adj_exp(&exp);
-        let new_exp = exp.append(self, &mut |_| LTerm::Match(
+        let new_label = self.lookup_adj_exp(&exp);
+        let new_exp = exp._append(new_label, self, &mut |_| LTerm::Match(
             adj_query_e.loc(),
             adj_pats.iter().map(|pat| pat.clone())
               .zip(adj_arms.iter().map(|e| e.loc()))
@@ -1168,8 +1299,8 @@ impl LBuilder {
         match self._adj_snd_exp(exp.clone(), tenv) {
           None => exp,
           Some(adj_exp) => {
-            let adj_label = self.lookup_adj_exp(&exp);
-            let new_exp = exp._append(adj_label, self, &mut |_| LTerm::STuple(vec![exp.loc(), adj_exp.loc()]));
+            let new_label = self.lookup_adj_exp(&exp);
+            let new_exp = exp._append(new_label, self, &mut |_| LTerm::STuple(vec![exp.loc(), adj_exp.loc()]));
             // TODO: register `new_exp`.
             new_exp
           }
@@ -1184,9 +1315,9 @@ enum Tyexp {
   Var(LTyvar),
   //Adj(/*LTyvar,*/ LTyvar),
   Fun(Vec<TyexpRef>, TyexpRef),
-  //EnvCons(LVar, LHash, LTyvar, TyexpRef),
-  //EnvCat(RedBlackTreeMap<LEnvKey, LTyvar>, RedBlackTreeMap<LHash, LVar>, TyexpRef),
-  Env(RedBlackTreeMap<LEnvKey, LTyvar>, RedBlackTreeMap<LHash, LVar>),
+  //EnvCons(LVar, LIdent, LTyvar, TyexpRef),
+  //EnvCat(RedBlackTreeMap<LEnvKey, LTyvar>, RedBlackTreeMap<LIdent, LVar>, TyexpRef),
+  Env(RedBlackTreeMap<LEnvKey, LTyvar>, RedBlackTreeMap<LIdent, LVar>),
   STup(Vec<TyexpRef>),
   Tup,
   Bit,
@@ -1229,7 +1360,7 @@ enum Tytag {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum LTy {
   Fun(Vec<LTyRef>, LTyRef),
-  Env(RedBlackTreeMap<LEnvKey, LTyRef>, RedBlackTreeMap<LHash, LVar>),
+  Env(RedBlackTreeMap<LEnvKey, LTyRef>, RedBlackTreeMap<LIdent, LVar>),
   STup(Vec<LTyRef>),
   Tup,
   Bit,
@@ -1278,7 +1409,7 @@ enum TyCon {
   //IsAConcat(LTy, LTy, LTy),
   //IsAApp(Vec<(usize, LVar)>, LTyvar, LTy),
   //IsERet(Vec<(usize, LVar)>, LTyvar, LTy),
-  IsProjHash(TyexpRef, TyexpRef, LHash),
+  IsProjIdent(TyexpRef, TyexpRef, LIdent),
 }
 
 /*fn conj_ty2(lhs: TyConRef, rhs: TyConRef) -> TyConRef {
@@ -1323,7 +1454,7 @@ struct TyAdjHyp {
 #[derive(Debug)]
 enum TyDeferral {
   PtlD(LLoc, LLoc),
-  ProjHash(LLoc, LLoc, LHash),
+  ProjIdent(LLoc, LLoc, LIdent),
 }
 
 #[derive(Default, Debug)]
@@ -1618,7 +1749,7 @@ impl TyEnv {
   }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct IncTyInfMachine {
 }
 
@@ -1663,11 +1794,11 @@ impl IncTyInfMachine {
         // TODO
         let ctx = exp.ctx();
         let mut keys: RedBlackTreeMap<LEnvKey, LTyvar> = Default::default();
-        let mut hashes: RedBlackTreeMap<LHash, LVar> = Default::default();
+        let mut hashes: RedBlackTreeMap<LIdent, LVar> = Default::default();
         for (binder, var) in ctx.bind_to_var.iter() {
           keys.insert_mut(LEnvKey::Var(var.clone()), tenv.lookup_var(var));
           match binder {
-            &LVarBinder::Hash(ref hash) => {
+            &LVarBinder::Ident(ref hash) => {
               hashes.insert_mut(hash.clone(), var.clone());
             }
             &LVarBinder::Anon => {}
@@ -1723,12 +1854,12 @@ impl IncTyInfMachine {
         let con = TyConRef::new(TyCon::Eq_(ety.into(), name_v.into()));
         work.cons.push_front(con);
       }
-      &LTerm::ProjectHash(ref env, ref hash) => {
+      &LTerm::ProjectIdent(ref env, ref hash) => {
         // FIXME: should immediately defer this case.
         let env_con = self._gen_exp(exp.lookup(env), tenv, work);
-        let hashsel_con = TyConRef::new(TyCon::IsProjHash(ety.into(), tenv.lookup_exp(env).into(), hash.clone()));
+        let hashsel_con = TyConRef::new(TyCon::IsProjIdent(ety.into(), tenv.lookup_exp(env).into(), hash.clone()));
         work.cons.push_front(hashsel_con);
-        /*work.defer.push_front(TyDeferral::ProjHash(ety.clone(), env.clone(), hash.clone()));*/
+        /*work.defer.push_front(TyDeferral::ProjIdent(ety.clone(), env.clone(), hash.clone()));*/
       }
       _ => unimplemented!(),
     }
@@ -1948,7 +2079,7 @@ impl IncTyInfMachine {
           }
         }
       }*/
-      &TyCon::IsProjHash(ref ety, ref env_ty, ref hash) => {
+      &TyCon::IsProjIdent(ref ety, ref env_ty, ref hash) => {
         // TODO
         match tenv.mgu_texp(env_ty.clone()).as_ref().map(|t| &**t) {
           None => {
@@ -1983,21 +2114,6 @@ impl IncTyInfMachine {
       _ => unimplemented!(),
     }
   }
-
-  fn resolve(&mut self, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
-    // TODO:
-    // - work through the deferred cases
-    // - if a case can be resolved with an MGU, then append a replacement
-    //   ("bridge") expr; but don't mutate the tree yet
-    // - continue to defer cases that cannot be resolved
-    // - new bridge exprs also need tvars
-    unimplemented!();
-  }
-
-  fn regen(&mut self, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
-    // TODO
-    unimplemented!();
-  }
 }
 
 #[derive(Clone, Debug)]
@@ -2020,8 +2136,8 @@ impl LCtxRef {
     }
   }
 
-  pub fn lookup_hash(&self, hash: LHash) -> Option<LVar> {
-    match self.bind_to_var.get(&LVarBinder::Hash(hash)) {
+  pub fn lookup_hash(&self, hash: LIdent) -> Option<LVar> {
+    match self.bind_to_var.get(&LVarBinder::Ident(hash)) {
       None => None,
       Some(v) => Some(v.clone()),
     }
@@ -2050,7 +2166,7 @@ impl LTyctxRef {
   }*/
 }
 
-#[derive(Default, Debug)]
+/*#[derive(Default, Debug)]
 struct AdjEnv {
   vars: HashMap<LVar, LVar>,
   bound_adjs: HashSet<LVar>,
@@ -2068,7 +2184,7 @@ impl AdjEnv {
   fn unsafe_bind_adj(&mut self, adj: LVar) {
     self.bound_adjs.insert(adj);
   }
-}
+}*/
 
 /*#[derive(Clone)]
 pub struct LRel {
@@ -2153,8 +2269,9 @@ pub struct LTree {
   mexps:    Vec<LMExpr>,
   exps:     Vec<LExpr>,
   history:  Vec<(usize, LDelta)>,
+  index:    HashMap<LLabel, usize>,
   ctxs:     HashMap<LLabel, LCtxRef>,
-  index:    LTreeIndex,
+  //index:    LTreeIndex,
 }
 
 #[derive(Clone, Debug)]
@@ -2226,14 +2343,14 @@ impl LTreeCell {
     for var in ctx.var_stack.iter() {
       let v = match tenv._lookup_var(var) {
         None => {
-          println!("DEBUG: resolve_ctx: no tvar");
+          //println!("DEBUG: resolve_ctx: no tvar");
           return None;
         }
         Some(v) => v,
       };
       match tenv.mgu(v.clone()) {
         None => {
-          println!("DEBUG: resolve_ctx: no mgu");
+          //println!("DEBUG: resolve_ctx: no mgu");
           return None;
         }
         Some((w, ty)) => {
@@ -2309,7 +2426,24 @@ impl LExprCell {
     }
   }
 
+  pub fn lookup_exp<L: AsRef<LLabel>>(&self, loc: &L) -> LExprCell {
+    let label = loc.as_ref();
+    let tree = self.tree.data.borrow();
+    let pos = match tree.index.get(label) {
+      None => panic!(),
+      Some(pos) => *pos,
+    };
+    assert_eq!(label, &tree.exps[pos].label);
+    LExprCell{
+      view:     self.view.clone(),
+      tree:     self.tree.clone(),
+      pos:      pos,
+      label:    label.clone(),
+    }
+  }
+
   pub fn append_mexp(&self) {
+    // TODO
     unimplemented!();
   }
 
@@ -2345,6 +2479,7 @@ impl LExprCell {
       });
       tree.history.push((view.version, LDelta::Append(LLoc::new(new_label.clone(), new_pos))));
       assert_eq!(view.version, tree.history.len());
+      tree.index.insert(new_label.clone(), new_pos);
       new_pos
     };
     LExprCell{
@@ -2419,7 +2554,12 @@ impl LExprRef {
     }
   }*/
 
-  pub fn jump(&self, loc: LLoc) -> LExprRef {
+  pub fn jump(&self, loc: &LLoc) -> LExprRef {
+    // TODO
+    unimplemented!();
+  }
+
+  pub fn term(&self) -> LTerm {
     // TODO
     unimplemented!();
   }

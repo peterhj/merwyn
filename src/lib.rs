@@ -19,9 +19,11 @@ extern crate rdrand;
 extern crate rpds;
 extern crate serde;
 #[macro_use] extern crate serde_derive;
+extern crate termion;
 extern crate vertreap;
 
 pub mod builtins;
+pub mod cffi;
 pub mod cfg;
 pub mod iio;
 pub mod ir;
@@ -29,5 +31,6 @@ pub mod ir2;
 pub mod lang;
 pub mod mach;
 pub mod num_util;
+pub mod repl;
 pub mod rngs;
 pub mod vm;

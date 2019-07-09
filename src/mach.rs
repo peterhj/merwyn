@@ -2,7 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use crate::ir2::{LCodeRef, LEnvKey, LExprRef, LVar};
+//use crate::cffi::{MCValRef};
+use crate::ir2::{LCodeRef, LEnvKey, LExprRef, LPatRef, LTerm, LVar};
 use crate::num_util::{Checked};
 
 use rpds::{HashTrieMap};
@@ -22,16 +23,13 @@ pub type MValRef = Rc<MVal>;
 
 pub type MThunkRef = Rc<MThunk>;
 
-#[repr(C)]
-pub struct MCValRef {
-  // TODO
-}
-
+#[derive(Clone)]
 pub enum MVal {
-  Rec(MRecord),
+  Env(MEnvRec),
   Clo(MClosure),
   STup(Vec<MValRef>),
   Tup(Vec<MValRef>),
+  Unit,
   Bit(bool),
   Int(Checked<i64>),
   Flo(f64),
@@ -40,10 +38,12 @@ pub enum MVal {
   //...
 }
 
-pub struct MRecord {
+#[derive(Clone)]
+pub struct MEnvRec {
   pub keys: HashTrieMap<LEnvKey, MAddr>,
 }
 
+#[derive(Clone)]
 pub struct MClosure {
   // TODO
   pub env:  MEnvRef,
@@ -51,16 +51,16 @@ pub struct MClosure {
 }
 
 #[derive(Clone)]
-pub struct MBModule {
+pub struct MBLambda {
   // TODO
   pub fun:  Rc<dyn Fn(Vec<MValRef>) -> MValRef>,
 }
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct MCModule {
+pub struct MCLambda {
   // TODO
-  pub cfun: Option<extern "C" fn (*mut MCValRef, usize) -> MCValRef>,
+  //pub cfun: Option<extern "C" fn (*mut MCValRef, usize) -> MCValRef>,
 }
 
 #[derive(Clone)]
@@ -78,16 +78,17 @@ impl Default for MReg {
   }
 }
 
+#[derive(Clone)]
 pub enum MKont {
   // TODO
   Hlt,
   Thk(MAddr, LExprRef, MEnvRef, MKontRef),
   App(Option<MClosure>, Vec<MValRef>, VecDeque<LExprRef>, MEnvRef, MKontRef),
   Ret(MEnvRef, MKontRef),
-  EImp(LExprRef, MEnvRef, MKontRef),
-  //Mch(VecDeque<(LPat, LExpr)>, VMEnvRef, VMKontRef),
-  //STup(Vec<LExpr>, Vec<VMValRef>, VMEnvRef, VMKontRef),
-  //Tup(Vec<LExpr>, Vec<VMValRef>, VMEnvRef, VMKontRef),
+  Mch(VecDeque<(LPatRef, LExprRef)>, MEnvRef, MKontRef),
+  STup(Vec<MValRef>, VecDeque<LExprRef>, MEnvRef, MKontRef),
+  Tup(Vec<MValRef>, VecDeque<LExprRef>, MEnvRef, MKontRef),
+  //EImp(LExprRef, MEnvRef, MKontRef),
 }
 
 impl Default for MKont {
@@ -169,36 +170,156 @@ pub enum MThunkData {
 }
 
 #[derive(Default)]
-pub struct Machine {
+pub struct MachineTuple {
   ctrl:     MReg,
   env:      MEnvRef,
   kont:     MKontRef,
+}
+
+#[derive(Default)]
+pub struct MachineState {
   store:    MStore,
 }
 
-impl Machine {
-  pub fn _step(&mut self) {
+impl MachineState {
+  pub fn _step(&mut self, frame: MachineTuple) -> MachineTuple {
     // TODO
-    let ctrl = self.ctrl.clone();
+    /*let ctrl = self.ctrl.clone();
     let env = self.env.clone();
-    let kont = self.kont.clone();
-    /*let (next_ctrl, next_env, next_kont) =*/ match ctrl {
+    let kont = self.kont.clone();*/
+    let MachineTuple{ctrl, env, kont} = frame;
+    let next_frame = match ctrl {
       MReg::Rst => {
         panic!("machine: reset");
       }
       MReg::Val(val) => {
         // TODO
-        unimplemented!();
+        let val = match Rc::try_unwrap(val) {
+          Ok(v) => v,
+          Err(val) => (*val).clone(),
+        };
+        let kont = match Rc::try_unwrap(kont) {
+          Ok(k) => k,
+          Err(kont) => (*kont).clone(),
+        };
+        match (val, kont) {
+          (MVal::Clo(closure), MKont::App(None, ..)) => {
+            // TODO
+            unimplemented!();
+          }
+          (_, MKont::App(Some(_), ..)) => {
+            // TODO
+            unimplemented!();
+          }
+          (_, MKont::App(..)) => {
+            panic!("machine: bug");
+          }
+          (val, MKont::Ret(prev_env, prev_kont)) => {
+            MachineTuple{
+              ctrl: MReg::Val(val.into()),
+              env:  prev_env,
+              kont: prev_kont,
+            }
+          }
+          _ => unimplemented!(),
+        }
       }
       MReg::Expr(exp) => {
         // TODO
-        unimplemented!();
+        let kont = match Rc::try_unwrap(kont) {
+          Ok(k) => k,
+          Err(kont) => (*kont).clone(),
+        };
+        match (exp.term(), kont) {
+          (LTerm::End, MKont::Hlt) => {
+            MachineTuple{
+              ctrl: MReg::Rst,
+              kont: MKont::Hlt.into(),
+              env,
+            }
+          }
+          (LTerm::Apply(head, args), MKont::Ret(prev_env, prev_kont)) => {
+            // TODO
+            MachineTuple{
+              ctrl: MReg::Expr(exp.jump(&head)),
+              kont: MKont::App(None, Vec::new(), VecDeque::new(), prev_env, prev_kont).into(),
+              env,
+            }
+          }
+          (LTerm::Apply(head, args), kont) => {
+            // TODO
+            MachineTuple{
+              ctrl: MReg::Expr(exp.jump(&head)),
+              kont: MKont::App(None, Vec::new(), VecDeque::new(), env.clone(), kont.into()).into(),
+              env,
+            }
+          }
+          (LTerm::Lambda(params, body), _) => {
+            // TODO
+            unimplemented!();
+          }
+          (LTerm::Let(name, body, rest), _) => {
+            // TODO
+            unimplemented!();
+          }
+          (LTerm::Fix(fixname, fixbody), _) => {
+            // TODO
+            unimplemented!();
+          }
+          (LTerm::Match(query, pat_arms), _) => {
+            // TODO
+            unimplemented!();
+          }
+          (LTerm::STuple(elems), _) => {
+            // TODO
+            unimplemented!();
+          }
+          (LTerm::Tuple(elems), _) => {
+            // TODO
+            unimplemented!();
+          }
+          (LTerm::UnitLit, _) => {
+            // TODO
+            unimplemented!();
+          }
+          (LTerm::BitLit(x), _) => {
+            // TODO
+            unimplemented!();
+          }
+          (LTerm::IntLit(x), _) => {
+            // TODO
+            unimplemented!();
+          }
+          (LTerm::FloLit(x), _) => {
+            // TODO
+            unimplemented!();
+          }
+          (LTerm::Lookup(name), _) => {
+            // TODO
+            unimplemented!();
+          }
+          _ => unimplemented!(),
+        }
       }
       _ => unimplemented!(),
     };
+    next_frame
   }
 
   pub fn eval(&mut self, code: LCodeRef) {
     // TODO
+  }
+}
+
+#[derive(Default)]
+pub struct Machine {
+  state:    MachineState,
+  tuple:    MachineTuple,
+}
+
+impl Machine {
+  pub fn _step(mut self) -> Machine {
+    self.tuple = self.state._step(self.tuple);
+    self
   }
 }
