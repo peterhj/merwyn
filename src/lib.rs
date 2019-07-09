@@ -22,10 +22,10 @@ extern crate serde;
 extern crate termion;
 extern crate vertreap;
 
+pub mod build;
 pub mod builtins;
 pub mod cffi;
 pub mod cfg;
-pub mod iio;
 pub mod ir;
 pub mod ir2;
 pub mod lang;

@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use crate::build::{GIT_COMMIT_HASH, GIT_MODIFIED};
 use crate::ir2::{LBuilder};
 use crate::mach::{Machine};
 
@@ -11,7 +12,9 @@ use termion::cursor::{Left, Right};
 use termion::raw::{IntoRawMode};
 
 use std::collections::{VecDeque};
+use std::fmt::{self, Write as FmtWrite};
 use std::io::{Bytes, Read, Write, stdout};
+use std::str::{from_utf8};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, channel, sync_channel};
 use std::thread::{JoinHandle, sleep, spawn};
 use std::time::{Duration};
@@ -29,21 +32,81 @@ const RIGHT:  u8 = 39;
 const DOWN:   u8 = 40;
 const BACK:   u8 = 127;
 
+pub struct ReplLineWriter {
+  linemode: ReplLineMode,
+  ctrl_tq:  Sender<ReplCtrl>,
+  buf:      String,
+}
+
+impl FmtWrite for ReplLineWriter {
+  fn write_str(&mut self, s: &str) -> Result<(), fmt::Error> {
+    let mut toks = s.split("\n");
+    match toks.next() {
+      None => return Ok(()),
+      Some(t) => {
+        self.buf.push_str(t);
+      }
+    }
+    for t in toks {
+      self.ctrl_tq.send(ReplCtrl::Line(self.linemode, self.buf.clone()))
+        .map_err(|_| fmt::Error)?;
+      self.buf.clear();
+      self.buf.push_str(t);
+    }
+    Ok(())
+  }
+}
+
+impl ReplLineWriter {
+  pub fn new_error(ctrl_tq: Sender<ReplCtrl>) -> ReplLineWriter {
+    ReplLineWriter{
+      linemode: ReplLineMode::Error,
+      ctrl_tq,
+      buf:      String::new(),
+    }
+  }
+
+  pub fn new_info(ctrl_tq: Sender<ReplCtrl>) -> ReplLineWriter {
+    ReplLineWriter{
+      linemode: ReplLineMode::Info,
+      ctrl_tq,
+      buf:      String::new(),
+    }
+  }
+
+  pub fn new_trace(ctrl_tq: Sender<ReplCtrl>) -> ReplLineWriter {
+    ReplLineWriter{
+      linemode: ReplLineMode::Trace,
+      ctrl_tq,
+      buf:      String::new(),
+    }
+  }
+}
+
 pub struct ReplInterpreter {
-  ctrl_tq:  SyncSender<ReplCtrl>,
+  ctrl_tq:  Sender<ReplCtrl>,
+  error_fd: ReplLineWriter,
+  info_fd:  ReplLineWriter,
+  trace_fd:  ReplLineWriter,
   line_rq:  Receiver<ReplLine>,
   builder:  LBuilder,
   machine:  Machine,
 }
 
 impl ReplInterpreter {
-  pub fn new(ctrl_tq: SyncSender<ReplCtrl>, line_rq: Receiver<ReplLine>) -> ReplInterpreter {
+  pub fn new(ctrl_tq: Sender<ReplCtrl>, line_rq: Receiver<ReplLine>) -> ReplInterpreter {
     ReplInterpreter::with_machine(ctrl_tq, line_rq, Machine::default())
   }
 
-  pub fn with_machine(ctrl_tq: SyncSender<ReplCtrl>, line_rq: Receiver<ReplLine>, machine: Machine) -> ReplInterpreter {
+  pub fn with_machine(ctrl_tq: Sender<ReplCtrl>, line_rq: Receiver<ReplLine>, machine: Machine) -> ReplInterpreter {
+    let error_fd = ReplLineWriter::new_error(ctrl_tq.clone());
+    let info_fd = ReplLineWriter::new_info(ctrl_tq.clone());
+    let trace_fd = ReplLineWriter::new_trace(ctrl_tq.clone());
     ReplInterpreter{
       ctrl_tq,
+      error_fd,
+      info_fd,
+      trace_fd,
       line_rq,
       builder:  LBuilder::default(),
       machine,
@@ -51,32 +114,42 @@ impl ReplInterpreter {
   }
 
   pub fn eval_loop(&mut self) {
-    sleep(Duration::from_millis(300));
+    writeln!(&mut self.info_fd, "(** Merwyn interactive mode | git:{}{} | :? for help *)",
+        GIT_COMMIT_HASH,
+        if GIT_MODIFIED { "-mod" } else { "" }).unwrap();
     self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
     loop {
-      //self.ctrl_tq.send(ReplCtrl::Msg(ReplLineMode::Info, "Hello, world!".to_owned())).unwrap();
-      //sleep(Duration::from_millis(3142));
-      //continue;
       match self.line_rq.recv() {
         Ok(ReplLine::Prompt(_)) => {
-          //eprintln!("recv: prompt");
-          //stderr().flush().unwrap();
-          sleep(Duration::from_millis(450));
-          self.ctrl_tq.send(ReplCtrl::Msg(ReplLineMode::Info, "Hello, world!".to_owned())).unwrap();
-          sleep(Duration::from_millis(300));
+          writeln!(&mut self.trace_fd, "# todo: machine eval").unwrap();
           self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
         }
-        Ok(ReplLine::Command(_)) => {
-          //eprintln!("recv: command");
-          //stderr().flush().unwrap();
-          sleep(Duration::from_millis(450));
-          self.ctrl_tq.send(ReplCtrl::Msg(ReplLineMode::Info, "Hello, world!".to_owned())).unwrap();
-          sleep(Duration::from_millis(300));
-          self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
+        Ok(ReplLine::Command(cmd_buf)) => {
+          match &cmd_buf as &str {
+            "?" | "h" | "help" => {
+              writeln!(&mut self.info_fd, "(** Interactive commands:").unwrap();
+              writeln!(&mut self.info_fd, "        :? :h :help     show this help message").unwrap();
+              writeln!(&mut self.info_fd, "        :q :quit        quit repl").unwrap();
+              writeln!(&mut self.info_fd, "*)").unwrap();
+              self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
+            }
+            "q" | "quit" => {
+              writeln!(&mut self.info_fd, "(* Goodbye... *)").unwrap();
+              self.ctrl_tq.send(ReplCtrl::Halt).unwrap();
+              break;
+            }
+            "hello" => {
+              sleep(Duration::from_millis(450));
+              writeln!(&mut self.trace_fd, "(* Hello, world! *)").unwrap();
+              sleep(Duration::from_millis(300));
+              self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
+            }
+            _ => {
+              self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
+            }
+          }
         }
         Err(_) => {
-          //eprintln!("recv failed");
-          //stderr().flush().unwrap();
           break;
         }
       }
@@ -85,8 +158,9 @@ impl ReplInterpreter {
 }
 
 pub enum ReplCtrl {
+  Halt,
   IO(ReplIOMode),
-  Msg(ReplLineMode, String),
+  Line(ReplLineMode, String),
 }
 
 pub enum ReplLine {
@@ -103,6 +177,7 @@ pub enum ReplIOMode {
   Stdin,
 }
 
+#[derive(Clone, Copy)]
 pub enum ReplLineMode {
   Prompt,
   Command,
@@ -114,7 +189,6 @@ pub enum ReplLineMode {
 
 pub struct ReplTermState {
   blocked:  String,
-  prompt:   String,
   query:    String,
   answer:   String,
   mode:     ReplIOMode,
@@ -130,7 +204,6 @@ impl Default for ReplTermState {
   fn default() -> ReplTermState {
     ReplTermState{
       blocked:  "...   ".to_string(),
-      prompt:   "merwyn".to_string(),
       query:    "merwyn".to_string(),
       answer:   "merwyn".to_string(),
       mode:     ReplIOMode::Blocked,
@@ -154,10 +227,10 @@ impl ReplTermState {
         write!(stdout, "{}\r{}  {}", CurrentLine, self.blocked, self.tmpbuf).unwrap();
       }
       ReplIOMode::Prompt => {
-        write!(stdout, "{}\r{}- {}", CurrentLine, self.prompt, self.tmpbuf).unwrap();
+        write!(stdout, "{}\r{}- {}", CurrentLine, self.query, self.tmpbuf).unwrap();
       }
       ReplIOMode::Command => {
-        write!(stdout, "{}\r{}-:{}", CurrentLine, self.prompt, self.tmpbuf).unwrap();
+        write!(stdout, "{}\r{}-:{}", CurrentLine, self.query, self.tmpbuf).unwrap();
       }
       ReplIOMode::Stdin => {
         write!(stdout, "{}\r{}< {}", CurrentLine, self.query, self.tmpbuf).unwrap();
@@ -176,10 +249,10 @@ impl ReplTermState {
       }
       _ => match linemode {
         ReplLineMode::Prompt => {
-          write!(stdout, "{}= {}\r\n", self.prompt, line).unwrap();
+          write!(stdout, "{}= {}\r\n", self.answer, line).unwrap();
         }
         ReplLineMode::Command => {
-          write!(stdout, "{}=:{}\r\n", self.prompt, line).unwrap();
+          write!(stdout, "{}=:{}\r\n", self.answer, line).unwrap();
         }
         ReplLineMode::Error => {
           write!(stdout, "{}! {}\r\n", self.answer, line).unwrap();
@@ -199,11 +272,14 @@ impl ReplTermState {
 
   fn drain(&mut self, stdin: &mut Bytes<AsyncReader>, stdout: &mut dyn Write) -> bool {
     match self.mode {
+      ReplIOMode::NoIO => {
+        panic!("This is almost certainly a bug.");
+      }
       ReplIOMode::Blocked => loop {
         match stdin.next() {
           Some(Ok(CTRL_C)) => {
             // TODO: signal.
-            write!(stdout, "^C\r\n").unwrap();
+            //write!(stdout, "^C\r\n").unwrap();
             return true;
           }
           Some(Ok(CTRL_D)) => {
@@ -221,7 +297,7 @@ impl ReplTermState {
         match stdin.next() {
           Some(Ok(CTRL_C)) => {
             // TODO: signal.
-            write!(stdout, "^C\r\n").unwrap();
+            //write!(stdout, "^C\r\n").unwrap();
             return true;
           }
           Some(Ok(CTRL_D)) => {
@@ -362,13 +438,13 @@ impl ReplTermState {
 pub struct ReplTerminal {
   term:     ReplTermState,
   ctrl_rq:  Receiver<ReplCtrl>,
-  //ctrl_tq:  SyncSender<ReplCtrl>,
+  //ctrl_tq:  Sender<ReplCtrl>,
   line_tq:  Sender<ReplLine>,
 }
 
 impl ReplTerminal {
-  pub fn new() -> (ReplTerminal, SyncSender<ReplCtrl>, Receiver<ReplLine>) {
-    let (ctrl_tq, ctrl_rq) = sync_channel(8);
+  pub fn new() -> (ReplTerminal, Sender<ReplCtrl>, Receiver<ReplLine>) {
+    let (ctrl_tq, ctrl_rq) = channel();
     let (line_tq, line_rq) = channel();
     (ReplTerminal{
       term:     ReplTermState::default(),
@@ -380,7 +456,7 @@ impl ReplTerminal {
 }
 
 impl ReplTerminal {
-  pub fn start_async() -> (JoinHandle<()>, SyncSender<ReplCtrl>, Receiver<ReplLine>) {
+  pub fn start_async() -> (JoinHandle<()>, Sender<ReplCtrl>, Receiver<ReplLine>) {
     let (mut repl_term, ctrl_tq, line_rq) = ReplTerminal::new();
     let h = spawn(move || repl_term.runloop());
     (h, ctrl_tq, line_rq)
@@ -395,13 +471,16 @@ impl ReplTerminal {
     stdout.flush().unwrap();
     let sleep_delay = Duration::from_millis(8);
     let mut ctr = 0;
-    loop {
+    'main_loop: loop {
       if self.term.drain(&mut stdin, &mut stdout) {
         break;
       }
       let mut commit = false;
       loop {
         match self.ctrl_rq.try_recv() {
+          Ok(ReplCtrl::Halt) => {
+            break 'main_loop;
+          }
           Ok(ReplCtrl::IO(iomode)) => {
             if !commit {
               write!(&mut stdout, "{}\r", CurrentLine).unwrap();
@@ -409,7 +488,7 @@ impl ReplTerminal {
             }
             self.term.mode = iomode;
           }
-          Ok(ReplCtrl::Msg(linemode, msg)) => {
+          Ok(ReplCtrl::Line(linemode, msg)) => {
             if !commit {
               write!(&mut stdout, "{}\r", CurrentLine).unwrap();
               commit = true;
