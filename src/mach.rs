@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 //use crate::cffi::{MCValRef};
-use crate::ir2::{LCodeRef, LEnvKey, LExprRef, LPatRef, LTerm, LVar};
+use crate::ir2::{LCodeRef, LEnvKey, LPatRef, LTerm, LTermRef, LVar};
 use crate::num_util::{Checked};
 
 use rpds::{HashTrieMap};
@@ -47,7 +47,7 @@ pub struct MEnvRec {
 pub struct MClosure {
   // TODO
   pub env:  MEnvRef,
-  pub exp:  LExprRef,
+  pub term: LTermRef,
 }
 
 #[derive(Clone)]
@@ -58,7 +58,7 @@ pub struct MBLambda {
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct MCLambda {
+pub struct MCUnsafeLambda {
   // TODO
   //pub cfun: Option<extern "C" fn (*mut MCValRef, usize) -> MCValRef>,
 }
@@ -67,7 +67,7 @@ pub struct MCLambda {
 pub enum MReg {
   Rst,
   Val(MValRef),
-  Expr(LExprRef),
+  Term(LTermRef),
   //BCode(_),
   //CCode(_),
 }
@@ -82,13 +82,14 @@ impl Default for MReg {
 pub enum MKont {
   // TODO
   Hlt,
-  Thk(MAddr, LExprRef, MEnvRef, MKontRef),
-  App(Option<MClosure>, Vec<MValRef>, VecDeque<LExprRef>, MEnvRef, MKontRef),
+  XInc(LTermRef, MKontRef),
+  Thk(MAddr, LTermRef, MEnvRef, MKontRef),
+  App(Option<MClosure>, Vec<MValRef>, VecDeque<LTermRef>, MEnvRef, MKontRef),
   Ret(MEnvRef, MKontRef),
-  Mch(VecDeque<(LPatRef, LExprRef)>, MEnvRef, MKontRef),
-  STup(Vec<MValRef>, VecDeque<LExprRef>, MEnvRef, MKontRef),
-  Tup(Vec<MValRef>, VecDeque<LExprRef>, MEnvRef, MKontRef),
-  //EImp(LExprRef, MEnvRef, MKontRef),
+  Mch(VecDeque<(LPatRef, LTermRef)>, MEnvRef, MKontRef),
+  STup(Vec<MValRef>, VecDeque<LTermRef>, MEnvRef, MKontRef),
+  Tup(Vec<MValRef>, VecDeque<LTermRef>, MEnvRef, MKontRef),
+  //EImp(LTermRef, MEnvRef, MKontRef),
 }
 
 impl Default for MKont {
@@ -150,23 +151,28 @@ impl MRcStore {
     match &mut *data {
       &mut MThunkData::Emp => panic!("machine: runtime error"),
       &mut MThunkData::Blk => {
-        *data = MThunkData::Val(val);
+        *data = MThunkData::Fin(val);
       }
-      &mut MThunkData::Val(_) => panic!("machine: runtime error"),
+      &mut MThunkData::Fin(_) => panic!("machine: runtime error"),
+      &mut MThunkData::Dst => panic!("machine: runtime error"),
     }
   }
 }
 
 pub struct MThunk {
   pub env:  MEnvRef,
-  pub exp:  LExprRef,
+  pub exp:  LTermRef,
   pub data: RefCell<MThunkData>,
 }
 
 pub enum MThunkData {
+  // TODO
   Emp,
   Blk,
-  Val(MValRef),
+  //Fut(MValRef),
+  Fin(MValRef),
+  //Exc,
+  Dst,
 }
 
 #[derive(Default)]
@@ -182,13 +188,13 @@ pub struct MachineState {
 }
 
 impl MachineState {
-  pub fn _step(&mut self, frame: MachineTuple) -> MachineTuple {
+  pub fn _step(&mut self, tuple: MachineTuple) -> MachineTuple {
     // TODO
     /*let ctrl = self.ctrl.clone();
     let env = self.env.clone();
     let kont = self.kont.clone();*/
-    let MachineTuple{ctrl, env, kont} = frame;
-    let next_frame = match ctrl {
+    let MachineTuple{ctrl, env, kont} = tuple;
+    let next_tuple = match ctrl {
       MReg::Rst => {
         panic!("machine: reset");
       }
@@ -224,7 +230,7 @@ impl MachineState {
           _ => unimplemented!(),
         }
       }
-      MReg::Expr(exp) => {
+      MReg::Term(exp) => {
         // TODO
         let kont = match Rc::try_unwrap(kont) {
           Ok(k) => k,
@@ -238,10 +244,17 @@ impl MachineState {
               env,
             }
           }
+          (LTerm::End, MKont::XInc(next_exp, prev_kont)) => {
+            MachineTuple{
+              ctrl: MReg::Term(next_exp),
+              kont: prev_kont,
+              env,
+            }
+          }
           (LTerm::Apply(head, args), MKont::Ret(prev_env, prev_kont)) => {
             // TODO
             MachineTuple{
-              ctrl: MReg::Expr(exp.jump(&head)),
+              ctrl: MReg::Term(exp.jump(head)),
               kont: MKont::App(None, Vec::new(), VecDeque::new(), prev_env, prev_kont).into(),
               env,
             }
@@ -249,7 +262,7 @@ impl MachineState {
           (LTerm::Apply(head, args), kont) => {
             // TODO
             MachineTuple{
-              ctrl: MReg::Expr(exp.jump(&head)),
+              ctrl: MReg::Term(exp.jump(head)),
               kont: MKont::App(None, Vec::new(), VecDeque::new(), env.clone(), kont.into()).into(),
               env,
             }
@@ -303,7 +316,7 @@ impl MachineState {
       }
       _ => unimplemented!(),
     };
-    next_frame
+    next_tuple
   }
 
   pub fn eval(&mut self, code: LCodeRef) {

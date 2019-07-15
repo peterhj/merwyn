@@ -198,7 +198,7 @@ fn test_lang_let_lam() {
 
 #[test]
 fn test_lang_let_match_tup() {
-  let lexer = HLexer::new("let match (a, b) = x; 0");
+  let lexer = HLexer::new("let match (|a, b|) = x; 0");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);
@@ -206,7 +206,7 @@ fn test_lang_let_match_tup() {
 
 #[test]
 fn test_lang_let_match_stup() {
-  let lexer = HLexer::new("let match [a, b] = x; 0");
+  let lexer = HLexer::new("let match (a, b) = x; 0");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);
@@ -310,7 +310,7 @@ fn test_lang_match() {
 
 #[test]
 fn test_lang_tuple() {
-  let lexer = HLexer::new("(1, 2, x, y)");
+  let lexer = HLexer::new("(|1, 2, x, y|)");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);
@@ -318,7 +318,7 @@ fn test_lang_tuple() {
 
 #[test]
 fn test_lang_stuple() {
-  let lexer = HLexer::new("[1, 2, x, y]");
+  let lexer = HLexer::new("(1, 2, x, y)");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);

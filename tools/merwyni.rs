@@ -8,7 +8,7 @@ extern crate merwyn;
 use merwyn::ir2::{LBuilder, LCtxRef, LTyctxRef};
 use merwyn::lang::{HLexer, HParser};
 use merwyn::mach::{Machine};
-use merwyn::repl::{ReplIOMode, ReplInterpreter, ReplTerminal};
+use merwyn::repl::{async_repl_terminal};
 
 use std::env::{args};
 use std::fs::{File};
@@ -90,9 +90,8 @@ fn main() {
     //println!("merwyn# --  debug tree: {:?}", module.tree.exps);
   }*/
 
-  let (repl_term, ctrl_tq, line_rq) = ReplTerminal::start_async();
-  let mut repl_intp = ReplInterpreter::new(ctrl_tq, line_rq);
-  repl_intp.eval_loop();
+  let (repl_term, repl_intp) = async_repl_terminal();
+  repl_intp.runloop();
   repl_term.join().unwrap();
 
   /*repl.runloop(

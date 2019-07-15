@@ -12,12 +12,11 @@ use termion::cursor::{Left, Right};
 use termion::raw::{IntoRawMode};
 
 use std::collections::{VecDeque};
-use std::fmt::{self, Write as FmtWrite};
+use std::fmt::{Error as FmtError, Write as FmtWrite};
 use std::io::{Bytes, Read, Write, stdout};
-use std::str::{from_utf8};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, channel, sync_channel};
 use std::thread::{JoinHandle, sleep, spawn};
-use std::time::{Duration};
+use std::time::{Duration, Instant};
 
 const CTRL_A: u8 = 1;
 const CTRL_C: u8 = 3;
@@ -39,8 +38,8 @@ pub struct ReplLineWriter {
 }
 
 impl FmtWrite for ReplLineWriter {
-  fn write_str(&mut self, s: &str) -> Result<(), fmt::Error> {
-    let mut toks = s.split("\n");
+  fn write_str(&mut self, s: &str) -> Result<(), FmtError> {
+    let mut toks = s.split('\n');
     match toks.next() {
       None => return Ok(()),
       Some(t) => {
@@ -49,7 +48,7 @@ impl FmtWrite for ReplLineWriter {
     }
     for t in toks {
       self.ctrl_tq.send(ReplCtrl::Line(self.linemode, self.buf.clone()))
-        .map_err(|_| fmt::Error)?;
+        .map_err(|_| FmtError)?;
       self.buf.clear();
       self.buf.push_str(t);
     }
@@ -58,6 +57,14 @@ impl FmtWrite for ReplLineWriter {
 }
 
 impl ReplLineWriter {
+  pub fn new_prompt(ctrl_tq: Sender<ReplCtrl>) -> ReplLineWriter {
+    ReplLineWriter{
+      linemode: ReplLineMode::Prompt,
+      ctrl_tq,
+      buf:      String::new(),
+    }
+  }
+
   pub fn new_error(ctrl_tq: Sender<ReplCtrl>) -> ReplLineWriter {
     ReplLineWriter{
       linemode: ReplLineMode::Error,
@@ -85,12 +92,14 @@ impl ReplLineWriter {
 
 pub struct ReplInterpreter {
   ctrl_tq:  Sender<ReplCtrl>,
+  prmpt_fd: ReplLineWriter,
   error_fd: ReplLineWriter,
   info_fd:  ReplLineWriter,
-  trace_fd:  ReplLineWriter,
+  trace_fd: ReplLineWriter,
   line_rq:  Receiver<ReplLine>,
   builder:  LBuilder,
   machine:  Machine,
+  mod_ctr:  usize,
 }
 
 impl ReplInterpreter {
@@ -99,42 +108,62 @@ impl ReplInterpreter {
   }
 
   pub fn with_machine(ctrl_tq: Sender<ReplCtrl>, line_rq: Receiver<ReplLine>, machine: Machine) -> ReplInterpreter {
+    let prmpt_fd = ReplLineWriter::new_prompt(ctrl_tq.clone());
     let error_fd = ReplLineWriter::new_error(ctrl_tq.clone());
     let info_fd = ReplLineWriter::new_info(ctrl_tq.clone());
     let trace_fd = ReplLineWriter::new_trace(ctrl_tq.clone());
     ReplInterpreter{
       ctrl_tq,
+      prmpt_fd,
       error_fd,
       info_fd,
       trace_fd,
       line_rq,
       builder:  LBuilder::default(),
       machine,
+      mod_ctr:  0,
     }
   }
 
-  pub fn eval_loop(&mut self) {
-    writeln!(&mut self.info_fd, "(** Merwyn interactive mode | git:{}{} | :? for help *)",
-        GIT_COMMIT_HASH,
-        if GIT_MODIFIED { "-mod" } else { "" }).unwrap();
+  pub fn runloop(mut self) {
+    writeln!(&mut self.info_fd, "(** Merwyn | git:{}..{} | :? for help *)",
+        &GIT_COMMIT_HASH[ .. 7],
+        if GIT_MODIFIED { "+mod" } else { "." }).unwrap();
     self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
     loop {
       match self.line_rq.recv() {
-        Ok(ReplLine::Prompt(_)) => {
+        Ok(ReplLine::Prompt(eval_buf)) => {
+          // FIXME
+          self.mod_ctr += 1;
+          assert!(self.mod_ctr != 0);
+          writeln!(&mut self.prmpt_fd, "(*:{}*) {}", self.mod_ctr, eval_buf).unwrap();
           writeln!(&mut self.trace_fd, "# todo: machine eval").unwrap();
           self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
         }
         Ok(ReplLine::Command(cmd_buf)) => {
           match &cmd_buf as &str {
             "?" | "h" | "help" => {
-              writeln!(&mut self.info_fd, "(** Interactive commands:").unwrap();
-              writeln!(&mut self.info_fd, "        :? :h :help     show this help message").unwrap();
-              writeln!(&mut self.info_fd, "        :q :quit        quit repl").unwrap();
+              writeln!(&mut self.info_fd, "(** ").unwrap();
+              //writeln!(&mut self.info_fd, "").unwrap();
+              writeln!(&mut self.info_fd, "Usage: `merwyni [-no-toplevel] [<src.merwyn>]`").unwrap();
+              writeln!(&mut self.info_fd, "").unwrap();
+              writeln!(&mut self.info_fd, "\t-no-toplevel\tDo not include the default").unwrap();
+              writeln!(&mut self.info_fd, "\t\t\ttoplevel module").unwrap();
+              writeln!(&mut self.info_fd, "\t<src.merwyn>\tPath to the source of the").unwrap();
+              writeln!(&mut self.info_fd, "\t\t\tinitial user module").unwrap();
+              writeln!(&mut self.info_fd, "").unwrap();
+              writeln!(&mut self.info_fd, "General Commands").unwrap();
+              writeln!(&mut self.info_fd, "\t:? :h :help \tShow this help message").unwrap();
+              writeln!(&mut self.info_fd, "\t:q :quit    \tQuit repl").unwrap();
+              //writeln!(&mut self.info_fd, "\t:               repeat the previous command").unwrap();
+              writeln!(&mut self.info_fd, "").unwrap();
+              writeln!(&mut self.info_fd, "Programming").unwrap();
+              writeln!(&mut self.info_fd, "\t<expr>      \tEvaluate the expression <expr>").unwrap();
               writeln!(&mut self.info_fd, "*)").unwrap();
               self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
             }
             "q" | "quit" => {
-              writeln!(&mut self.info_fd, "(* Goodbye... *)").unwrap();
+              writeln!(&mut self.info_fd, "(* Goodbye. *)").unwrap();
               self.ctrl_tq.send(ReplCtrl::Halt).unwrap();
               break;
             }
@@ -204,8 +233,8 @@ impl Default for ReplTermState {
   fn default() -> ReplTermState {
     ReplTermState{
       blocked:  "...   ".to_string(),
-      query:    "merwyn".to_string(),
-      answer:   "merwyn".to_string(),
+      query:    "Merwyn".to_string(),
+      answer:   "Merwyn".to_string(),
       mode:     ReplIOMode::Blocked,
       history:  VecDeque::new(),
       savebuf:  None,
@@ -324,23 +353,32 @@ impl ReplTermState {
           }
           Some(Ok(CTRL_H)) |
           Some(Ok(BACK)) => {
-            // FIXME
             match self.mode {
               ReplIOMode::Command => {
                 if self.tmpbuf.is_empty() {
                   self.mode = ReplIOMode::Prompt;
                   self.query(stdout);
-                } else if !self.tmpbuf.is_empty() && self.tmppos > 0 {
+                } else if self.tmppos == self.tmpbuf.len() && !self.tmpbuf.is_empty() {
+                  // FIXME
                   self.tmpbuf.pop();
                   self.tmppos -= 1;
                   write!(stdout, "{} {}", Left(1), Left(1)).unwrap();
+                } else if self.tmppos > 0 {
+                  // FIXME
+                  self.tmppos -= 1;
+                  write!(stdout, "{}", Left(1)).unwrap();
                 }
               }
               _ => {
-                if !self.tmpbuf.is_empty() && self.tmppos > 0 {
+                if self.tmppos == self.tmpbuf.len() && !self.tmpbuf.is_empty() {
+                  // FIXME
                   self.tmpbuf.pop();
                   self.tmppos -= 1;
                   write!(stdout, "{} {}", Left(1), Left(1)).unwrap();
+                } else if self.tmppos > 0 {
+                  // FIXME
+                  self.tmppos -= 1;
+                  write!(stdout, "{}", Left(1)).unwrap();
                 }
               }
             }
@@ -463,14 +501,14 @@ impl ReplTerminal {
   }
 
   pub fn runloop(&mut self) {
-    let mut stdin = async_stdin().bytes();
     let stdout = stdout();
     let mut stdout = stdout.lock().into_raw_mode().unwrap();
+    let mut stdin = async_stdin().bytes();
     self.term.mode = ReplIOMode::Blocked;
     self.term.query(&mut stdout);
     stdout.flush().unwrap();
-    let sleep_delay = Duration::from_millis(8);
-    let mut ctr = 0;
+    let refresh = Duration::from_millis(8);
+    let mut base_ts = Instant::now();
     'main_loop: loop {
       if self.term.drain(&mut stdin, &mut stdout) {
         break;
@@ -506,15 +544,22 @@ impl ReplTerminal {
           commit = true;
         }
         match self.term.mode {
-          ReplIOMode::Prompt => {
+          /*ReplIOMode::Prompt => {
             self.term.answer(&mut stdout, ReplLineMode::Prompt, &line);
-          }
+          }*/
           ReplIOMode::Command => {
             self.term.answer(&mut stdout, ReplLineMode::Command, &line);
           }
           _ => {}
         }
-        if !line.is_empty() {
+        if line.is_empty() {
+          match self.term.mode {
+            ReplIOMode::Prompt => {
+              self.term.answer(&mut stdout, ReplLineMode::Prompt, &line);
+            }
+            _ => {}
+          }
+        } else {
           self.term.history.push_back(line.clone());
           self.term.scroll += 1;
           match self.term.mode {
@@ -533,8 +578,19 @@ impl ReplTerminal {
         self.term.query(&mut stdout);
       }
       stdout.flush().unwrap();
-      sleep(sleep_delay);
+      let next_ts = Instant::now();
+      match refresh.checked_sub(next_ts.duration_since(base_ts)) {
+        None => {}
+        Some(delay) => sleep(delay),
+      };
+      base_ts = next_ts;
     }
     stdout.flush().unwrap();
   }
+}
+
+pub fn async_repl_terminal() -> (JoinHandle<()>, ReplInterpreter) {
+  let (repl_term, ctrl_tq, line_rq) = ReplTerminal::start_async();
+  let repl_intp = ReplInterpreter::new(ctrl_tq, line_rq);
+  (repl_term, repl_intp)
 }

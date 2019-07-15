@@ -6,21 +6,20 @@
 #![feature(proc_macro_hygiene)]
 #![feature(ptr_offset_from)]
 
+extern crate byteorder;
 extern crate envy;
 extern crate fixedbitset;
 extern crate lazycell;
 //#[macro_use] extern crate lazy_static;
+extern crate libc;
 //extern crate parking_lot;
 extern crate plex;
-extern crate rand;
-extern crate rand_chacha;
-extern crate rdrand;
+extern crate rand_core;
 //extern crate rearray;
 extern crate rpds;
 extern crate serde;
 #[macro_use] extern crate serde_derive;
 extern crate termion;
-extern crate vertreap;
 
 pub mod build;
 pub mod builtins;
@@ -30,6 +29,7 @@ pub mod ir;
 pub mod ir2;
 pub mod lang;
 pub mod mach;
+pub mod mach_io;
 pub mod num_util;
 pub mod repl;
 pub mod rngs;

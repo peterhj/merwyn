@@ -5,11 +5,12 @@
 use crate::cfg::{GlobalConfig};
 use crate::ir::{LBuilder, LDef, LEnv, LEnvKey, LExpr, LPat, LTerm, LTermRef, LVar, LVMExt};
 use crate::num_util::{Checked, checked};
-use crate::rngs::{HwRng};
+//use crate::rngs::{HwRng};
 
-use rand::prelude::*;
-use rand_chacha::{ChaChaRng};
-use vertreap::{VertreapMap};
+//use rand::prelude::*;
+//use rand_chacha::{ChaChaRng};
+use rpds::{HashTrieMap};
+//use vertreap::{VertreapMap};
 
 use std::any::{Any};
 use std::cell::{RefCell};
@@ -437,7 +438,8 @@ pub struct VMNamedEnvRef {
   // TODO
   //mval_map: HashMap<LVar, VMValRef>,
   //addr_map: HashMap<LVar, VMAddr>,
-  addr_map: VertreapMap<LVar, Option<VMAddr>>,
+  //addr_map: VertreapMap<LVar, Option<VMAddr>>,
+  addr_map: HashTrieMap<LVar, Option<VMAddr>>,
 }
 
 impl VMNamedEnvRef {
@@ -445,18 +447,24 @@ impl VMNamedEnvRef {
   pub fn lookup(&self, name: LVar) -> VMAddr {
     //match self.mval_map.get(&name) {
     //match self.addr_map.get(&name) {
-    match self.addr_map.find(&name) {
+    //match self.addr_map.find(&name) {
+    match self.addr_map.get(&name) {
       None => {
         eprintln!("env: missing var: {:?}", name);
-        for kv in self.addr_map.iter() {
-          eprintln!("  kv: {:?}, _", kv.k);
+        //for kv in self.addr_map.iter() {
+        //  eprintln!("  kv: {:?}, _", kv.k);
+        for (k, _) in self.addr_map.iter() {
+          eprintln!("  kv: {:?}, _", k);
         }
         panic!();
       }
-      Some(kv) => {
-        match &kv.v {
+      //Some(kv) => {
+      //  match &kv.v {
+      Some(v) => {
+        match v {
           None => panic!("env: tried to lookup a reclaimed var: {:?}", name),
-          Some(v) => v.clone(),
+          //Some(v) => v.clone(),
+          &Some(ref v) => v.clone(),
         }
       }
     }
@@ -470,13 +478,15 @@ impl VMNamedEnvRef {
     new_env.addr_map.insert(name, addr);
     new_env*/
     VMNamedEnvRef{
-      addr_map: self.addr_map.append(name, Some(addr)),
+      //addr_map: self.addr_map.append(name, Some(addr)),
+      addr_map: self.addr_map.insert(name, Some(addr)),
     }
   }
 
   pub fn reclaim(&self, name: LVar) -> VMNamedEnvRef {
     VMNamedEnvRef{
-      addr_map: self.addr_map.append(name, None),
+      //addr_map: self.addr_map.append(name, None),
+      addr_map: self.addr_map.insert(name, None),
     }
   }
 }
@@ -652,7 +662,7 @@ impl VMRcStore {
 
 pub struct MState {
   // TODO
-  pub rng:      ChaChaRng,
+  //pub rng:      ChaChaRng,
 }
 
 pub struct MSeqState {
@@ -668,7 +678,9 @@ pub struct MRngSaveState {
 
 impl Default for MRngSaveState {
   fn default() -> Self {
-    let seed = HwRng::default().gen();
+    // FIXME
+    let seed = Default::default();
+    //let seed = HwRng::default().gen();
     //println!("DEBUG: rng save state: default seed: {:?}", seed);
     MRngSaveState{
       seed:     seed,
@@ -702,11 +714,11 @@ impl MSaveState {
   }
 
   pub fn restore(&self) -> MState {
-    let mut rng: ChaChaRng = ChaChaRng::from_seed(self.rngsave.seed);
+    /*let mut rng: ChaChaRng = ChaChaRng::from_seed(self.rngsave.seed);
     rng.set_word_pos(self.rngsave.wpos);
-    rng.set_stream(self.rngsave.seqnr);
+    rng.set_stream(self.rngsave.seqnr);*/
     MState{
-      rng,
+      //rng,
     }
   }
 }
@@ -1032,8 +1044,10 @@ impl VMachine {
           (&LTerm::Lambda(ref params, ref body), _) => {
             // TODO
             println!("TRACE: vm:   capturing lambda...");
-            for kv in env.addr_map.iter() {
-              println!("TRACE: vm:     kv: {:?}, _", kv.k);
+            //for kv in env.addr_map.iter() {
+            //  println!("TRACE: vm:     kv: {:?}, _", kv.k);
+            for (k, _) in env.addr_map.iter() {
+              println!("TRACE: vm:     kv: {:?}, _", k);
             }
             let mval = VMValRef::new(VMVal::Clo(VMClosure{
               lam: VMLam{
