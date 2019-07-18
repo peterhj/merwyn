@@ -20,8 +20,6 @@ lazycell = "^1.2"
 libc = "^0.2"
 #num-traits = "^0.2"
 #parking_lot = { version = "*", features = ["nightly"] }
-#plex = "*"
-#plex = { path = "../plex", default-features = false, features = ["lexer"] }
 #plex = { git = "https://github.com/goffrie/plex", rev = "a4c1068fc31293b209677f6347aa51bbf73c1e53", default-features = false, features = ["lexer"] }
 plex = { version = "~0.2.5", default-features = false, features = ["lexer"] }
 rand_core = "^0.5"
@@ -30,8 +28,6 @@ rpds = "^0.6"
 serde = "^1.0"
 serde_derive = "^1.0"
 termion = "^1.5"
-#vertreap = { path = "../vertreap" }
-#vertreap = "^0.1.0-pre.0"
 
 [lib]
 crate-type = ["lib", "cdylib"]

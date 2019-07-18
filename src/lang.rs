@@ -55,6 +55,8 @@ lexer! {
   r#">="#           => HLToken::GtEquals,
   r#">"#            => HLToken::Gt,
   r#"/="#           => HLToken::NotEquals,
+  r#"==>"#          => HLToken::RDDArrow,
+  r#"=>"#           => HLToken::RDArrow,
   r#"=="#           => HLToken::EqEquals,
   r#"="#            => HLToken::Equals,
   r#"\~"#           => HLToken::Tilde,
@@ -63,6 +65,9 @@ lexer! {
   r#"\.-"#          => HLToken::DotDash,
   r#"\.\*"#         => HLToken::DotStar,
   r#"\./"#          => HLToken::DotSlash,
+  r#"\.\("#         => HLToken::LDotParen,
+  r#"\.\["#         => HLToken::LDotBrack,
+  r#"\.\{"#         => HLToken::LDotCurly,
   r#"\.\.\."#       => HLToken::Ellipsis,
   r#"\.\."#         => HLToken::DotDot,
   r#"\."#           => HLToken::Dot,
@@ -81,7 +86,6 @@ lexer! {
   r#"\+\."#         => HLToken::PlusDot,
   r#"\+"#           => HLToken::Plus,
   //r#"-:"#           => HLToken::Then,
-  r#"=>"#           => HLToken::RDArrow,
   r#"->"#           => HLToken::RArrow,
   r#"-:"#           => HLToken::DashColon,
   r#"-\."#          => HLToken::DashDot,
@@ -104,8 +108,6 @@ lexer! {
   r#"\}"#           => HLToken::RCurly,
 
   r#"_"#            => HLToken::PlacePat,
-  r#"noret"#        => HLToken::NoRet,
-  r#"nonsmooth"#    => HLToken::NonSmooth,
   r#"unit"#         => HLToken::UnitLit,
   r#"bot"#          => HLToken::BotLit,
   //r#"⊥"#            => HLToken::BotLit,
@@ -117,22 +119,25 @@ lexer! {
   r#"Bit"#          => HLToken::BitTylit,
   r#"Int"#          => HLToken::IntTylit,
   r#"Flp"#          => HLToken::FlpTylit,
-  //r#"Flp16"#          => HLToken::Flp16Tylit,
-  //r#"Flp32"#          => HLToken::Flp32Tylit,
-  //r#"Fmp"#            => HLToken::FmpTylit,
+  //r#"Flp16"#        => HLToken::Flp16Tylit,
+  //r#"Flp32"#        => HLToken::Flp32Tylit,
+  //r#"Fmp"#          => HLToken::FmpTylit,
 
   //r#"[0-9]+\.[0-9]*[fp16]"# => HLToken::Flp16Lit(text[ .. text.len() - 1].parse().unwrap()),
   //r#"[0-9]+\.[0-9]*[fp32]"# => HLToken::Flp32Lit(text[ .. text.len() - 1].parse().unwrap()),
   //r#"[0-9]+\.[0-9]*[fmp]"#  => HLToken::FmpLit(text[ .. text.len() - 1].parse().unwrap()),
-  r#"[0-9]+\.[0-9]*[f]"#    => HLToken::FloLit(text[ .. text.len() - 1].parse().unwrap()),
-  r#"[0-9]+\.[0-9]*"#       => HLToken::FloLit(text.parse().unwrap()),
-  r#"[0-9]+[f]"#            => HLToken::FloLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"[0-9]+\.[0-9]*[f]"#    => HLToken::FlpLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"[0-9]+\.[0-9]*"#       => HLToken::FlpLit(text.parse().unwrap()),
+  r#"[0-9]+[f]"#            => HLToken::FlpLit(text[ .. text.len() - 1].parse().unwrap()),
   r#"[0-9]+[n]"#            => HLToken::IntLit(text[ .. text.len() - 1].parse().unwrap()),
   r#"[0-9]+"#               => HLToken::IntLit(text.parse().unwrap()),
 
   r#"[a-zA-Z_][a-zA-Z0-9_]*[']*"#   => HLToken::Ident(text.to_owned()),
   r#"`[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::InfixIdent(text.to_owned()),
   r#"'[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::TyvarIdent(text.to_owned()),
+  r#"\~[A-Za-z0-9/\+]+[=]*"#        => HLToken::CrypticIdent(text.to_owned()),
+  r#"@[a-z0-9\-\.]+[:][a-z0-9\-]+"# => HLToken::UseIdent(text.to_owned()),
+  r#"@[a-z0-9\-]+"#                 => HLToken::UseIdent(text.to_owned()),
 
   r#"."#            => HLToken::_Err,
 }
@@ -209,6 +214,7 @@ pub enum HLToken {
   DashColon,
   RArrow,
   RDArrow,
+  RDDArrow,
   RPipe,
   Star,
   StarDot,
@@ -216,26 +222,29 @@ pub enum HLToken {
   Slash,
   SlashDot,
   SlashColon,
+  LDotParen,
   LParenBar,
   RParenBar,
   LParen,
   RParen,
+  LDotBrack,
   LBrack,
   RBrack,
+  LDotCurly,
   LCurly,
   RCurly,
   PlacePat,
-  NoRet,
-  NonSmooth,
   UnitLit,
   NilSTupLit,
   NilTupLit,
   BotLit,
   TeeLit,
   IntLit(i64),
-  FloLit(f64),
+  FlpLit(f64),
   Ident(String),
   InfixIdent(String),
+  CrypticIdent(String),
+  UseIdent(String),
   PlaceTylit,
   TopTylit,
   BitTylit,
@@ -329,13 +338,15 @@ pub enum HTypat {
 pub enum HExpr {
   End,
   //Export(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
-  Import(String, Rc<HExpr>),
+  //Import(String, Rc<HExpr>),
   Break(Rc<HExpr>),
   Lambda(Vec<Rc<HExpr>>, Rc<HExpr>),
   Apply(Rc<HExpr>, Vec<Rc<HExpr>>),
+  ETuple(Vec<Rc<HExpr>>),
   STuple(Vec<Rc<HExpr>>),
   Tuple(Vec<Rc<HExpr>>),
   PartialD(Rc<HExpr>),
+  PartialAltD(Rc<HExpr>, Rc<HExpr>),
   AdjointD(Rc<HExpr>),
   TangentD(Rc<HExpr>),
   //DirectionalD(Rc<HExpr>, Rc<HExpr>),
@@ -373,8 +384,6 @@ pub enum HExpr {
   Neg(Rc<HExpr>),
   Cons(Rc<HExpr>, Rc<HExpr>),
   Concat(Rc<HExpr>, Rc<HExpr>),
-  NoRet,
-  NonSmooth,
   PlacePat,
   UnitLit,
   NilSTupLit,
@@ -382,10 +391,13 @@ pub enum HExpr {
   BotLit,
   TeeLit,
   IntLit(i64),
-  FloLit(f64),
+  FlpLit(f64),
   Ident(String),
+  CrypticIdent(String),
+  UseIdent(String),
   PathIndex(Rc<HExpr>, usize),
   PathLookup(Rc<HExpr>, String),
+  PathSLookup(Rc<HExpr>, Rc<HExpr>),
   //KeyLookup(Rc<HExpr>, String),
   Tyvar(String),
   Tyfun(Rc<HExpr>, Rc<HExpr>),
@@ -506,17 +518,16 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       &HLToken::RParen => 0,
       &HLToken::LBrack => 800,
       &HLToken::RBrack => 0,
+      &HLToken::LDotCurly => 800,
       //&HLToken::LCurly => _,
       &HLToken::RCurly => 0,
-      &HLToken::NoRet |
-      &HLToken::NonSmooth |
       &HLToken::UnitLit |
       &HLToken::NilSTupLit |
       &HLToken::NilTupLit |
       &HLToken::BotLit |
       &HLToken::TeeLit |
       &HLToken::IntLit(_) |
-      &HLToken::FloLit(_) |
+      &HLToken::FlpLit(_) |
       &HLToken::Ident(_) |
       &HLToken::TyvarIdent(_) => 0,
       &HLToken::_Eof => 0,
@@ -537,7 +548,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       }
       HLToken::Import => {
         // TODO
-        match self.current_token() {
+        /*match self.current_token() {
           HLToken::Ident(mod_name) => {
             self.advance();
             match self.current_token() {
@@ -549,7 +560,8 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
             Ok(HExpr::Import(mod_name, Rc::new(e)))
           }
           _ => panic!(),
-        }
+        }*/
+        unimplemented!();
       }
       HLToken::DMajor => {
         match self.current_token() {
@@ -577,17 +589,72 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       }
       HLToken::DMinor => {
         match self.current_token() {
-          HLToken::LBrack => {}
+          HLToken::Dot => {
+            self.advance();
+            let wrt = self.expression(self.lbp(&HLToken::Dot))?;
+            match self.current_token() {
+              HLToken::LBrack => {}
+              _ => panic!(),
+            }
+            self.advance();
+            let e = self.expression(0)?;
+            match self.current_token() {
+              HLToken::RBrack => {}
+              _ => panic!(),
+            }
+            self.advance();
+            Ok(HExpr::PartialAltD(Rc::new(wrt), Rc::new(e)))
+          }
+          HLToken::LDotCurly => {
+            self.advance();
+            let mut elems = Vec::new();
+            match self.current_token() {
+              HLToken::RCurly => {
+                self.advance();
+              }
+              _ => {
+                loop {
+                  let e = self.expression(0)?;
+                  elems.push(Rc::new(e));
+                  match self.current_token() {
+                    HLToken::Comma => {
+                      self.advance();
+                    }
+                    HLToken::RCurly => {
+                      self.advance();
+                      break;
+                    }
+                    _ => panic!(),
+                  }
+                }
+              }
+            }
+            let wrt = HExpr::ETuple(elems);
+            match self.current_token() {
+              HLToken::LBrack => {}
+              _ => panic!(),
+            }
+            self.advance();
+            let e = self.expression(0)?;
+            match self.current_token() {
+              HLToken::RBrack => {}
+              _ => panic!(),
+            }
+            self.advance();
+            Ok(HExpr::PartialAltD(Rc::new(wrt), Rc::new(e)))
+          }
+          HLToken::LBrack => {
+            self.advance();
+            let e = self.expression(self.lbp(&HLToken::LBrack))?;
+            match self.current_token() {
+              HLToken::RBrack => {}
+              _ => panic!(),
+            }
+            self.advance();
+            Ok(HExpr::PartialD(Rc::new(e)))
+          }
           _ => panic!(),
         }
-        self.advance();
-        let e = self.expression(0)?;
-        match self.current_token() {
-          HLToken::RBrack => {}
-          _ => panic!(),
-        }
-        self.advance();
-        Ok(HExpr::PartialD(Rc::new(e)))
       }
       HLToken::DPrime => {
         match self.current_token() {
@@ -1080,12 +1147,6 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           }
         }
       }
-      HLToken::NoRet => {
-        Ok(HExpr::NoRet)
-      }
-      HLToken::NonSmooth => {
-        Ok(HExpr::NonSmooth)
-      }
       HLToken::PlacePat => {
         Ok(HExpr::PlacePat)
       }
@@ -1107,11 +1168,19 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       HLToken::IntLit(x) => {
         Ok(HExpr::IntLit(x))
       }
-      HLToken::FloLit(x) => {
-        Ok(HExpr::FloLit(x))
+      HLToken::FlpLit(x) => {
+        Ok(HExpr::FlpLit(x))
       }
       HLToken::Ident(name) => {
         Ok(HExpr::Ident(name))
+      }
+      HLToken::CrypticIdent(mut name) => {
+        name.replace_range(.. 1, "");
+        Ok(HExpr::CrypticIdent(name))
+      }
+      HLToken::UseIdent(mut name) => {
+        name.replace_range(.. 1, "");
+        Ok(HExpr::UseIdent(name))
       }
       HLToken::TyvarIdent(name) => {
         Ok(HExpr::Tyvar(name))
@@ -1127,11 +1196,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
     match tok {
       HLToken::Dot => {
         match self.current_token() {
-          // FIXME: support more path patterns.
-          HLToken::Ident(name) => {
-            self.advance();
-            Ok(HExpr::PathLookup(Rc::new(left), name))
-          }
+          // TODO: finalize the set of terms allowed on RHS.
           HLToken::IntLit(idx) => {
             self.advance();
             if idx < 1 {
@@ -1139,7 +1204,15 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
             }
             Ok(HExpr::PathIndex(Rc::new(left), idx as _))
           }
-          _ => panic!(),
+          HLToken::Ident(name) => {
+            self.advance();
+            Ok(HExpr::PathLookup(Rc::new(left), name))
+          }
+          //_ => panic!(),
+          _ => {
+            let right = self.expression(self.lbp(&tok))?;
+            Ok(HExpr::PathSLookup(Rc::new(left), Rc::new(right)))
+          }
         }
       }
       HLToken::As => {

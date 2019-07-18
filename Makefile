@@ -12,7 +12,7 @@ CARGO_FLAGS ?=
 CARGO := cargo +nightly $(CARGO_FLAGS)
 RUSTC := rustc +nightly
 
-.PHONY: all clean pre versions debuglib lib debugtools tools test test-lang test-ir test-mach test-rngs test-ty test-ty2 test-vm test-vmad
+.PHONY: all clean pre versions debuglib lib debugtools tools test test-lang test-ir test-ir2 test-mach test-rngs test-ty test-ty2 test-vm test-vmad
 
 all: lib
 
@@ -48,6 +48,9 @@ test-ir: pre
 
 test-ir-debug: pre
 	RUST_TEST_THREADS=1 $(CARGO) test --test ir -- --nocapture
+
+test-ir2: pre
+	RUST_TEST_THREADS=1 $(CARGO) test --test ir2 --release -- --nocapture
 
 test-mach: pre
 	RUST_TEST_THREADS=1 $(CARGO) test --test mach --release -- --nocapture

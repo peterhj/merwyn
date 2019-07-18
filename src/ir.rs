@@ -256,8 +256,6 @@ pub enum LTerm<E=LExpr, X=LVMExt> {
   End,
   Break(E),
   Trace(E),
-  NoRet,
-  NonSmooth,
   Apply(E, Vec<E>),
   AEnv(Vec<(LEnvKey, E)>),
   ACons(LEnvKey, E, E),
@@ -1667,12 +1665,6 @@ impl LBuilder {
         let arg = self._htree_to_ltree_lower_pass(arg.clone());
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::Apply(op, vec![arg])), /*info: LExprInfo::default()*/}
       }
-      &HExpr::NoRet => {
-        LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::NoRet), /*info: LExprInfo::default()*/}
-      }
-      &HExpr::NonSmooth => {
-        LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::NonSmooth), /*info: LExprInfo::default()*/}
-      }
       &HExpr::UnitLit => {
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::UnitLit), /*info: LExprInfo::default()*/}
       }
@@ -1695,7 +1687,7 @@ impl LBuilder {
         //let var = self.vars.int_lit(x);
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::IntLit(x)), /*info: LExprInfo::default()*/}
       }
-      &HExpr::FloLit(x) => {
+      &HExpr::FlpLit(x) => {
         // TODO: special var key for literal constants.
         //let var = self.vars.int_lit(x);
         LExpr{/*gen: self._gen(),*/ label: self.labels.fresh(), term: LTermRef::new(LTerm::FloLit(x)), /*info: LExprInfo::default()*/}

@@ -18,18 +18,20 @@ use std::str::{from_utf8};
 
 fn main() {
   let args: Vec<_> = args().collect();
-  let (verbose, file_path) = if args.len() <= 1 {
+  let (no_toplevel, file_path) = if args.len() <= 1 {
     (false, None)
   } else if args.len() == 2 {
-    if args[1] == "-h" {
-      println!("usage: merwyni [-h|<file>]");
+    if args[1] == "-no-toplevel" {
+      (true, None)
+    } else if args[1].chars().next() == Some('-') {
+      println!("Usage: merwyni [-no-toplevel] [<src.merwyn>]");
       return;
     } else {
       let file_path = PathBuf::from(&args[1]);
       (false, Some(file_path))
     }
   } else if args.len() >= 3 {
-    if args[1] == "-v" {
+    if args[1] == "-no-toplevel" {
       let file_path = PathBuf::from(&args[2]);
       (true, Some(file_path))
     } else {

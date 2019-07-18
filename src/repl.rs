@@ -14,7 +14,7 @@ use termion::raw::{IntoRawMode};
 use std::collections::{VecDeque};
 use std::fmt::{Error as FmtError, Write as FmtWrite};
 use std::io::{Bytes, Read, Write, stdout};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, channel, sync_channel};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::{JoinHandle, sleep, spawn};
 use std::time::{Duration, Instant};
 
@@ -24,6 +24,8 @@ const CTRL_D: u8 = 4;
 const CTRL_E: u8 = 5;
 const CTRL_H: u8 = 8;
 const TAB:    u8 = 9;
+//const CTRL_K: u8 = 11;
+//const CTRL_U: u8 = 21;
 const ESC:    u8 = 27;
 const LEFT:   u8 = 37;
 const UP:     u8 = 38;

@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 //use crate::cffi::{MCValRef};
-use crate::ir2::{LCodeRef, LEnvKey, LPatRef, LTerm, LTermRef, LVar};
+use crate::ir2::{LCodeRef, LPatRef, LTerm, LTermRef, LVar};
 use crate::num_util::{Checked};
 
 use rpds::{HashTrieMap};
@@ -32,7 +32,7 @@ pub enum MVal {
   Unit,
   Bit(bool),
   Int(Checked<i64>),
-  Flo(f64),
+  Flp(f64),
   //Box(_),
   //Ref(_),
   //...
@@ -40,7 +40,8 @@ pub enum MVal {
 
 #[derive(Clone)]
 pub struct MEnvRec {
-  pub keys: HashTrieMap<LEnvKey, MAddr>,
+  pub idxs: HashTrieMap<usize, MAddr>,
+  pub keys: HashTrieMap<LVar, MAddr>,
 }
 
 #[derive(Clone)]
@@ -303,7 +304,7 @@ impl MachineState {
             // TODO
             unimplemented!();
           }
-          (LTerm::FloLit(x), _) => {
+          (LTerm::FlpLit(x), _) => {
             // TODO
             unimplemented!();
           }
