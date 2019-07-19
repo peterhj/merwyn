@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::lang::{HExpr};
-use crate::mach::{MAddr, MBLambda, MCUnsafeLambda};
+use crate::mach::{MAddr, MLambda, MCUnsafeLambda};
 
 use rpds::{HashTrieMap, Queue, RedBlackTreeMap, Stack};
 
@@ -137,7 +137,7 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   ImportR(Vec<LVar>, E, E),
   Export,
   Env(Vec<(LVar, E)>),
-  ACons(LVar, Option<LIdent>, E, E),
+  //ACons(LVar, Option<LIdent>, E, E),
   AConcat(E, E),
   AApp(Vec<(usize, LVar, Option<LIdent>)>, E),
   ERet(Vec<LVar>, Vec<(usize, LVar)>, E),
@@ -149,7 +149,7 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   Tng(E),
   Let(LVar, E, E),
   Fix(LVar, E),
-  //SFix(Vec<(LVar, E)>),
+  SFix(Vec<LVar>, E),
   //Alt(LVar, LVar, E, E),
   Match(E, Vec<(LPatRef, E)>),
   Cons(E, E),
@@ -175,8 +175,8 @@ pub struct LMExpr {
 #[derive(Clone)]
 pub enum LMTerm {
   Deref(MAddr),
-  BLam(LMLambdaDef<MBLambda>),
-  CLam(LMLambdaDef<MCUnsafeLambda>),
+  Lambda(LMLambdaDef<MLambda>),
+  CLambda(LMLambdaDef<MUnsafeCLambda>),
 }
 
 #[derive(Clone)]
@@ -194,8 +194,8 @@ pub enum LVarBinder {
 }
 
 impl From<LIdent> for LVarBinder {
-  fn from(hash: LIdent) -> LVarBinder {
-    LVarBinder::Ident(hash)
+  fn from(ident: LIdent) -> LVarBinder {
+    LVarBinder::Ident(ident)
   }
 }
 
@@ -209,14 +209,12 @@ enum RegisterAdj {
 #[derive(Clone, Default)]
 pub struct LBuilder {
   label_ctr:    u64,
-  hash_ctr:     u64,
+  ident_ctr:    u64,
   var_ctr:      u64,
-  name_to_hash: HashTrieMap<String, LIdent>,
-  hash_to_name: HashTrieMap<LIdent, String>,
+  name_to_id:   HashTrieMap<String, LIdent>,
+  id_to_name:   HashTrieMap<LIdent, String>,
   var_to_bind:  HashTrieMap<LVar, LVarBinder>,
   adj_var:      HashTrieMap<LVar, LVar>,
-  //adj_exp:      HashTrieMap<LLabel, LLabel>,
-  //adj_snd_exp:  HashTrieMap<LLabel, LLabel>,
   reg_adj:      HashTrieMap<LLabel, RegisterAdj>,
   tyinf:        IncTyInfMachine,
   //ctx:          LCtxRef,
@@ -231,21 +229,21 @@ impl LBuilder {
   }
 
   pub fn lookup_name(&mut self, name: &str) -> LIdent {
-    match self.name_to_hash.get(name) {
+    match self.name_to_id.get(name) {
       None => {
-        self.hash_ctr += 1;
-        assert!(self.hash_ctr != 0);
-        let new_hash = LIdent(self.hash_ctr);
-        self.name_to_hash.insert_mut(name.to_owned(), new_hash.clone());
-        self.hash_to_name.insert_mut(new_hash.clone(), name.to_owned());
-        new_hash
+        self.ident_ctr += 1;
+        assert!(self.ident_ctr != 0);
+        let new_ident = LIdent(self.ident_ctr);
+        self.name_to_id.insert_mut(name.to_owned(), new_ident.clone());
+        self.id_to_name.insert_mut(new_ident.clone(), name.to_owned());
+        new_ident
       }
-      Some(hash) => hash.clone(),
+      Some(id) => id.clone(),
     }
   }
 
   pub fn lookup_ident(&self, ident: &LIdent) -> String {
-    match self.hash_to_name.get(ident) {
+    match self.id_to_name.get(ident) {
       None => panic!(),
       Some(name) => name.to_owned(),
     }
@@ -293,46 +291,6 @@ impl LBuilder {
       Some(adj) => adj.clone(),
     }
   }
-
-  /*pub fn _lookup_adj_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> Option<LLabel> {
-    let label = loc.as_ref();
-    match self.adj_exp.get(label) {
-      None => None,
-      Some(adj) => Some(adj.clone()),
-    }
-  }
-
-  pub fn lookup_adj_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> LLabel {
-    let label = loc.as_ref();
-    match self.adj_exp.get(label) {
-      None => {
-        let adj = self.fresh_label();
-        self.adj_exp.insert_mut(label.clone(), adj.clone());
-        adj
-      }
-      Some(adj) => adj.clone(),
-    }
-  }
-
-  pub fn _lookup_adj_snd_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> Option<LLabel> {
-    let label = loc.as_ref();
-    match self.adj_snd_exp.get(label) {
-      None => None,
-      Some(adj) => Some(adj.clone()),
-    }
-  }
-
-  pub fn lookup_adj_snd_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> LLabel {
-    let label = loc.as_ref();
-    match self.adj_snd_exp.get(label) {
-      None => {
-        let adj = self.fresh_label();
-        self.adj_snd_exp.insert_mut(label.clone(), adj.clone());
-        adj
-      }
-      Some(adj) => adj.clone(),
-    }
-  }*/
 
   pub fn compile(&mut self, htree: Rc<HExpr>) -> Result<LModule, ()> {
     // TODO
@@ -446,8 +404,8 @@ impl LBuilder {
   }
 
   fn _lower_unop(&mut self, op_name: &str, arg: Rc<HExpr>, ctx: LCtxRef, stack: &mut BTreeMap<usize, (LExpr, LCtxRef, usize)>, pos: usize) -> (LLabel, usize) {
-    let op_hash = self.lookup_name(op_name);
-    let op_var = match ctx.lookup_ident(op_hash) {
+    let op_ident = self.lookup_name(op_name);
+    let op_var = match ctx.lookup_ident(op_ident) {
       Some(v) => v,
       None => {
         // TODO: propagate errors.
@@ -480,8 +438,8 @@ impl LBuilder {
   }
 
   fn _lower_binop(&mut self, op_name: &str, lhs: Rc<HExpr>, rhs: Rc<HExpr>, ctx: LCtxRef, stack: &mut BTreeMap<usize, (LExpr, LCtxRef, usize)>, pos: usize) -> (LLabel, usize) {
-    let op_hash = self.lookup_name(op_name);
-    let op_var = match ctx.lookup_ident(op_hash) {
+    let op_ident = self.lookup_name(op_name);
+    let op_var = match ctx.lookup_ident(op_ident) {
       Some(v) => v,
       None => {
         // TODO: propagate errors.
@@ -559,9 +517,9 @@ impl LBuilder {
             &HExpr::Ident(ref p_name) => p_name,
             _ => panic!(),
           };
-          let p_hash = self.lookup_name(p_name);
-          let p_var = self.fresh_ident_var(p_hash.clone());
-          body_ctx.bind_mut(p_hash, p_var.clone());
+          let p_ident = self.lookup_name(p_name);
+          let p_var = self.fresh_ident_var(p_ident.clone());
+          body_ctx.bind_mut(p_ident, p_var.clone());
           param_vars.push(p_var);
         }
         let body_pos = pos + 1;
@@ -640,17 +598,17 @@ impl LBuilder {
           _ => unimplemented!(),
         };
         let attrs = attrs.clone().unwrap_or_default();
-        let n_hash = self.lookup_name(name);
-        let n_var = self.fresh_ident_var(n_hash.clone());
+        let n_ident = self.lookup_name(name);
+        let n_var = self.fresh_ident_var(n_ident.clone());
         let prev_n_var = if attrs.alt {
-          match ctx.lookup_ident(n_hash.clone()) {
+          match ctx.lookup_ident(n_ident.clone()) {
             None => panic!(),
             Some(prev_n_var) => Some(prev_n_var),
           }
         } else {
           None
         };
-        rest_ctx.bind_mut(n_hash, n_var.clone());
+        rest_ctx.bind_mut(n_ident, n_var.clone());
         let body_pos = pos + 1;
         let (body_label, next_pos) = self._lower_rec(body.clone(), body_ctx, stack, body_pos);
         let body_ = LLoc::new2(body_label, body_pos, pos);
@@ -749,8 +707,8 @@ impl LBuilder {
         (label, pos + 1)
       }
       &HExpr::Ident(ref name) => {
-        let name_hash = self.lookup_name(name);
-        let name_var = match ctx.lookup_ident(name_hash) {
+        let name_ident = self.lookup_name(name);
+        let name_var = match ctx.lookup_ident(name_ident) {
           Some(v) => v,
           None => {
             // TODO: propagate errors.
@@ -768,8 +726,12 @@ impl LBuilder {
         stack.insert(pos, (e, ctx, pos));
         (label, pos + 1)
       }
+      &HExpr::PathIndex(ref lhs, ref rhs_idx) => {
+        // TODO
+        unimplemented!();
+      }
       &HExpr::PathLookup(ref lhs, ref rhs_name) => {
-        let name_hash = self.lookup_name(rhs_name);
+        let name_ident = self.lookup_name(rhs_name);
         let lhs_pos = pos + 1;
         let (lhs_label, next_pos) = self._lower_rec(lhs.clone(), ctx.clone(), stack, lhs_pos);
         let lhs_ = LLoc::new(lhs_label, lhs_pos);
@@ -777,13 +739,13 @@ impl LBuilder {
         let e = LExpr{
           version:  0,
           label:    label.clone(),
-          term:     LTerm::ProjectIdent(lhs_, name_hash)
+          term:     LTerm::ProjectIdent(lhs_, name_ident)
         };
         stack.insert(pos, (e, ctx, pos));
         (label, next_pos)
       }
-      &HExpr::PathIndex(ref lhs, ref rhs_idx) => {
-        // FIXME
+      &HExpr::PathELookup(..) => {
+        // TODO
         unimplemented!();
       }
       &HExpr::Add(ref lhs, ref rhs) => {
@@ -909,6 +871,10 @@ impl LBuilder {
         ));
         kont(self, new_exp)
       }
+      &LTerm::SFix(ref fixnames, ref fixbody) => {
+        // TODO
+        unimplemented!();
+      }
       /*&LTerm::Alt(ref name, ref alt_name, ref body, ref rest) => {
         let body = exp.lookup(body);
         let rest = exp.lookup(rest);
@@ -1026,10 +992,10 @@ impl LBuilder {
       }
       &LTerm::Export => {}
       &LTerm::Env(_) => {}
-      &LTerm::ACons(.., ref value, ref target) => {
+      /*&LTerm::ACons(.., ref value, ref target) => {
         self._recontext_exp(exp.lookup(value), ctx.clone());
         self._recontext_exp(exp.lookup(target), ctx.clone());
-      }
+      }*/
       &LTerm::AConcat(ref lhs, ref rhs) => {
         self._recontext_exp(exp.lookup(lhs), ctx.clone());
         self._recontext_exp(exp.lookup(rhs), ctx.clone());
@@ -1058,6 +1024,13 @@ impl LBuilder {
       &LTerm::Fix(ref fixname, ref fixbody) => {
         let mut fixctx = ctx.clone();
         fixctx.bind_mut(self.lookup_var(fixname), fixname.clone());
+        self._recontext_exp(exp.lookup(fixbody), fixctx);
+      }
+      &LTerm::SFix(ref fixnames, ref fixbody) => {
+        let mut fixctx = ctx.clone();
+        for fixname in fixnames.iter() {
+          fixctx.bind_mut(self.lookup_var(fixname), fixname.clone());
+        }
         self._recontext_exp(exp.lookup(fixbody), fixctx);
       }
       &LTerm::Match(ref query, ref pat_arms) => {
@@ -1161,17 +1134,37 @@ impl LBuilder {
   fn _register_adj(&mut self, exp: &LExprCell, a_work: &mut AdjWork, adj: ResolveAdj<LExprCell>) -> ResolveAdj<LExprCell> {
     match &adj {
       &ResolveAdj::Primal(_) => {
+        match self.reg_adj.get(exp.as_ref()) {
+          None => {}
+          _ => panic!(),
+        }
         self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Primal);
       }
       &ResolveAdj::Bridge(ref adj_e) => {
+        match self.reg_adj.get(exp.as_ref()) {
+          None => {}
+          _ => panic!(),
+        }
         a_work.appended.push_front(adj_e.as_ref().clone());
         self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Bridge(adj_e.as_ref().clone()));
       }
       &ResolveAdj::Dual(_, ref adj_e) => {
+        match self.reg_adj.get(exp.as_ref()) {
+          None |
+          Some(&RegisterAdj::Primal) |
+          Some(&RegisterAdj::Bridge(_)) => {}
+          _ => panic!(),
+        }
         a_work.appended.push_front(adj_e.as_ref().clone());
         self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Dual(adj_e.as_ref().clone()));
       }
       &ResolveAdj::Pair(ref adj_e) => {
+        match self.reg_adj.get(exp.as_ref()) {
+          None |
+          Some(&RegisterAdj::Primal) |
+          Some(&RegisterAdj::Bridge(_)) => {}
+          _ => panic!(),
+        }
         a_work.appended.push_front(adj_e.as_ref().clone());
         self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Pair(adj_e.as_ref().clone()));
       }
@@ -1390,6 +1383,54 @@ impl LBuilder {
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        let fixbody_e = exp.lookup(fixbody);
+        let redo_fixbody_e = fixbody_e.clone();
+        match self._resolve_adj_exp(fixbody_e, tenv, work) {
+          ResolveAdj::Primal(_) => {
+            self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
+          }
+          ResolveAdj::Bridge(new_fixbody_e) => {
+            match self._lookup_adj_var(fixname) {
+              None => {
+                let new_exp = exp.append(self, &mut |_| LTerm::Fix(
+                    fixname.clone(),
+                    new_fixbody_e.loc()
+                ));
+                self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+              }
+              Some(adj_fixname) => match self._force_adj_pair(redo_fixbody_e, tenv, work) {
+                ResolveAdj::Primal(_) |
+                ResolveAdj::Bridge(_) |
+                ResolveAdj::Dual(_, _) => unreachable!(),
+                ResolveAdj::Pair(adj_fixbody_e) => {
+                  let adj_fix_e = exp.append(self, &mut |_| LTerm::SFix(
+                      vec![fixname.clone(), adj_fixname.clone()],
+                      adj_fixbody_e.loc()
+                  ));
+                  let tmp_new_name = self.fresh_anon_var();
+                  let tmp_adj_name = self.lookup_adj_var(&tmp_new_name);
+                  let tmp_new_name_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_new_name.clone()));
+                  let new_exp = exp.append(self, &mut |_| LTerm::Match(
+                      adj_fix_e.loc(),
+                      vec![(
+                        LPat::STuple(vec![tmp_new_name.clone().into(), tmp_adj_name.clone().into()]).into(),
+                        tmp_new_name_e.loc()
+                      )]
+                  ));
+                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+                }
+                ResolveAdj::Defer => ResolveAdj::Defer,
+                ResolveAdj::Error => ResolveAdj::Error,
+              }
+            }
+          }
+          ResolveAdj::Dual(_, _) |
+          ResolveAdj::Pair(_) => unreachable!(),
+          ResolveAdj::Defer => ResolveAdj::Defer,
+          ResolveAdj::Error => ResolveAdj::Error,
+        }
+      }
       &LTerm::Match(ref query, ref pat_arms) => {
         // TODO
         unimplemented!();
@@ -1465,12 +1506,14 @@ impl LBuilder {
 
   fn _force_adj_dual_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
     match self.reg_adj.get(exp.as_ref()) {
+      None |
+      Some(&RegisterAdj::Primal) |
+      Some(&RegisterAdj::Bridge(_)) => {}
       Some(&RegisterAdj::Dual(ref adj_e)) => {
         let adj_exp = exp.lookup_exp(adj_e);
         return ResolveAdj::Dual(exp, adj_exp);
       }
       Some(_) => unreachable!(),
-      None => {}
     }
     match &exp.term() {
       // TODO: cases.
@@ -1494,11 +1537,13 @@ impl LBuilder {
 
   fn _force_adj_pair_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
     match self.reg_adj.get(exp.as_ref()) {
+      None |
+      Some(&RegisterAdj::Primal) |
+      Some(&RegisterAdj::Bridge(_)) => {}
       Some(&RegisterAdj::Pair(ref adj_e)) => {
         return ResolveAdj::Pair(exp.lookup_exp(adj_e));
       }
       Some(_) => unreachable!(),
-      None => {}
     }
     match &exp.term() {
       // TODO: cases.
@@ -1687,7 +1732,7 @@ impl LBuilder {
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
-      /*&LTerm::MXBLam(..) => {
+      /*&LTerm::MXLam(..) => {
         // FIXME
         unimplemented!();
       }*/
@@ -1745,6 +1790,24 @@ impl LBuilder {
                 ResolveAdj::Error => ResolveAdj::Error,
               }
             }
+          }
+          ResolveAdj::Defer => ResolveAdj::Defer,
+          ResolveAdj::Error => ResolveAdj::Error,
+        }
+      }
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        let fixbody_e = exp.lookup(fixbody);
+        match self._force_adj_pair_exp(fixbody_e, tenv, work) {
+          ResolveAdj::Primal(_) |
+          ResolveAdj::Bridge(_) |
+          ResolveAdj::Dual(_, _) => unreachable!(),
+          ResolveAdj::Pair(adj_fixbody_e) => {
+            let adj_fixname = self.lookup_adj_var(fixname);
+            let new_exp = exp.append(self, &mut |_| LTerm::SFix(
+                vec![fixname.clone(), adj_fixname.clone()],
+                adj_fixbody_e.loc()
+            ));
+            self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
           }
           ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
@@ -1871,11 +1934,7 @@ enum TyCon {
   Eq_(TyexpRef, TyexpRef),
   //IsPtlD(TyexpRef, TyexpRef),
   //IsProjIdent(TyexpRef, TyexpRef, LIdent),
-  //IsACons(LVar, LTy, LTy, LTy),
-  //IsAConcat(LTy, LTy, LTy),
-  //IsAApp(Vec<(usize, LVar)>, LTyvar, LTy),
-  //IsERet(Vec<(usize, LVar)>, LTyvar, LTy),
-  IsACons(TyexpRef, LVar, Option<LIdent>, TyexpRef, TyexpRef),
+  //IsACons(TyexpRef, LVar, Option<LIdent>, TyexpRef, TyexpRef),
   IsAConcat(TyexpRef, TyexpRef, TyexpRef),
   IsAApp(TyexpRef, Vec<(usize, LVar)>, TyexpRef),
   IsERet(TyexpRef, Vec<LVar>, Vec<(usize, LVar)>, TyexpRef),
@@ -2275,8 +2334,8 @@ impl IncTyInfMachine {
         for (binder, var) in ctx.bind_to_var.iter() {
           keys.insert_mut(var.clone(), tenv.lookup_var(var));
           match binder {
-            &LVarBinder::Ident(ref hash) => {
-              idents.insert_mut(hash.clone(), var.clone());
+            &LVarBinder::Ident(ref ident) => {
+              idents.insert_mut(ident.clone(), var.clone());
             }
             &LVarBinder::Anon => {}
           }
@@ -2296,9 +2355,9 @@ impl IncTyInfMachine {
           unimplemented!();
         }
       }
-      &LTerm::ACons(ref key, ref ident, ref value, ref target) => {
+      /*&LTerm::ACons(ref key, ref ident, ref value, ref target) => {
         // TODO
-      }
+      }*/
       &LTerm::AConcat(ref lhs, ref rhs) => {
         // TODO
       }
@@ -2330,10 +2389,22 @@ impl IncTyInfMachine {
       &LTerm::Fix(ref fixname, ref fixbody) => {
         let fixname_v = tenv.lookup_var(fixname);
         self._gen_exp(exp.lookup(fixbody), tenv, work);
-        let fix_con1 = TyConRef::new(TyCon::Eq_(fixname_v.into(), tenv.lookup_exp(fixbody).into()));
-        let fix_con2 = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(fixbody).into()));
-        work.cons.push_front(fix_con2);
-        work.cons.push_front(fix_con1);
+        let fixname_con = TyConRef::new(TyCon::Eq_(fixname_v.into(), tenv.lookup_exp(fixbody).into()));
+        let fix_con = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(fixbody).into()));
+        work.cons.push_front(fix_con);
+        work.cons.push_front(fixname_con);
+      }
+      &LTerm::SFix(ref fixnames, ref fixbody) => {
+        let mut fixname_tys = Vec::with_capacity(fixnames.len());
+        for fixname in fixnames.iter() {
+          let fixname_v = tenv.lookup_var(fixname);
+          fixname_tys.push(fixname_v.into());
+        }
+        self._gen_exp(exp.lookup(fixbody), tenv, work);
+        let fixnames_con = TyConRef::new(TyCon::Eq_(tenv.lookup_exp(fixbody).into(), Tyexp::STup(fixname_tys).into()));
+        let fix_con = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(fixbody).into()));
+        work.cons.push_front(fix_con);
+        work.cons.push_front(fixnames_con);
       }
       &LTerm::Match(ref query, ref pat_arms) => {
         self._gen_exp(exp.lookup(query), tenv, work);
@@ -2372,7 +2443,7 @@ impl IncTyInfMachine {
         let con = TyConRef::new(TyCon::Eq_(ety.into(), name_v.into()));
         work.cons.push_front(con);
       }
-      &LTerm::ProjectIdent(ref env, ref hash) => {
+      &LTerm::ProjectIdent(ref env, _) => {
         let env_con = self._gen_exp(exp.lookup(env), tenv, work);
         work.a_defer.push_front(exp.as_ref().clone());
       }
@@ -2620,10 +2691,10 @@ impl IncTyInfMachine {
           }
         }
       }*/
-      &TyCon::IsACons(ref query, ref key, ref ident, ref value, ref target) => {
+      /*&TyCon::IsACons(ref query, ref key, ref ident, ref value, ref target) => {
         // TODO
         unimplemented!();
-      }
+      }*/
       &TyCon::IsAConcat(ref query, ref lhs, ref rhs) => {
         // TODO
         unimplemented!();
@@ -2667,8 +2738,8 @@ impl LCtxRef {
     }
   }
 
-  pub fn lookup_ident(&self, hash: LIdent) -> Option<LVar> {
-    match self.bind_to_var.get(&LVarBinder::Ident(hash)) {
+  pub fn lookup_ident(&self, ident: LIdent) -> Option<LVar> {
+    match self.bind_to_var.get(&LVarBinder::Ident(ident)) {
       None => None,
       Some(v) => Some(v.clone()),
     }

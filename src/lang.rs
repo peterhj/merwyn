@@ -24,9 +24,11 @@ lexer! {
   r#"lam"#          => HLToken::Lambda,
   r#"lambda"#       => HLToken::Lambda,
   //r#"λ"#            => HLToken::Lambda,
+  r#"d'"#           => HLToken::DMinorPrime,
   r#"d"#            => HLToken::DMinor,
-  r#"D'"#           => HLToken::DPrime,
+  r#"D'"#           => HLToken::DMajorPrime,
   r#"D"#            => HLToken::DMajor,
+  r#"J'"#           => HLToken::JMajorPrime,
   r#"J"#            => HLToken::JMajor,
   r#"adj"#          => HLToken::Adj,
   r#"tng"#          => HLToken::Tng,
@@ -155,9 +157,11 @@ pub enum HLToken {
   Trace,
   Lambda,
   DMajor,
+  DMajorPrime,
   DMinor,
-  DPrime,
+  DMinorPrime,
   JMajor,
+  JMajorPrime,
   Adj,
   Tng,
   Dyn,
@@ -397,7 +401,7 @@ pub enum HExpr {
   UseIdent(String),
   PathIndex(Rc<HExpr>, usize),
   PathLookup(Rc<HExpr>, String),
-  PathSLookup(Rc<HExpr>, Rc<HExpr>),
+  PathELookup(Rc<HExpr>, Rc<HExpr>),
   //KeyLookup(Rc<HExpr>, String),
   Tyvar(String),
   Tyfun(Rc<HExpr>, Rc<HExpr>),
@@ -462,9 +466,11 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       &HLToken::Break |
       &HLToken::Trace |
       &HLToken::DMajor |
+      &HLToken::DMajorPrime |
       &HLToken::DMinor |
-      &HLToken::DPrime |
+      &HLToken::DMinorPrime |
       &HLToken::JMajor |
+      &HLToken::JMajorPrime |
       &HLToken::Adj |
       &HLToken::Tng |
       &HLToken::Dyn |
@@ -587,6 +593,20 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
         self.advance();
         Ok(HExpr::AdjointD(Rc::new(e)))
       }
+      HLToken::DMajorPrime => {
+        match self.current_token() {
+          HLToken::LBrack => {}
+          _ => panic!(),
+        }
+        self.advance();
+        let e = self.expression(0)?;
+        match self.current_token() {
+          HLToken::RBrack => {}
+          _ => panic!(),
+        }
+        self.advance();
+        Ok(HExpr::TangentD(Rc::new(e)))
+      }
       HLToken::DMinor => {
         match self.current_token() {
           HLToken::Dot => {
@@ -656,19 +676,8 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           _ => panic!(),
         }
       }
-      HLToken::DPrime => {
-        match self.current_token() {
-          HLToken::LBrack => {}
-          _ => panic!(),
-        }
-        self.advance();
-        let e = self.expression(0)?;
-        match self.current_token() {
-          HLToken::RBrack => {}
-          _ => panic!(),
-        }
-        self.advance();
-        Ok(HExpr::TangentD(Rc::new(e)))
+      HLToken::DMinorPrime => {
+        unimplemented!();
       }
       HLToken::JMajor => {
         match self.current_token() {
@@ -683,6 +692,9 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
         }
         self.advance();
         Ok(HExpr::Jacobian(Rc::new(e)))
+      }
+      HLToken::JMajorPrime => {
+        unimplemented!();
       }
       HLToken::Adj => {
         match self.current_token() {
@@ -1211,7 +1223,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           //_ => panic!(),
           _ => {
             let right = self.expression(self.lbp(&tok))?;
-            Ok(HExpr::PathSLookup(Rc::new(left), Rc::new(right)))
+            Ok(HExpr::PathELookup(Rc::new(left), Rc::new(right)))
           }
         }
       }

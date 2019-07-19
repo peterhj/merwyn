@@ -75,12 +75,17 @@ pub extern "C" fn merwyn_code_reclaim(src: *const CModuleRef) {
 
 #[no_mangle]
 pub extern "C" fn merwyn_codegen_new() -> *mut CCodegen {
-  unimplemented!();
+  let cg = Box::new(CCodegen{inner: LBuilder::default()});
+  Box::into_raw(cg)
 }
 
 #[no_mangle]
-pub extern "C" fn merwyn_codegen_drop(cg: *mut CCodegen) {
-  unimplemented!();
+pub extern "C" fn merwyn_codegen_drop(cg_ptr: *mut CCodegen) {
+  if cg_ptr.is_null() {
+    // TODO: should panic.
+    return;
+  }
+  unsafe { Box::from_raw(cg_ptr) };
 }
 
 #[no_mangle]

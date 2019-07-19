@@ -28,7 +28,7 @@ pub enum MVal {
   Env(MEnvRec),
   Clo(MClosure),
   STup(Vec<MValRef>),
-  Tup(Vec<MValRef>),
+  HTup(Vec<MValRef>),
   Unit,
   Bit(bool),
   Int(Checked<i64>),
@@ -52,14 +52,14 @@ pub struct MClosure {
 }
 
 #[derive(Clone)]
-pub struct MBLambda {
+pub struct MLambda {
   // TODO
   pub fun:  Rc<dyn Fn(Vec<MValRef>) -> MValRef>,
 }
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct MCUnsafeLambda {
+pub struct MUnsafeCLambda {
   // TODO
   //pub cfun: Option<extern "C" fn (*mut MCValRef, usize) -> MCValRef>,
 }
@@ -89,7 +89,7 @@ pub enum MKont {
   Ret(MEnvRef, MKontRef),
   Mch(VecDeque<(LPatRef, LTermRef)>, MEnvRef, MKontRef),
   STup(Vec<MValRef>, VecDeque<LTermRef>, MEnvRef, MKontRef),
-  Tup(Vec<MValRef>, VecDeque<LTermRef>, MEnvRef, MKontRef),
+  HTup(Vec<MValRef>, VecDeque<LTermRef>, MEnvRef, MKontRef),
   //EImp(LTermRef, MEnvRef, MKontRef),
 }
 
@@ -163,6 +163,7 @@ impl MRcStore {
 pub struct MThunk {
   pub env:  MEnvRef,
   pub exp:  LTermRef,
+  pub proj: Option<usize>,
   pub data: RefCell<MThunkData>,
 }
 
