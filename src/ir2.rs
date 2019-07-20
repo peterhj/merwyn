@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use crate::lang::{HExpr};
-use crate::mach::{MAddr, MLambda, MCUnsafeLambda};
+use crate::mach::{MAddr, MLambda, MUnsafeCLambda};
 
 use rpds::{HashTrieMap, Queue, RedBlackTreeMap, Stack};
 
@@ -1399,7 +1399,7 @@ impl LBuilder {
                 ));
                 self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
               }
-              Some(adj_fixname) => match self._force_adj_pair(redo_fixbody_e, tenv, work) {
+              Some(adj_fixname) => match self._force_adj_pair_exp(redo_fixbody_e, tenv, work) {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(_) |
                 ResolveAdj::Dual(_, _) => unreachable!(),

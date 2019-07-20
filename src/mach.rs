@@ -163,7 +163,7 @@ impl MRcStore {
 pub struct MThunk {
   pub env:  MEnvRef,
   pub exp:  LTermRef,
-  pub proj: Option<usize>,
+  pub lens: Vec<usize>,
   pub data: RefCell<MThunkData>,
 }
 
