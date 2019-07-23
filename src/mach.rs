@@ -3,13 +3,14 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 //use crate::cffi::{MCValRef};
-use crate::ir2::{LCodeRef, LPatRef, LTerm, LTermRef, LVar};
-use crate::num_util::{Checked};
+use crate::ir2::{LCodeRef, LEnvKeys, LPatRef, LTerm, LTermRef, LVar};
+use crate::num_util::{Checked, checked};
 
 use rpds::{HashTrieMap};
 
 use std::cell::{RefCell};
 use std::collections::{VecDeque};
+use std::iter::{FromIterator};
 use std::rc::{Rc};
 
 pub type MKontRef = Rc<MKont>;
@@ -25,7 +26,7 @@ pub type MThunkRef = Rc<MThunk>;
 
 #[derive(Clone)]
 pub enum MVal {
-  Env(MEnvRec),
+  Env(MEnvRef),
   Clo(MClosure),
   STup(Vec<MValRef>),
   HTup(Vec<MValRef>),
@@ -36,12 +37,6 @@ pub enum MVal {
   //Box(_),
   //Ref(_),
   //...
-}
-
-#[derive(Clone)]
-pub struct MEnvRec {
-  pub idxs: HashTrieMap<usize, MAddr>,
-  pub keys: HashTrieMap<LVar, MAddr>,
 }
 
 #[derive(Clone)]
@@ -85,12 +80,14 @@ pub enum MKont {
   Hlt,
   XInc(LTermRef, MKontRef),
   Thk(MAddr, LTermRef, MEnvRef, MKontRef),
+  EImp(LEnvKeys, LTermRef, MKontRef),
+  EApp(Vec<(usize, LVar)>, LTermRef, MKontRef),
+  ERet(LEnvKeys, Vec<(usize, LVar)>, MEnvRef, MKontRef),
   App(Option<MClosure>, Vec<MValRef>, VecDeque<LTermRef>, MEnvRef, MKontRef),
   Ret(MEnvRef, MKontRef),
   Mch(VecDeque<(LPatRef, LTermRef)>, MEnvRef, MKontRef),
   STup(Vec<MValRef>, VecDeque<LTermRef>, MEnvRef, MKontRef),
   HTup(Vec<MValRef>, VecDeque<LTermRef>, MEnvRef, MKontRef),
-  //EImp(LTermRef, MEnvRef, MKontRef),
 }
 
 impl Default for MKont {
@@ -101,6 +98,7 @@ impl Default for MKont {
 
 #[derive(Clone, Default)]
 pub struct MNamedEnvRef {
+  idxs: HashTrieMap<usize, MAddr>,
   vars: HashTrieMap<LVar, MAddr>,
 }
 
@@ -117,12 +115,14 @@ impl MNamedEnvRef {
 
   pub fn bind(&self, name: LVar, addr: MAddr) -> MNamedEnvRef {
     MNamedEnvRef{
+      idxs: self.idxs.clone(),
       vars: self.vars.insert(name, addr),
     }
   }
 
   pub fn unbind(&self, name: LVar) -> MNamedEnvRef {
     MNamedEnvRef{
+      idxs: self.idxs.clone(),
       vars: self.vars.remove(&name),
     }
   }
@@ -229,6 +229,90 @@ impl MachineState {
               kont: prev_kont,
             }
           }
+          (MVal::Env(tg_env), MKont::EImp(free, rest, prev_kont)) => {
+            let next_env = match free {
+              LEnvKeys::Empty => MEnvRef::default(),
+              LEnvKeys::Var(var) => {
+                let mut next_env = MEnvRef::default();
+                match tg_env.vars.get(&var) {
+                  None => {}
+                  Some(addr) => {
+                    let addr = addr.clone();
+                    next_env.vars.insert_mut(var, addr);
+                  }
+                }
+                next_env
+              }
+              LEnvKeys::List(/*idxs,*/ vars) => {
+                let mut next_env = MEnvRef::default();
+                for var in vars.into_iter() {
+                  match tg_env.vars.get(&var) {
+                    None => {}
+                    Some(addr) => {
+                      let addr = addr.clone();
+                      next_env.vars.insert_mut(var, addr);
+                    }
+                  }
+                }
+                next_env
+              }
+              LEnvKeys::Set(_) => {
+                // TODO
+                unimplemented!();
+              }
+              LEnvKeys::All => tg_env.clone()
+            };
+            MachineTuple{
+              ctrl: MReg::Term(rest),
+              env:  next_env,
+              kont: prev_kont,
+            }
+          }
+          (_, MKont::EImp(..)) => {
+            panic!("machine: bug");
+          }
+          (MVal::Env(tg_env), MKont::EApp(args, rest, prev_kont)) => {
+            let mut next_env = MEnvRef::default();
+            for (idx, key) in args.into_iter() {
+              match tg_env.idxs.get(&idx) {
+                None => {}
+                Some(addr) => {
+                  let addr = addr.clone();
+                  next_env.vars.insert_mut(key, addr);
+                }
+              }
+            }
+            MachineTuple{
+              ctrl: MReg::Term(rest),
+              env:  next_env,
+              kont: prev_kont,
+            }
+          }
+          (_, MKont::EApp(..)) => {
+            panic!("machine: bug");
+          }
+          (MVal::Env(mut tg_env), MKont::ERet(_free, params, prev_env, prev_kont)) => {
+            // TODO: keep `free` keys.
+            for (idx, key) in params.into_iter() {
+              match tg_env.vars.get(&key) {
+                None => {}
+                Some(addr) => {
+                  let addr = addr.clone();
+                  tg_env.vars.remove_mut(&key);
+                  tg_env.idxs.insert_mut(idx, addr);
+                }
+              }
+            }
+            let val = MVal::Env(tg_env).into();
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env:  prev_env,
+              kont: prev_kont,
+            }
+          }
+          (_, MKont::ERet(..)) => {
+            panic!("machine: bug");
+          }
           _ => unimplemented!(),
         }
       }
@@ -253,6 +337,41 @@ impl MachineState {
               env,
             }
           }
+          (LTerm::End, _) => {
+            panic!("machine: bug");
+          }
+          (LTerm::Export, kont) => {
+            let val = MVal::Env(MEnvRef{
+              idxs: HashTrieMap::default(),
+              vars: env.vars.clone(),
+            }).into();
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env,
+              kont: kont.into(),
+            }
+          }
+          (LTerm::Import(free, target, rest), kont) => {
+            MachineTuple{
+              ctrl: MReg::Term(exp.jump(target)),
+              kont: MKont::EImp(free, exp.jump(rest), kont.into()).into(),
+              env,
+            }
+          }
+          (LTerm::EApply(args, target, rest), kont) => {
+            MachineTuple{
+              ctrl: MReg::Term(exp.jump(target)),
+              kont: MKont::EApp(args, exp.jump(rest), kont.into()).into(),
+              env,
+            }
+          }
+          /*(LTerm::EReturn(free, params, target), kont) => {
+            MachineTuple{
+              ctrl: MReg::Term(exp.jump(target)),
+              kont: MKont::ERet(free, params, env.clone(), kont.into()).into(),
+              env,
+            }
+          }*/
           (LTerm::Apply(head, args), MKont::Ret(prev_env, prev_kont)) => {
             // TODO
             MachineTuple{
@@ -281,6 +400,10 @@ impl MachineState {
             // TODO
             unimplemented!();
           }
+          (LTerm::SFix(fixnames, fixbody), _) => {
+            // TODO
+            unimplemented!();
+          }
           (LTerm::Match(query, pat_arms), _) => {
             // TODO
             unimplemented!();
@@ -293,21 +416,37 @@ impl MachineState {
             // TODO
             unimplemented!();
           }
-          (LTerm::UnitLit, _) => {
-            // TODO
-            unimplemented!();
+          (LTerm::UnitLit, kont) => {
+            let val = MVal::Unit.into();
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env,
+              kont: kont.into(),
+            }
           }
-          (LTerm::BitLit(x), _) => {
-            // TODO
-            unimplemented!();
+          (LTerm::BitLit(x), kont) => {
+            let val = MVal::Bit(x).into();
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env,
+              kont: kont.into(),
+            }
           }
-          (LTerm::IntLit(x), _) => {
-            // TODO
-            unimplemented!();
+          (LTerm::IntLit(x), kont) => {
+            let val = MVal::Int(checked(x)).into();
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env,
+              kont: kont.into(),
+            }
           }
-          (LTerm::FlpLit(x), _) => {
-            // TODO
-            unimplemented!();
+          (LTerm::FlpLit(x), kont) => {
+            let val = MVal::Flp(x).into();
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env,
+              kont: kont.into(),
+            }
           }
           (LTerm::Lookup(name), _) => {
             // TODO
