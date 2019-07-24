@@ -25,6 +25,7 @@ pub mod build;
 pub mod builtins;
 pub mod cffi;
 pub mod cfg;
+pub mod coll;
 pub mod ir;
 pub mod ir2;
 pub mod lang;

@@ -2,20 +2,18 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use crate::coll::{RBTreeMap, DebugRBTreeMap};
 use crate::lang::{HExpr};
 use crate::mach::{MAddr, MLambda, MUnsafeCLambda};
 
-use rpds::{HashTrieMap, HashTrieSet, Queue, RedBlackTreeMap, Stack};
+use rpds::{HashTrieMap, HashTrieSet, Queue, Stack};
 
 use std::cell::{RefCell};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
-use std::fmt::{Write as FmtWrite, Error as FmtError};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{Write as IoWrite, Cursor, Error as IoError, stdout};
 use std::iter::{FromIterator};
 use std::ops::{Deref};
 use std::rc::{Rc};
-
-type RBTreeMap<K, V> = RedBlackTreeMap<K, V>;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LLabel(u64);
@@ -308,6 +306,8 @@ impl LBuilder {
     let tree = self._lower(htree, top_ctx.clone());
     let tree = self._normalize(tree);
     let tree = self._ctx(tree, top_ctx.clone());
+    println!("DEBUG: _compile: printing tree...");
+    self._print(tree.clone());
     // FIXME: derive tenv from base tctx.
     let mut tenv = TyEnv::default();
     //let mut tenv = TyEnv::from_tctx(&top_tctx);
@@ -320,28 +320,30 @@ impl LBuilder {
     if t_work.unsat() {
       return Err(());
     }
-    println!("DEBUG: _compile: printing tree...");
-    self._print(tree.clone());
+    self._print_tys(&mut tenv);
     let mut tree = tree;
-    while t_work.defer_adj() {
-      match self._resolve_adj(tree, &mut tenv) {
-        ResolveAdjResult::Primal(_) => unreachable!(),
-        ResolveAdjResult::Bridge(new_tree) => {
-          tree = new_tree;
-          println!("DEBUG: _compile: resolved adj to bridge, printing tree...");
-          self._print(tree.clone());
-          self.gen(&tree, &mut tenv, &mut t_work);
-          self.solve(tree.root(), &mut tenv, &mut t_work);
-          break;
-        }
-        ResolveAdjResult::Defer(old_tree, a_work) => {
-          tree = old_tree;
-          self.gen_inc_adj(&tree, &a_work, &mut tenv, &mut t_work);
-          self.solve(tree.root(), &mut tenv, &mut t_work);
-        }
-        ResolveAdjResult::Error(_, _) => {
-          // TODO: error reporting.
-          return Err(());
+    if t_work.defer_adj() {
+      loop {
+        match self._resolve_adj(tree, &mut tenv, &mut t_work) {
+          ResolveAdjResult::Primal(_) => unreachable!(),
+          ResolveAdjResult::Bridge(new_tree) => {
+            tree = new_tree;
+            println!("DEBUG: _compile: resolved adj to bridge, printing tree...");
+            self._print(tree.clone());
+            self.gen(&tree, &mut tenv, &mut t_work);
+            self.solve(tree.root(), &mut tenv, &mut t_work);
+            self._print_tys(&mut tenv);
+            break;
+          }
+          ResolveAdjResult::Defer(old_tree, mut a_work) => {
+            tree = old_tree;
+            self.gen_inc_adj(&tree, &mut a_work, &mut tenv, &mut t_work);
+            self.solve(tree.root(), &mut tenv, &mut t_work);
+          }
+          ResolveAdjResult::Error(_, _) => {
+            // TODO: error reporting.
+            return Err(());
+          }
         }
       }
     }
@@ -370,6 +372,19 @@ impl LBuilder {
 
   pub fn _print(&self, tree: LTreeCell) {
     assert!(self._write(tree, &mut stdout().lock()).is_ok());
+  }
+
+  fn _print_tys(&self, tenv: &mut TyEnv) {
+    for (var, _) in tenv.var.clone().iter() {
+      match tenv.mgu_var(var.clone()) {
+        None => {
+          println!("# ${} : ?", var.0);
+        }
+        Some((_, _, ty)) => {
+          println!("# ${} : {:?}", var.0, &*ty);
+        }
+      }
+    }
   }
 }
 
@@ -1256,9 +1271,9 @@ struct AdjWork {
 }
 
 impl LBuilder {
-  fn _resolve_adj(&mut self, tree: LTreeCell, tenv: &mut TyEnv) -> ResolveAdjResult<LTreeCell> {
+  fn _resolve_adj(&mut self, tree: LTreeCell, tenv: &mut TyEnv, t_work: &mut TyWork) -> ResolveAdjResult<LTreeCell> {
     let mut work = AdjWork::default();
-    match self._resolve_adj_exp(tree.root(), tenv, &mut work) {
+    match self._resolve_adj_exp(tree.root(), tenv, t_work, &mut work) {
       ResolveAdj::Primal(_) => ResolveAdjResult::Primal(tree),
       ResolveAdj::Bridge(new_root) => {
         new_root.unsafe_set_self_root();
@@ -1316,7 +1331,7 @@ impl LBuilder {
     adj
   }
 
-  fn _resolve_adj_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
+  fn _resolve_adj_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
     /* NB: An example where `resolve_` does not return a primal or bridge
        expr:
 
@@ -1342,7 +1357,7 @@ impl LBuilder {
           match &*ty {
             &LTy::Flp => {
               let target_e = exp.lookup(target);
-              let adj_target_e = match self._force_adj_dual_exp(target_e, tenv, work) {
+              let adj_target_e = match self._force_adj_dual_exp(target_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(_) |
                 ResolveAdj::Pair(_) => unreachable!(),
@@ -1386,13 +1401,13 @@ impl LBuilder {
       }
       &LTerm::Apply(ref head, ref args) => {
         let head_e = exp.lookup(head);
-        match self._resolve_adj_exp(head_e, tenv, work) {
+        match self._resolve_adj_exp(head_e, tenv, t_work, work) {
           ResolveAdj::Primal(head_e) => {
             let mut any_bridge = false;
             let mut new_args = Vec::with_capacity(args.len());
             for arg in args.iter() {
               let arg_e = exp.lookup(arg);
-              match self._resolve_adj_exp(arg_e, tenv, work) {
+              match self._resolve_adj_exp(arg_e, tenv, t_work, work) {
                 ResolveAdj::Primal(arg_e) => {
                   new_args.push(arg_e);
                 }
@@ -1420,7 +1435,7 @@ impl LBuilder {
             let mut new_args = Vec::with_capacity(args.len());
             for arg in args.iter() {
               let arg_e = exp.lookup(arg);
-              match self._resolve_adj_exp(arg_e, tenv, work) {
+              match self._resolve_adj_exp(arg_e, tenv, t_work, work) {
                 ResolveAdj::Primal(arg_e) => {
                   new_args.push(arg_e);
                 }
@@ -1447,7 +1462,7 @@ impl LBuilder {
       }
       &LTerm::Lambda(ref params, ref body) => {
         let body_e = exp.lookup(body);
-        match self._resolve_adj_exp(body_e, tenv, work) {
+        match self._resolve_adj_exp(body_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) => {
             self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
           }
@@ -1459,6 +1474,8 @@ impl LBuilder {
                 None => {}
                 Some(adj_param) => {
                   let tmp_sink = self.fresh_anon_var();
+                  let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_var(param).into()).into();
+                  t_work.cons.push_front(sink_con);
                   let param_target_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
                   let param_adj_e = exp.append(self, &mut |_| LTerm::Lambda(
                       vec![tmp_sink.clone()],
@@ -1487,9 +1504,9 @@ impl LBuilder {
       &LTerm::Let(ref name, ref body, ref rest) => {
         let body_e = exp.lookup(body);
         let rest_e = exp.lookup(rest);
-        match self._resolve_adj_exp(rest_e, tenv, work) {
+        match self._resolve_adj_exp(rest_e, tenv, t_work, work) {
           ResolveAdj::Primal(rest_e) => {
-            match self._resolve_adj_exp(body_e, tenv, work) {
+            match self._resolve_adj_exp(body_e, tenv, t_work, work) {
               ResolveAdj::Primal(_) => {
                 self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
               }
@@ -1509,7 +1526,7 @@ impl LBuilder {
           }
           ResolveAdj::Bridge(new_rest_e) => {
             match self._lookup_adj_var(name) {
-              None => match self._resolve_adj_exp(body_e, tenv, work) {
+              None => match self._resolve_adj_exp(body_e, tenv, t_work, work) {
                 ResolveAdj::Primal(body_e) => {
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
                       name.clone(),
@@ -1531,7 +1548,7 @@ impl LBuilder {
                 ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               },
-              Some(adj_name) => match self._force_adj_pair_exp(body_e, tenv, work) {
+              Some(adj_name) => match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(_) |
                 ResolveAdj::Dual(_, _) => unreachable!(),
@@ -1559,7 +1576,7 @@ impl LBuilder {
       &LTerm::Fix(ref fixname, ref fixbody) => {
         let fixbody_e = exp.lookup(fixbody);
         let redo_fixbody_e = fixbody_e.clone();
-        match self._resolve_adj_exp(fixbody_e, tenv, work) {
+        match self._resolve_adj_exp(fixbody_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) => {
             self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
           }
@@ -1572,7 +1589,7 @@ impl LBuilder {
                 ));
                 self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
               }
-              Some(adj_fixname) => match self._force_adj_pair_exp(redo_fixbody_e, tenv, work) {
+              Some(adj_fixname) => match self._force_adj_pair_exp(redo_fixbody_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(_) |
                 ResolveAdj::Dual(_, _) => unreachable!(),
@@ -1624,26 +1641,26 @@ impl LBuilder {
           match &*ty {
             &LTy::Env(ref _idxs, ref keys, ref idents) => {
               match idents.get(ident) {
-                Some(var) => {
-                  match keys.get(var) {
+                Some(key) => {
+                  match keys.get(key) {
                     Some(_) => {}
                     None => unreachable!(),
                   }
                   let target_e = exp.lookup(target);
-                  match self._resolve_adj_exp(target_e, tenv, work) {
+                  match self._resolve_adj_exp(target_e, tenv, t_work, work) {
                     ResolveAdj::Primal(target_e) => {
-                      let lookup_e = exp.append(self, &mut |_| LTerm::Lookup(var.clone()));
+                      let lookup_e = exp.append(self, &mut |_| LTerm::Lookup(key.clone()));
                       let new_exp = exp.append(self, &mut |_| LTerm::Import(
-                          LEnvKeys::Var(var.clone()),
+                          LEnvKeys::Var(key.clone()),
                           target_e.loc(),
                           lookup_e.loc()
                       ));
                       self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
                     }
                     ResolveAdj::Bridge(new_target_e) => {
-                      let lookup_e = exp.append(self, &mut |_| LTerm::Lookup(var.clone()));
+                      let lookup_e = exp.append(self, &mut |_| LTerm::Lookup(key.clone()));
                       let new_exp = exp.append(self, &mut |_| LTerm::Import(
-                          LEnvKeys::Var(var.clone()),
+                          LEnvKeys::Var(key.clone()),
                           new_target_e.loc(),
                           lookup_e.loc()
                       ));
@@ -1676,7 +1693,7 @@ impl LBuilder {
     }
   }
 
-  fn _force_adj_dual_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
+  fn _force_adj_dual_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
     match self.reg_adj.get(exp.as_ref()) {
       None |
       Some(&RegisterAdj::Primal) |
@@ -1691,6 +1708,8 @@ impl LBuilder {
       // TODO: cases.
       &LTerm::FlpLit(_) => {
         let tmp_sink = self.fresh_anon_var();
+        let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), Tyexp::Flp.into()).into();
+        t_work.cons.push_front(sink_con);
         let target_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
         let new_exp = exp.append(self, &mut |_| LTerm::Lambda(
             vec![tmp_sink.clone()],
@@ -1703,6 +1722,8 @@ impl LBuilder {
           match &*ty {
             &LTy::Flp => {
               let tmp_sink = self.fresh_anon_var();
+              let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_var(var).into()).into();
+              t_work.cons.push_front(sink_con);
               let adj_var = self.lookup_adj_var(var);
               let adj_var_e = exp.append(self, &mut |_| LTerm::Lookup(adj_var.clone()));
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
@@ -1744,7 +1765,7 @@ impl LBuilder {
     }
   }
 
-  fn _force_adj_pair_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
+  fn _force_adj_pair_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
     match self.reg_adj.get(exp.as_ref()) {
       None |
       Some(&RegisterAdj::Primal) |
@@ -1758,7 +1779,7 @@ impl LBuilder {
       // TODO: cases.
       &LTerm::Apply(ref head, ref args) => {
         let head_e = exp.lookup(head);
-        match self._force_adj_dual_exp(head_e, tenv, work) {
+        match self._force_adj_dual_exp(head_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
           ResolveAdj::Bridge(_) |
           ResolveAdj::Pair(_) => unreachable!(),
@@ -1766,6 +1787,8 @@ impl LBuilder {
             let tmp_new = self.fresh_anon_var();
             let tmp_adj = self.lookup_adj_var(&tmp_new);
             let tmp_sink = self.fresh_anon_var();
+            let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_exp(&exp).into()).into();
+            t_work.cons.push_front(sink_con);
             let adj_app_e = exp.append(self, &mut |_| LTerm::Apply(
                 adj_head_e.loc(),
                 args.clone()
@@ -1820,7 +1843,7 @@ impl LBuilder {
       }
       &LTerm::Lambda(ref params, ref body) => {
         let body_e = exp.lookup(body);
-        match self._force_adj_pair_exp(body_e, tenv, work) {
+        match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
           ResolveAdj::Bridge(_) |
           ResolveAdj::Dual(_, _) => unreachable!(),
@@ -1830,6 +1853,8 @@ impl LBuilder {
             let tmp_new = self.fresh_anon_var();
             let tmp_adj = self.lookup_adj_var(&tmp_new);
             let tmp_sink = self.fresh_anon_var();
+            let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_exp(body).into()).into();
+            t_work.cons.push_front(sink_con);
             let mut fixup_params = Vec::with_capacity(params.len());
             for (idx, param) in params.iter().enumerate() {
               fixup_params.push((idx, param.clone()));
@@ -1954,13 +1979,13 @@ impl LBuilder {
         // TODO
         let body_e = exp.lookup(body);
         let rest_e = exp.lookup(rest);
-        match self._force_adj_pair_exp(rest_e, tenv, work) {
+        match self._force_adj_pair_exp(rest_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
           ResolveAdj::Bridge(_) |
           ResolveAdj::Dual(_, _) => unreachable!(),
           ResolveAdj::Pair(adj_rest_e) => {
             match self._lookup_adj_var(name) {
-              None => match self._resolve_adj_exp(body_e, tenv, work) {
+              None => match self._resolve_adj_exp(body_e, tenv, t_work, work) {
                 ResolveAdj::Primal(body_e) => {
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
                       name.clone(),
@@ -1982,7 +2007,7 @@ impl LBuilder {
                 ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               },
-              Some(adj_name) => match self._force_adj_pair_exp(body_e, tenv, work) {
+              Some(adj_name) => match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(_) |
                 ResolveAdj::Dual(_, _) => unreachable!(),
@@ -2007,7 +2032,7 @@ impl LBuilder {
       }
       &LTerm::Fix(ref fixname, ref fixbody) => {
         let fixbody_e = exp.lookup(fixbody);
-        match self._force_adj_pair_exp(fixbody_e, tenv, work) {
+        match self._force_adj_pair_exp(fixbody_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
           ResolveAdj::Bridge(_) |
           ResolveAdj::Dual(_, _) => unreachable!(),
@@ -2029,6 +2054,8 @@ impl LBuilder {
       }
       &LTerm::FlpLit(x) => {
         let tmp_sink = self.fresh_anon_var();
+        let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), Tyexp::Flp.into()).into();
+        t_work.cons.push_front(sink_con);
         let target_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
         let adj_e = exp.append(self, &mut |_| LTerm::Lambda(
             vec![tmp_sink.clone()],
@@ -2044,6 +2071,8 @@ impl LBuilder {
           match &*ty {
             &LTy::Flp => {
               let tmp_sink = self.fresh_anon_var();
+              let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_var(var).into()).into();
+              t_work.cons.push_front(sink_con);
               let adj_var = self.lookup_adj_var(var);
               let adj_var_e = exp.append(self, &mut |_| LTerm::Lookup(adj_var.clone()));
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
@@ -2140,7 +2169,8 @@ impl Deref for TyexpRef {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum LTy {
   Fun(Vec<LTyRef>, LTyRef),
-  Env(RBTreeMap<usize, LTyRef>, RBTreeMap<LVar, LTyRef>, RBTreeMap<LIdent, LVar>),
+  //Env(RBTreeMap<usize, LTyRef>, RBTreeMap<LVar, LTyRef>, RBTreeMap<LIdent, LVar>),
+  Env(DebugRBTreeMap<usize, LTyRef>, DebugRBTreeMap<LVar, LTyRef>, DebugRBTreeMap<LIdent, LVar>),
   STup(Vec<LTyRef>),
   HTup,
   Bit,
@@ -2298,7 +2328,7 @@ struct TyEnv {
   db:   HashMap<LTyvar, LTyvar>,
   texp: HashMap<LTyvar, TyexpRef>,
   //tag:  HashMap<LTyvar, Tytag>,
-  tadj: HashMap<LTyvar, LTyvar>,
+  //tadj: HashMap<LTyvar, LTyvar>,
 }
 
 impl TyEnv {
@@ -2353,7 +2383,7 @@ impl TyEnv {
     }
   }
 
-  fn lookup_adj(&mut self, v: LTyvar) -> LTyvar {
+  /*fn lookup_adj(&mut self, v: LTyvar) -> LTyvar {
     match self.tadj.get(&v) {
       None => {
         let dv = self.fresh_tvar();
@@ -2362,7 +2392,7 @@ impl TyEnv {
       }
       Some(dv) => dv.clone(),
     }
-  }
+  }*/
 
   fn head(&mut self, query: LTyvar) -> LTyvar {
     if !self.db.contains_key(&query) {
@@ -2524,6 +2554,24 @@ impl TyEnv {
         let ret_ = self._mgu_reduced(ret.clone())?;
         Ok(LTy::Fun(dom_, ret_).into())
       }
+      &Tyexp::Env(ref idxs, ref keys, ref idents) => {
+        let mut idxs_ = RBTreeMap::default();
+        let mut keys_ = RBTreeMap::default();
+        for (&idx, t) in idxs.iter() {
+          idxs_.insert_mut(idx, self._mgu_reduced(t.clone())?);
+        }
+        for (key, t) in keys.iter() {
+          keys_.insert_mut(key.clone(), self._mgu_reduced(t.clone())?);
+        }
+        Ok(LTy::Env(idxs_.into(), keys_.into(), idents.clone().into()).into())
+      }
+      &Tyexp::STup(ref elems) => {
+        let mut elems_ = Vec::with_capacity(elems.len());
+        for elem in elems.iter() {
+          elems_.push(self._mgu_reduced(elem.clone())?);
+        }
+        Ok(LTy::STup(elems_).into())
+      }
       &Tyexp::Bit => Ok(LTy::Bit.into()),
       &Tyexp::Int => Ok(LTy::Int.into()),
       &Tyexp::Flp => Ok(LTy::Flp.into()),
@@ -2556,6 +2604,10 @@ impl LBuilder {
   }
 
   fn _gen_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
+    /*let ety = match tenv._lookup_exp(&exp) {
+      None => tenv.lookup_exp(&exp),
+      Some(_) => return,
+    };*/
     let ety = tenv.lookup_exp(&exp);
     match &exp.term() {
       &LTerm::End => {
@@ -2742,7 +2794,7 @@ impl LBuilder {
   }
 
   fn gen(&mut self, tree: &LTreeCell, tenv: &mut TyEnv, work: &mut TyWork) {
-    work._reset();
+    //work._reset();
     self._gen_exp(tree.root(), tenv, work);
   }
 
@@ -2759,9 +2811,13 @@ impl LBuilder {
     unimplemented!();
   }*/
 
-  fn gen_inc_adj(&mut self, tree: &LTreeCell, a_work: &AdjWork, tenv: &mut TyEnv, work: &mut TyWork) {
+  fn gen_inc_adj(&mut self, tree: &LTreeCell, a_work: &mut AdjWork, tenv: &mut TyEnv, work: &mut TyWork) {
     // TODO
-    unimplemented!();
+    //work._reset();
+    let root = tree.root();
+    for e in a_work.appended.drain(..) {
+      self._gen_exp(root.lookup_exp(&e), tenv, work);
+    }
   }
 
   fn _solve_eq_var(&mut self, lv: LTyvar, rv: LTyvar, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {

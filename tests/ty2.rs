@@ -60,7 +60,7 @@ fn test_ty2_example_2() {
   //builder._print(module.tree);
 }
 
-#[test]
+/*#[test]
 fn test_ty2_example_3() {
   println!();
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
@@ -79,4 +79,4 @@ fn test_ty2_example_3() {
   };
   // TODO
   //builder._print(module.tree);
-}
+}*/
