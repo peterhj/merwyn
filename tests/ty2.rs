@@ -102,3 +102,45 @@ fn test_ty2_example_3_fails() {
   // TODO
   //builder._print(module.tree);
 }
+
+#[test]
+fn test_ty2_example_4() {
+  println!();
+  //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
+  //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
+  //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. bot; let df = d[f]; let dy = df[x1]; dy.x1");
+  //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. bot; let df = d[f]; let dy = df[x1]; dy.x1");
+  //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. bot; let y = f[x1]; let dy = d[y]; dy.x1");
+  let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t, k. t; let y = f[x1, 5]; let dy = d[y]; dy.x1");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::default();
+  let module = match builder._compile(htree, LCtxRef::default(), LTyctxRef::default()) {
+    Err(_) => panic!(),
+    Ok(module) => module,
+  };
+  // TODO
+  //builder._print(module.tree);
+}
+
+#[test]
+fn test_ty2_example_5() {
+  println!();
+  //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
+  //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
+  //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. bot; let df = d[f]; let dy = df[x1]; dy.x1");
+  //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. bot; let df = d[f]; let dy = df[x1]; dy.x1");
+  //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. bot; let y = f[x1]; let dy = d[y]; dy.x1");
+  let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 5; let f = \\t, k. t; let y = f[x1, x3]; let dy = d[y]; dy.x1");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::default();
+  let module = match builder._compile(htree, LCtxRef::default(), LTyctxRef::default()) {
+    Err(_) => panic!(),
+    Ok(module) => module,
+  };
+  // TODO
+  //builder._print(module.tree);
+}

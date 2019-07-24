@@ -243,7 +243,7 @@ impl MachineState {
                 }
                 next_env
               }
-              LEnvKeys::List(/*idxs,*/ vars) => {
+              /*LEnvKeys::List(/*idxs,*/ vars) => {
                 let mut next_env = MEnvRef::default();
                 for var in vars.into_iter() {
                   match tg_env.vars.get(&var) {
@@ -255,7 +255,7 @@ impl MachineState {
                   }
                 }
                 next_env
-              }
+              }*/
               LEnvKeys::Set(_) => {
                 // TODO
                 unimplemented!();

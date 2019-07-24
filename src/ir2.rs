@@ -27,6 +27,12 @@ impl AsRef<LLabel> for LLabel {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LMLabel(u64);
 
+impl AsRef<LMLabel> for LMLabel {
+  fn as_ref(&self) -> &LMLabel {
+    self
+  }
+}
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LIdent(u64);
 
@@ -41,7 +47,7 @@ pub enum LPat {
   Cons(LPatRef, LPatRef),
   Concat(LPatRef, LPatRef),
   STuple(Vec<LPatRef>),
-  Tuple(Vec<LPatRef>),
+  HTuple(Vec<LPatRef>),
   BitLit(bool),
   IntLit(i64),
   Var(LVar),
@@ -87,7 +93,7 @@ impl LPat {
           e._vars(vars_set, vars_buf);
         }
       }
-      &LPat::Tuple(ref elems) => {
+      &LPat::HTuple(ref elems) => {
         for e in elems.iter() {
           e._vars(vars_set, vars_buf);
         }
@@ -115,16 +121,60 @@ impl LPat {
   }
 }
 
+/*#[derive(Clone)]
+pub struct LRel {
+  pub label:    LLabel,
+  pub offset:   isize,
+}
+
+impl LRel {
+  pub fn new(label: LLabel, pos: usize, ref_pos: usize) -> LRel {
+    // NB: Should not assume anything about the relative order of this expr
+    // vs the reference expr!
+    /*assert!(pos > ref_pos);*/
+    LRel{
+      label,
+      offset:   pos as isize - ref_pos as isize,
+    }
+  }
+}*/
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct LLoc {
+  pub label:    LLabel,
+  pub pos:      usize,
+}
+
+impl AsRef<LLabel> for LLoc {
+  fn as_ref(&self) -> &LLabel {
+    &self.label
+  }
+}
+
+impl LLoc {
+  pub fn new(label: LLabel, pos: usize) -> LLoc {
+    LLoc{
+      label,
+      pos,
+    }
+  }
+
+  pub fn new2(label: LLabel, pos: usize, _: usize) -> LLoc {
+    LLoc{
+      label,
+      pos,
+    }
+  }
+}
+
 #[derive(Clone, Debug)]
 pub enum LEnvKeys {
   Empty,
   Var(LVar),
-  List(/*Vec<usize>,*/ Vec<LVar>),
+  //List(/*Vec<usize>,*/ Vec<LVar>),
   Set(HashTrieSet<LVar>),
   All,
 }
-
-pub type LETerm = LTerm<usize, usize>;
 
 #[derive(Clone, Debug)]
 pub enum LTerm<E=LLoc, ME=LMLoc> {
@@ -139,16 +189,16 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   Export,
   Import(LEnvKeys, E, E),
   EApply(Vec<(usize, LVar)>, E, E),
-  AApply(Vec<(usize, LVar, Option<LIdent>, LVar)>, E),
+  AApply(Vec<(usize, LVar, LVarBinder, LVar)>, E),
   AReturn(LEnvKeys, Vec<(usize, LVar)>, E),
-  ACons(LVar, Option<LIdent>, E, E),
+  ACons(LVar, LVarBinder, E, E),
   AConcat(E, E),
   PtlD(E),
   AdjD(E),
   TngD(E),
   Jac(E),
-  Adj(E),
-  Tng(E),
+  //Adj(E),
+  //Tng(E),
   Let(LVar, E, E),
   Fix(LVar, E),
   SFix(Vec<LVar>, E),
@@ -171,10 +221,25 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   MX(ME),
 }
 
-#[derive(Clone)]
-pub struct LMExpr {
-  pub mlabel:   LMLabel,
-  pub mterm:    LMTerm,
+#[derive(Clone, Debug)]
+pub struct LExpr {
+  // TODO
+  pub version:  usize,
+  //pub up:       LLoc,
+  pub label:    LLabel,
+  pub term:     LTerm,
+}
+
+#[derive(Clone, Debug)]
+pub struct LMLoc {
+  pub label:    LMLabel,
+  pub pos:      usize,
+}
+
+impl AsRef<LMLabel> for LMLoc {
+  fn as_ref(&self) -> &LMLabel {
+    &self.label
+  }
 }
 
 #[derive(Clone)]
@@ -182,6 +247,13 @@ pub enum LMTerm {
   Deref(MAddr),
   Lambda(LMLambdaDef<MLambda>),
   CLambda(LMLambdaDef<MUnsafeCLambda>),
+}
+
+#[derive(Clone)]
+pub struct LMExpr {
+  pub version:  usize,
+  pub label:    LMLabel,
+  pub term:     LMTerm,
 }
 
 #[derive(Clone)]
@@ -1061,7 +1133,7 @@ impl LBuilder {
       &LTerm::AdjD(ref target) => {
         self._ctx_exp(exp.lookup(target), ctx);
       }
-      &LTerm::Adj(ref target) => {
+      &LTerm::TngD(ref target) => {
         self._ctx_exp(exp.lookup(target), ctx);
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
@@ -1278,6 +1350,7 @@ enum ResolveAdjResult<E> {
 enum AdjError {
   //Nonscalar,
   Nonsmooth,
+  NonsmoothParam(LVar),
   EnvMissingIdent(LIdent),
   NonEnvType,
 }
@@ -1775,10 +1848,7 @@ impl LBuilder {
                   vec![tmp_sink_e.loc()]
               ));
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
-              let ident = match self.lookup_var(var) {
-                LVarBinder::Ident(ident) => Some(ident),
-                _ => None,
-              };
+              let ident = self.lookup_var(var);
               let cons_e = exp.append(self, &mut |_| LTerm::ACons(
                   var.clone(),
                   ident.clone(),
@@ -1848,14 +1918,30 @@ impl LBuilder {
             for (idx, arg) in args.iter().enumerate() {
               let arg_e = exp.lookup(arg);
               match &arg_e.term() {
+                &LTerm::BitLit(_) |
+                &LTerm::IntLit(_) |
                 &LTerm::FlpLit(_) => {}
                 &LTerm::Lookup(ref arg_var) => {
-                  let arg_ident = match self.lookup_var(arg_var) {
-                    LVarBinder::Ident(ident) => Some(ident),
-                    _ => None,
-                  };
-                  let arg_adj = self.lookup_adj_var(arg_var);
-                  adj_app_app_fixup_args.push((idx, arg_var.clone(), arg_ident, arg_adj));
+                  match tenv.mgu_var(arg_var.clone()) {
+                    Some((_, _, ty)) => {
+                      match &*ty {
+                        // TODO: fixup any smooth type.
+                        &LTy::Flp => {
+                          let arg_ident = self.lookup_var(arg_var);
+                          let arg_adj = self.lookup_adj_var(arg_var);
+                          adj_app_app_fixup_args.push((idx, arg_var.clone(), arg_ident, arg_adj));
+                        }
+                        _ => {}
+                      }
+                    }
+                    None => {
+                      // FIXME: need to be able to defer pairs.
+                      println!("WARNING: should have deferred adj pair of apply");
+                      let arg_ident = self.lookup_var(arg_var);
+                      let arg_adj = self.lookup_adj_var(arg_var);
+                      adj_app_app_fixup_args.push((idx, arg_var.clone(), arg_ident, arg_adj));
+                    }
+                  }
                 }
                 _ => unimplemented!(),
               }
@@ -1893,7 +1979,6 @@ impl LBuilder {
           ResolveAdj::Bridge(_, _) |
           ResolveAdj::Dual(_, _) => unreachable!(),
           ResolveAdj::Pair(adj_body_e) => {
-            // FIXME: need to look into the params types.
             let lam_freectx = self._freectx_once_exp(exp.clone());
             let tmp_new = self.fresh_anon_var();
             let tmp_adj = self.lookup_adj_var(&tmp_new);
@@ -1901,8 +1986,26 @@ impl LBuilder {
             let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_exp(body).into()).into();
             t_work.cons.push_front(sink_con);
             let mut fixup_params = Vec::with_capacity(params.len());
+            let mut fixup_params_set = HashSet::new();
             for (idx, param) in params.iter().enumerate() {
-              fixup_params.push((idx, param.clone()));
+              match tenv.mgu_var(param.clone()) {
+                Some((_, _, ty)) => {
+                  match &*ty {
+                    // TODO: fixup any smooth type.
+                    &LTy::Flp => {
+                      fixup_params.push((idx, param.clone()));
+                      fixup_params_set.insert(param.clone());
+                    }
+                    _ => {}
+                  }
+                }
+                None => {
+                  // FIXME: need to be able to defer pairs.
+                  println!("WARNING: should have deferred adj pair of lambda");
+                  fixup_params.push((idx, param.clone()));
+                  fixup_params_set.insert(param.clone());
+                }
+              }
             }
             let tmp_adj_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_adj.clone()));
             let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
@@ -1928,6 +2031,10 @@ impl LBuilder {
               match self._lookup_adj_var(param) {
                 None => {}
                 Some(adj_param) => {
+                  if !fixup_params_set.contains(param) {
+                    work.errored.push_back((exp.label(), AdjError::NonsmoothParam(param.clone())));
+                    return ResolveAdj::Error;
+                  }
                   let tmp_sink = self.fresh_anon_var();
                   let param_target_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
                   let param_adj_e = exp.append(self, &mut |_| LTerm::Lambda(
@@ -2127,10 +2234,7 @@ impl LBuilder {
                   vec![tmp_sink_e.loc()]
               ));
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
-              let ident = match self.lookup_var(var) {
-                LVarBinder::Ident(ident) => Some(ident),
-                _ => None,
-              };
+              let ident = self.lookup_var(var);
               let cons_e = exp.append(self, &mut |_| LTerm::ACons(
                   var.clone(),
                   ident.clone(),
@@ -2261,9 +2365,9 @@ enum TyCon {
   Top,
   Cnj(Queue<TyConRef>),
   Eq_(TyexpRef, TyexpRef),
-  IsAApply(TyexpRef, Vec<(usize, LVar, Option<LIdent>, LVar)>, TyexpRef),
+  IsAApply(TyexpRef, Vec<(usize, LVar, LVarBinder, LVar)>, TyexpRef),
   IsAReturn(TyexpRef, Vec<LVar>, Vec<(usize, LVar)>, TyexpRef),
-  IsACons(TyexpRef, TyexpRef, LVar, Option<LIdent>, TyexpRef, TyexpRef),
+  IsACons(TyexpRef, TyexpRef, LVar, LVarBinder, TyexpRef, TyexpRef),
   IsAConcat(TyexpRef, TyexpRef, TyexpRef),
   Bottom,
 }
@@ -2761,7 +2865,7 @@ impl LBuilder {
       &LTerm::AdjD(ref _target) => {
         unimplemented!();
       }
-      &LTerm::Adj(ref _target) => {
+      &LTerm::TngD(ref _target) => {
         unimplemented!();
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
@@ -2971,9 +3075,40 @@ impl LBuilder {
             self.solve(root, tenv, work)
           }
           (&Tyexp::Env(ref l_idxs, ref l_keys, ref l_idents), &Tyexp::Env(ref r_idxs, ref r_keys, ref r_idents)) => {
-            // TODO
-            //unimplemented!();
-            println!("TRACE: solve: Eq_: env: todo...");
+            if l_idxs != r_idxs || l_keys != r_keys {
+              println!("WARNING: solve: Eq_: env arity mismatch");
+              work.unsat.push_back(con.clone());
+              work.cons.push_back(TyCon::Bottom.into());
+              return self.solve(root, tenv, work);
+            }
+            for ((l_idx, l_ty), (r_idx, r_ty)) in l_idxs.iter().zip(r_idxs.iter()) {
+              if l_idx != r_idx {
+                println!("WARNING: solve: Eq_: env index key mismatch");
+                work.unsat.push_back(con.clone());
+                work.cons.push_back(TyCon::Bottom.into());
+                return self.solve(root, tenv, work);
+              }
+              work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ty.clone(), r_ty.clone())));
+            }
+            for ((l_key, l_ty), (r_key, r_ty)) in l_keys.iter().zip(r_keys.iter()) {
+              if l_key != r_key {
+                println!("WARNING: solve: Eq_: env var key mismatch");
+                work.unsat.push_back(con.clone());
+                work.cons.push_back(TyCon::Bottom.into());
+                return self.solve(root, tenv, work);
+              }
+              /*work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ty.clone(), r_ty.clone())));*/
+              work.cons.push_back(TyConRef::new(TyCon::Eq_(tenv.lookup_var(l_key).into(), l_ty.clone())));
+              work.cons.push_back(TyConRef::new(TyCon::Eq_(tenv.lookup_var(l_key).into(), r_ty.clone())));
+            }
+            for ((l_id, l_key), (r_id, r_key)) in l_idents.iter().zip(r_idents.iter()) {
+              if l_id != r_id || l_key != r_key {
+                println!("WARNING: solve: Eq_: env var binding mismatch");
+                work.unsat.push_back(con.clone());
+                work.cons.push_back(TyCon::Bottom.into());
+                return self.solve(root, tenv, work);
+              }
+            }
             self.solve(root, tenv, work)
           }
           (&Tyexp::STup(ref l_elems), &Tyexp::STup(ref r_elems)) => {
@@ -3112,7 +3247,7 @@ impl LBuilder {
                       work.cons.push_back(val_con);
                     }
                   }
-                  if let &Some(ref ident) = ident {
+                  if let &LVarBinder::Ident(ref ident) = ident {
                     app_idents.insert_mut(ident.clone(), key.clone());
                   }
                 }
@@ -3199,8 +3334,8 @@ impl LBuilder {
             // TODO
             let cons_keys = tg_keys.insert(key_var.clone(), value.clone().into());
             let cons_idents = match key_ident {
-              None => tg_idents.clone(),
-              Some(key_ident) => tg_idents.insert(key_ident.clone(), key_var.clone()),
+              LVarBinder::Ident(key_ident) => tg_idents.insert(key_ident.clone(), key_var.clone()),
+              LVarBinder::Anon => tg_idents.clone(),
             };
             let new_con = TyConRef::new(TyCon::Eq_(query.clone(), Tyexp::Env(tg_idxs.clone(), cons_keys, cons_idents).into()));
             work.cons.push_back(new_con);
@@ -3304,70 +3439,10 @@ impl AdjEnv {
   }
 }*/
 
-/*#[derive(Clone)]
-pub struct LRel {
-  pub label:    LLabel,
-  pub offset:   isize,
-}
-
-impl LRel {
-  pub fn new(label: LLabel, pos: usize, ref_pos: usize) -> LRel {
-    // NB: Should not assume anything about the relative order of this expr
-    // vs the reference expr!
-    /*assert!(pos > ref_pos);*/
-    LRel{
-      label,
-      offset:   pos as isize - ref_pos as isize,
-    }
-  }
-}*/
-
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct LLoc {
-  pub label:    LLabel,
-  pub pos:      usize,
-}
-
-impl AsRef<LLabel> for LLoc {
-  fn as_ref(&self) -> &LLabel {
-    &self.label
-  }
-}
-
-impl LLoc {
-  pub fn new(label: LLabel, pos: usize) -> LLoc {
-    LLoc{
-      label,
-      pos,
-    }
-  }
-
-  pub fn new2(label: LLabel, pos: usize, _: usize) -> LLoc {
-    LLoc{
-      label,
-      pos,
-    }
-  }
-}
-
-#[derive(Clone, Debug)]
-pub struct LMLoc {
-  pub mlabel:   LMLabel,
-  pub mpos:     usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct LExpr {
-  // TODO
-  pub version:  usize,
-  //pub up:       LLoc,
-  pub label:    LLabel,
-  pub term:     LTerm,
-}
-
 #[derive(Debug)]
 pub enum LDelta {
   Append(LLoc),
+  AppendM(LMLoc),
   Rewrite(LLoc),
 }
 
@@ -3622,8 +3697,8 @@ impl LExprCell {
         term:     new_term,
       });
       tree.history.push((view.version, LDelta::Append(LLoc::new(new_label.clone(), new_pos))));
-      // FIXME
-      //assert_eq!(view.version, tree.history.len());
+      // FIXME: adj resolution temporarily breaks this invariant.
+      /*assert_eq!(view.version, tree.history.len());*/
       tree.index.insert(new_label.clone(), new_pos);
       new_pos
     };
@@ -3668,6 +3743,8 @@ impl LExprCell {
     }
   }*/
 }
+
+pub type LETerm = LTerm<usize, usize>;
 
 pub type LCodeRef = Rc<LCode>;
 
@@ -3836,11 +3913,14 @@ impl PrintBox {
       &LTerm::AApply(ref args, ref target) => {
         write!(&mut buffer, "<A-app>(")?;
         for &(ref idx, ref key, ref ident, ref adj_key) in args.iter() {
-          if ident.is_some() {
-            let ident_s = builder.lookup_ident(ident.as_ref().unwrap());
-            write!(&mut buffer, "{} => (${}({}), ${})", idx, key.0, ident_s, adj_key.0)?;
-          } else {
-            write!(&mut buffer, "{} => (${}, ${})", idx, key.0, adj_key.0)?;
+          match ident {
+            &LVarBinder::Ident(ref ident) => {
+              let ident_s = builder.lookup_ident(ident);
+              write!(&mut buffer, "%{} => (${}({}), ${})", idx, key.0, ident_s, adj_key.0)?;
+            }
+            _ => {
+              write!(&mut buffer, "%{} => (${}, ${})", idx, key.0, adj_key.0)?;
+            }
           }
         }
         write!(&mut buffer, "; ")?;
@@ -3860,8 +3940,11 @@ impl PrintBox {
       &LTerm::AReturn(ref _free, ref params, ref target) => {
         // TODO
         write!(&mut buffer, "<A-ret>(... ")?;
-        for &(ref idx, ref key) in params.iter() {
-          write!(&mut buffer, "${} => {}", key.0, idx)?;
+        for (p_idx, &(ref idx, ref key)) in params.iter().enumerate() {
+          write!(&mut buffer, "${} => %{}", key.0, idx)?;
+          if p_idx != params.len() - 1 {
+            write!(&mut buffer, ", ")?;
+          }
         }
         write!(&mut buffer, "; ")?;
         let mut target_box = PrintBox{
