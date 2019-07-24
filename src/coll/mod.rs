@@ -4,7 +4,7 @@
 
 use rpds::{RedBlackTreeMap};
 
-use std::fmt::{Error as FmtError, Debug as FmtDebug, Formatter};
+use std::fmt::{Debug as FmtDebug, Error as FmtError, Formatter};
 use std::ops::{Deref};
 
 pub type RBTreeMap<K, V> = RedBlackTreeMap<K, V>;

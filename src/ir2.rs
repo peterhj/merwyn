@@ -164,6 +164,7 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   FlpLit(f64),
   Index(usize),
   Lookup(LVar),
+  ProjectVar(E, LVar),
   ProjectIdent(E, LIdent),
   //ProjectIdents(E, Vec<LIdent>),
   Unbind(LVar, E),
@@ -205,7 +206,7 @@ impl From<LIdent> for LVarBinder {
 
 enum RegisterAdj {
   Primal,
-  Bridge(LLabel),
+  Bridge(LLabel, bool),
   Dual(LLabel),
   Pair(LLabel),
 }
@@ -324,24 +325,31 @@ impl LBuilder {
     let mut tree = tree;
     if t_work.defer_adj() {
       loop {
-        match self._resolve_adj(tree, &mut tenv, &mut t_work) {
+        match self._resolve_adj(tree.clone(), &mut tenv, &mut t_work) {
           ResolveAdjResult::Primal(_) => unreachable!(),
-          ResolveAdjResult::Bridge(new_tree) => {
-            tree = new_tree;
-            println!("DEBUG: _compile: resolved adj to bridge, printing tree...");
-            self._print(tree.clone());
-            self.gen(&tree, &mut tenv, &mut t_work);
-            self.solve(tree.root(), &mut tenv, &mut t_work);
+          ResolveAdjResult::Bridge(new_tree, deferred) => {
+            if deferred {
+              println!("DEBUG: _compile: resolved adj to deferred bridge, printing tree...");
+            } else {
+              println!("DEBUG: _compile: resolved adj to bridge, printing tree...");
+            }
+            self._print(new_tree.clone());
+            self.gen(&new_tree, &mut tenv, &mut t_work);
+            self.solve(new_tree.root(), &mut tenv, &mut t_work);
             self._print_tys(&mut tenv);
-            break;
+            if !deferred {
+              tree = new_tree;
+              break;
+            }
           }
-          ResolveAdjResult::Defer(old_tree, mut a_work) => {
+          /*ResolveAdjResult::Defer(old_tree, mut a_work) => {
             tree = old_tree;
             self.gen_inc_adj(&tree, &mut a_work, &mut tenv, &mut t_work);
             self.solve(tree.root(), &mut tenv, &mut t_work);
-          }
-          ResolveAdjResult::Error(_, _) => {
+          }*/
+          ResolveAdjResult::Error(_, a_work) => {
             // TODO: error reporting.
+            println!("DEBUG: _compile: adj resolution error: {:?}", a_work.errored);
             return Err(());
           }
         }
@@ -1101,6 +1109,9 @@ impl LBuilder {
       &LTerm::IntLit(_) => {}
       &LTerm::FlpLit(_) => {}
       &LTerm::Lookup(_) => {}
+      &LTerm::ProjectVar(ref target, _) => {
+        self._ctx_exp(exp.lookup(target), ctx);
+      }
       &LTerm::ProjectIdent(ref env, _) => {
         self._ctx_exp(exp.lookup(env), ctx);
       }
@@ -1216,6 +1227,11 @@ impl LBuilder {
         exp.unsafe_set_freectx(ctx.clone());
         ctx
       }
+      &LTerm::ProjectVar(ref env, _) => {
+        let ctx = self._freectx_once_exp(exp.lookup(env));
+        exp.unsafe_set_freectx(ctx.clone());
+        ctx
+      }
       &LTerm::ProjectIdent(ref env, _) => {
         let ctx = self._freectx_once_exp(exp.lookup(env));
         exp.unsafe_set_freectx(ctx.clone());
@@ -1242,17 +1258,19 @@ impl LBuilder {
 
 enum ResolveAdj<E> {
   Primal(E),
-  Bridge(E),
+  //Bridge(E),
+  Bridge(E, bool),
   Dual(E, E),
   Pair(E),
-  Defer,
+  //Defer,
   Error,
 }
 
 enum ResolveAdjResult<E> {
   Primal(E),
-  Bridge(E),
-  Defer(E, AdjWork),
+  //Bridge(E),
+  Bridge(E, bool),
+  //Defer(E, AdjWork),
   Error(E, AdjWork),
 }
 
@@ -1260,7 +1278,8 @@ enum ResolveAdjResult<E> {
 enum AdjError {
   //Nonscalar,
   Nonsmooth,
-  Type,
+  EnvMissingIdent(LIdent),
+  NonEnvType,
 }
 
 #[derive(Default)]
@@ -1275,16 +1294,16 @@ impl LBuilder {
     let mut work = AdjWork::default();
     match self._resolve_adj_exp(tree.root(), tenv, t_work, &mut work) {
       ResolveAdj::Primal(_) => ResolveAdjResult::Primal(tree),
-      ResolveAdj::Bridge(new_root) => {
+      ResolveAdj::Bridge(new_root, deferred) => {
         new_root.unsafe_set_self_root();
         ResolveAdjResult::Bridge(LTreeCell{
           view: new_root.view.into(),
           data: new_root.tree.data.clone(),
-        })
+        }, deferred)
       }
       ResolveAdj::Dual(_, _) |
       ResolveAdj::Pair(_) => unreachable!(),
-      ResolveAdj::Defer => ResolveAdjResult::Defer(tree, work),
+      //ResolveAdj::Defer => ResolveAdjResult::Defer(tree, work),
       ResolveAdj::Error => ResolveAdjResult::Error(tree, work),
     }
   }
@@ -1298,19 +1317,20 @@ impl LBuilder {
         }
         self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Primal);
       }
-      &ResolveAdj::Bridge(ref adj_e) => {
+      &ResolveAdj::Bridge(ref adj_e, deferred) => {
         match self.reg_adj.get(exp.as_ref()) {
-          None => {}
+          None |
+          Some(&RegisterAdj::Bridge(_, true)) => {}
           _ => panic!(),
         }
         a_work.appended.push_front(adj_e.as_ref().clone());
-        self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Bridge(adj_e.as_ref().clone()));
+        self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Bridge(adj_e.as_ref().clone(), deferred));
       }
       &ResolveAdj::Dual(_, ref adj_e) => {
         match self.reg_adj.get(exp.as_ref()) {
           None |
           Some(&RegisterAdj::Primal) |
-          Some(&RegisterAdj::Bridge(_)) => {}
+          Some(&RegisterAdj::Bridge(_, _)) => {}
           _ => panic!(),
         }
         a_work.appended.push_front(adj_e.as_ref().clone());
@@ -1320,7 +1340,7 @@ impl LBuilder {
         match self.reg_adj.get(exp.as_ref()) {
           None |
           Some(&RegisterAdj::Primal) |
-          Some(&RegisterAdj::Bridge(_)) => {}
+          Some(&RegisterAdj::Bridge(_, _)) => {}
           _ => panic!(),
         }
         a_work.appended.push_front(adj_e.as_ref().clone());
@@ -1345,11 +1365,12 @@ impl LBuilder {
       Some(&RegisterAdj::Primal) => {
         return ResolveAdj::Primal(exp);
       }
-      Some(&RegisterAdj::Bridge(ref adj_e)) => {
-        return ResolveAdj::Bridge(exp.lookup_exp(adj_e));
+      Some(&RegisterAdj::Bridge(ref adj_e, false)) => {
+        return ResolveAdj::Bridge(exp.lookup_exp(adj_e), false);
       }
+      None |
+      Some(&RegisterAdj::Bridge(_, true)) => {}
       Some(_) => unreachable!(),
-      None => {}
     }
     match &exp.term() {
       &LTerm::PtlD(ref target) => {
@@ -1359,10 +1380,10 @@ impl LBuilder {
               let target_e = exp.lookup(target);
               let adj_target_e = match self._force_adj_dual_exp(target_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
-                ResolveAdj::Bridge(_) |
+                ResolveAdj::Bridge(_, _) |
                 ResolveAdj::Pair(_) => unreachable!(),
                 ResolveAdj::Dual(_, adj_target_e) => adj_target_e,
-                ResolveAdj::Defer => return ResolveAdj::Defer,
+                //ResolveAdj::Defer => return ResolveAdj::Defer,
                 ResolveAdj::Error => return ResolveAdj::Error,
               };
               let unit_sink_e = exp.append(self, &mut |_| LTerm::FlpLit(1.0));
@@ -1370,7 +1391,7 @@ impl LBuilder {
                   adj_target_e.loc(),
                   vec![unit_sink_e.loc()]
               ));
-              self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+              self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, false))
             }
             &LTy::Fun(ref _dom_tys, ref ret_ty) => {
               match &**ret_ty {
@@ -1392,14 +1413,16 @@ impl LBuilder {
             }
           }
         } else {
-          work.deferred.push_back(exp.label());
-          ResolveAdj::Defer
+          //work.deferred.push_back(exp.label());
+          //ResolveAdj::Defer
+          self._register_adj(&exp, work, ResolveAdj::Bridge(exp.clone(), true))
         }
       }
       &LTerm::End => {
         self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
       }
       &LTerm::Apply(ref head, ref args) => {
+        let mut deferred = false;
         let head_e = exp.lookup(head);
         match self._resolve_adj_exp(head_e, tenv, t_work, work) {
           ResolveAdj::Primal(head_e) => {
@@ -1411,13 +1434,14 @@ impl LBuilder {
                 ResolveAdj::Primal(arg_e) => {
                   new_args.push(arg_e);
                 }
-                ResolveAdj::Bridge(arg_e) => {
+                ResolveAdj::Bridge(arg_e, arg_defer) => {
+                  deferred |= arg_defer;
                   any_bridge = true;
                   new_args.push(arg_e);
                 }
                 ResolveAdj::Dual(_, _) |
                 ResolveAdj::Pair(_) => unreachable!(),
-                ResolveAdj::Defer => return ResolveAdj::Defer,
+                //ResolveAdj::Defer => return ResolveAdj::Defer,
                 ResolveAdj::Error => return ResolveAdj::Error,
               }
             }
@@ -1426,12 +1450,14 @@ impl LBuilder {
                   head_e.loc(),
                   new_args.iter().map(|e| e.loc()).collect()
               ));
-              self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+              self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, deferred))
             } else {
+              assert!(!deferred);
               self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
             }
           }
-          ResolveAdj::Bridge(new_head_e) => {
+          ResolveAdj::Bridge(new_head_e, head_defer) => {
+            deferred |= head_defer;
             let mut new_args = Vec::with_capacity(args.len());
             for arg in args.iter() {
               let arg_e = exp.lookup(arg);
@@ -1439,12 +1465,13 @@ impl LBuilder {
                 ResolveAdj::Primal(arg_e) => {
                   new_args.push(arg_e);
                 }
-                ResolveAdj::Bridge(arg_e) => {
-                  new_args.push(arg_e);
+                ResolveAdj::Bridge(new_arg_e, arg_defer) => {
+                  deferred |= arg_defer;
+                  new_args.push(new_arg_e);
                 }
                 ResolveAdj::Dual(_, _) |
                 ResolveAdj::Pair(_) => unreachable!(),
-                ResolveAdj::Defer => return ResolveAdj::Defer,
+                //ResolveAdj::Defer => return ResolveAdj::Defer,
                 ResolveAdj::Error => return ResolveAdj::Error,
               }
             }
@@ -1452,11 +1479,11 @@ impl LBuilder {
                 new_head_e.loc(),
                 new_args.iter().map(|e| e.loc()).collect()
             ));
-            self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+            self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, deferred))
           }
           ResolveAdj::Dual(_, _) |
           ResolveAdj::Pair(_) => unreachable!(),
-          ResolveAdj::Defer => ResolveAdj::Defer,
+          //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
@@ -1466,7 +1493,7 @@ impl LBuilder {
           ResolveAdj::Primal(_) => {
             self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
           }
-          ResolveAdj::Bridge(new_body_e) => {
+          ResolveAdj::Bridge(new_body_e, body_defer) => {
             // FIXME: need to look into the params types.
             let mut new_body_fixup_e = new_body_e;
             for param in params.iter().rev() {
@@ -1493,15 +1520,16 @@ impl LBuilder {
                 params.clone(),
                 new_body_fixup_e.loc()
             ));
-            self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+            self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, body_defer))
           }
           ResolveAdj::Dual(_, _) |
           ResolveAdj::Pair(_) => unreachable!(),
-          ResolveAdj::Defer => ResolveAdj::Defer,
+          //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
+        let mut deferred = false;
         let body_e = exp.lookup(body);
         let rest_e = exp.lookup(rest);
         match self._resolve_adj_exp(rest_e, tenv, t_work, work) {
@@ -1510,21 +1538,23 @@ impl LBuilder {
               ResolveAdj::Primal(_) => {
                 self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
               }
-              ResolveAdj::Bridge(new_body_e) => {
+              ResolveAdj::Bridge(new_body_e, body_defer) => {
+                deferred |= body_defer;
                 let new_exp = exp.append(self, &mut |_| LTerm::Let(
                     name.clone(),
                     new_body_e.loc(),
                     rest_e.loc()
                 ));
-                self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+                self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, deferred))
               }
               ResolveAdj::Dual(_, _) |
               ResolveAdj::Pair(_) => unreachable!(),
-              ResolveAdj::Defer => ResolveAdj::Defer,
+              //ResolveAdj::Defer => ResolveAdj::Defer,
               ResolveAdj::Error => ResolveAdj::Error,
             }
           }
-          ResolveAdj::Bridge(new_rest_e) => {
+          ResolveAdj::Bridge(new_rest_e, rest_defer) => {
+            deferred |= rest_defer;
             match self._lookup_adj_var(name) {
               None => match self._resolve_adj_exp(body_e, tenv, t_work, work) {
                 ResolveAdj::Primal(body_e) => {
@@ -1533,24 +1563,25 @@ impl LBuilder {
                       body_e.loc(),
                       new_rest_e.loc()
                   ));
-                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, deferred))
                 }
-                ResolveAdj::Bridge(new_body_e) => {
+                ResolveAdj::Bridge(new_body_e, body_defer) => {
+                  deferred |= body_defer;
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
                       name.clone(),
                       new_body_e.loc(),
                       new_rest_e.loc()
                   ));
-                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, deferred))
                 }
                 ResolveAdj::Dual(_, _) |
                 ResolveAdj::Pair(_) => unreachable!(),
-                ResolveAdj::Defer => ResolveAdj::Defer,
+                //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               },
               Some(adj_name) => match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
-                ResolveAdj::Bridge(_) |
+                ResolveAdj::Bridge(_, _) |
                 ResolveAdj::Dual(_, _) => unreachable!(),
                 ResolveAdj::Pair(adj_body_e) => {
                   let new_exp = exp.append(self, &mut |_| LTerm::Match(
@@ -1560,16 +1591,16 @@ impl LBuilder {
                         new_rest_e.loc()
                       )]
                   ));
-                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, deferred))
                 }
-                ResolveAdj::Defer => ResolveAdj::Defer,
+                //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               }
             }
           }
           ResolveAdj::Dual(_, _) |
           ResolveAdj::Pair(_) => unreachable!(),
-          ResolveAdj::Defer => ResolveAdj::Defer,
+          //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
@@ -1580,18 +1611,18 @@ impl LBuilder {
           ResolveAdj::Primal(_) => {
             self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
           }
-          ResolveAdj::Bridge(new_fixbody_e) => {
+          ResolveAdj::Bridge(new_fixbody_e, fixbody_defer) => {
             match self._lookup_adj_var(fixname) {
               None => {
                 let new_exp = exp.append(self, &mut |_| LTerm::Fix(
                     fixname.clone(),
                     new_fixbody_e.loc()
                 ));
-                self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+                self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, fixbody_defer))
               }
               Some(adj_fixname) => match self._force_adj_pair_exp(redo_fixbody_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
-                ResolveAdj::Bridge(_) |
+                ResolveAdj::Bridge(_, _) |
                 ResolveAdj::Dual(_, _) => unreachable!(),
                 ResolveAdj::Pair(adj_fixbody_e) => {
                   let adj_fix_e = exp.append(self, &mut |_| LTerm::SFix(
@@ -1608,16 +1639,16 @@ impl LBuilder {
                         tmp_new_name_e.loc()
                       )]
                   ));
-                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, fixbody_defer))
                 }
-                ResolveAdj::Defer => ResolveAdj::Defer,
+                //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               }
             }
           }
           ResolveAdj::Dual(_, _) |
           ResolveAdj::Pair(_) => unreachable!(),
-          ResolveAdj::Defer => ResolveAdj::Defer,
+          //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
@@ -1636,6 +1667,9 @@ impl LBuilder {
       &LTerm::Lookup(_) => {
         self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
       }
+      &LTerm::ProjectVar(_, _) => {
+        self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
+      }
       &LTerm::ProjectIdent(ref target, ref ident) => {
         if let Some((_, _, ty)) = tenv.mgu_exp(target) {
           match &*ty {
@@ -1649,43 +1683,52 @@ impl LBuilder {
                   let target_e = exp.lookup(target);
                   match self._resolve_adj_exp(target_e, tenv, t_work, work) {
                     ResolveAdj::Primal(target_e) => {
-                      let lookup_e = exp.append(self, &mut |_| LTerm::Lookup(key.clone()));
+                      /*let lookup_e = exp.append(self, &mut |_| LTerm::Lookup(key.clone()));
                       let new_exp = exp.append(self, &mut |_| LTerm::Import(
                           LEnvKeys::Var(key.clone()),
                           target_e.loc(),
                           lookup_e.loc()
+                      ));*/
+                      let new_exp = exp.append(self, &mut |_| LTerm::ProjectVar(
+                          target_e.loc(),
+                          key.clone()
                       ));
-                      self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+                      self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, false))
                     }
-                    ResolveAdj::Bridge(new_target_e) => {
-                      let lookup_e = exp.append(self, &mut |_| LTerm::Lookup(key.clone()));
+                    ResolveAdj::Bridge(new_target_e, target_defer) => {
+                      /*let lookup_e = exp.append(self, &mut |_| LTerm::Lookup(key.clone()));
                       let new_exp = exp.append(self, &mut |_| LTerm::Import(
                           LEnvKeys::Var(key.clone()),
                           new_target_e.loc(),
                           lookup_e.loc()
+                      ));*/
+                      let new_exp = exp.append(self, &mut |_| LTerm::ProjectVar(
+                          new_target_e.loc(),
+                          key.clone()
                       ));
-                      self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp))
+                      self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, target_defer))
                     }
                     ResolveAdj::Dual(_, _) |
                     ResolveAdj::Pair(_) => unreachable!(),
-                    ResolveAdj::Defer => ResolveAdj::Defer,
+                    //ResolveAdj::Defer => ResolveAdj::Defer,
                     ResolveAdj::Error => ResolveAdj::Error,
                   }
                 }
                 None => {
-                  work.errored.push_back((exp.label(), AdjError::Type));
+                  work.errored.push_back((exp.label(), AdjError::EnvMissingIdent(ident.clone())));
                   ResolveAdj::Error
                 }
               }
             }
             _ => {
-              work.errored.push_back((exp.label(), AdjError::Type));
+              work.errored.push_back((exp.label(), AdjError::NonEnvType));
               ResolveAdj::Error
             }
           }
         } else {
-          work.deferred.push_back(exp.label());
-          ResolveAdj::Defer
+          //work.deferred.push_back(exp.label());
+          //ResolveAdj::Defer
+          self._register_adj(&exp, work, ResolveAdj::Bridge(exp.clone(), true))
         }
       }
       // TODO
@@ -1697,7 +1740,7 @@ impl LBuilder {
     match self.reg_adj.get(exp.as_ref()) {
       None |
       Some(&RegisterAdj::Primal) |
-      Some(&RegisterAdj::Bridge(_)) => {}
+      Some(&RegisterAdj::Bridge(_, _)) => {}
       Some(&RegisterAdj::Dual(ref adj_e)) => {
         let adj_exp = exp.lookup_exp(adj_e);
         return ResolveAdj::Dual(exp, adj_exp);
@@ -1757,8 +1800,10 @@ impl LBuilder {
             _ => unimplemented!(),
           }
         } else {
-          work.deferred.push_back(exp.label());
-          ResolveAdj::Defer
+          // TODO
+          //work.deferred.push_back(exp.label());
+          //ResolveAdj::Defer
+          unimplemented!();
         }
       }
       _ => unimplemented!(),
@@ -1769,7 +1814,7 @@ impl LBuilder {
     match self.reg_adj.get(exp.as_ref()) {
       None |
       Some(&RegisterAdj::Primal) |
-      Some(&RegisterAdj::Bridge(_)) => {}
+      Some(&RegisterAdj::Bridge(_, _)) => {}
       Some(&RegisterAdj::Pair(ref adj_e)) => {
         return ResolveAdj::Pair(exp.lookup_exp(adj_e));
       }
@@ -1781,7 +1826,7 @@ impl LBuilder {
         let head_e = exp.lookup(head);
         match self._force_adj_dual_exp(head_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
-          ResolveAdj::Bridge(_) |
+          ResolveAdj::Bridge(_, _) |
           ResolveAdj::Pair(_) => unreachable!(),
           ResolveAdj::Dual(_, adj_head_e) => {
             let tmp_new = self.fresh_anon_var();
@@ -1837,7 +1882,7 @@ impl LBuilder {
             ));
             self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
           }
-          ResolveAdj::Defer => ResolveAdj::Defer,
+          //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
@@ -1845,7 +1890,7 @@ impl LBuilder {
         let body_e = exp.lookup(body);
         match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
-          ResolveAdj::Bridge(_) |
+          ResolveAdj::Bridge(_, _) |
           ResolveAdj::Dual(_, _) => unreachable!(),
           ResolveAdj::Pair(adj_body_e) => {
             // FIXME: need to look into the params types.
@@ -1963,7 +2008,7 @@ impl LBuilder {
             ));
             self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
           }
-          ResolveAdj::Defer => ResolveAdj::Defer,
+          //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
@@ -1981,7 +2026,7 @@ impl LBuilder {
         let rest_e = exp.lookup(rest);
         match self._force_adj_pair_exp(rest_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
-          ResolveAdj::Bridge(_) |
+          ResolveAdj::Bridge(_, _) |
           ResolveAdj::Dual(_, _) => unreachable!(),
           ResolveAdj::Pair(adj_rest_e) => {
             match self._lookup_adj_var(name) {
@@ -1994,7 +2039,8 @@ impl LBuilder {
                   ));
                   self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
                 }
-                ResolveAdj::Bridge(new_body_e) => {
+                ResolveAdj::Bridge(new_body_e, body_defer) => {
+                  // FIXME: possibly defer on `body_defer`.
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
                       name.clone(),
                       new_body_e.loc(),
@@ -2004,12 +2050,12 @@ impl LBuilder {
                 }
                 ResolveAdj::Dual(_, _) |
                 ResolveAdj::Pair(_) => unreachable!(),
-                ResolveAdj::Defer => ResolveAdj::Defer,
+                //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               },
               Some(adj_name) => match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
-                ResolveAdj::Bridge(_) |
+                ResolveAdj::Bridge(_, _) |
                 ResolveAdj::Dual(_, _) => unreachable!(),
                 ResolveAdj::Pair(adj_body_e) => {
                   let new_exp = exp.append(self, &mut |_| LTerm::Match(
@@ -2021,12 +2067,12 @@ impl LBuilder {
                   ));
                   self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
                 }
-                ResolveAdj::Defer => ResolveAdj::Defer,
+                //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               }
             }
           }
-          ResolveAdj::Defer => ResolveAdj::Defer,
+          //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
@@ -2034,7 +2080,7 @@ impl LBuilder {
         let fixbody_e = exp.lookup(fixbody);
         match self._force_adj_pair_exp(fixbody_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
-          ResolveAdj::Bridge(_) |
+          ResolveAdj::Bridge(_, _) |
           ResolveAdj::Dual(_, _) => unreachable!(),
           ResolveAdj::Pair(adj_fixbody_e) => {
             let adj_fixname = self.lookup_adj_var(fixname);
@@ -2044,7 +2090,7 @@ impl LBuilder {
             ));
             self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
           }
-          ResolveAdj::Defer => ResolveAdj::Defer,
+          //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
@@ -2112,8 +2158,10 @@ impl LBuilder {
             _ => unimplemented!(),
           }
         } else {
-          work.deferred.push_back(exp.label());
-          ResolveAdj::Defer
+          // TODO
+          //work.deferred.push_back(exp.label());
+          //ResolveAdj::Defer
+          unimplemented!();
         }
       }
       _ => unimplemented!(),
@@ -2782,8 +2830,11 @@ impl LBuilder {
         let con = TyConRef::new(TyCon::Eq_(ety.into(), name_v.into()));
         work.cons.push_front(con);
       }
-      &LTerm::ProjectIdent(ref env, _) => {
-        let env_con = self._gen_exp(exp.lookup(env), tenv, work);
+      &LTerm::ProjectVar(ref target, ref key) => {
+        // TODO
+      }
+      &LTerm::ProjectIdent(ref target, _) => {
+        let target_con = self._gen_exp(exp.lookup(target), tenv, work);
         work.a_defer.push_front(exp.as_ref().clone());
       }
       //_ => unimplemented!(),
@@ -3571,7 +3622,8 @@ impl LExprCell {
         term:     new_term,
       });
       tree.history.push((view.version, LDelta::Append(LLoc::new(new_label.clone(), new_pos))));
-      assert_eq!(view.version, tree.history.len());
+      // FIXME
+      //assert_eq!(view.version, tree.history.len());
       tree.index.insert(new_label.clone(), new_pos);
       new_pos
     };
@@ -4080,6 +4132,21 @@ impl PrintBox {
         writer.write_all(&buffer.into_inner())?;
         Ok(())
       }
+      &LTerm::ProjectVar(ref target, ref key) => {
+        //let ident_s = builder.lookup_ident(&ident);
+        let mut target_box = PrintBox{
+          left_indent:  self.left_indent,
+          line_nr:      1,
+        };
+        target_box._print_exp(builder, exp.lookup(target), &mut buffer)?;
+        if target_box.line_nr > 1 {
+          unimplemented!();
+        } else {
+          write!(buffer, ".${}", key.0)?;
+          writer.write_all(&buffer.into_inner())?;
+        }
+        Ok(())
+      }
       &LTerm::ProjectIdent(ref target, ref ident) => {
         let ident_s = builder.lookup_ident(&ident);
         let mut target_box = PrintBox{
@@ -4090,7 +4157,7 @@ impl PrintBox {
         if target_box.line_nr > 1 {
           unimplemented!();
         } else {
-          write!(buffer, ".{}", ident_s)?;
+          write!(buffer, ".#{}({})", ident.0, ident_s)?;
           writer.write_all(&buffer.into_inner())?;
         }
         Ok(())
