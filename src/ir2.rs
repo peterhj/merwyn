@@ -478,7 +478,7 @@ impl LBuilder {
     unimplemented!();
   }
 
-  fn _lower_pat_rec(&mut self, htree: Rc<HExpr>, _other: ()) -> LPatRef {
+  fn _lower_pat_rec(&mut self, htree: Rc<HExpr>, ctx: &mut LCtxRef) -> LPatRef {
     // TODO
     match &*htree {
       &HExpr::STuple(ref elems) => {
@@ -497,10 +497,15 @@ impl LBuilder {
         LPat::IntLit(x).into()
       }
       &HExpr::PlacePat => {
-        unimplemented!();
+        let place = self.fresh_anon_var();
+        ctx.bind_mut(LVarBinder::Anon, place.clone());
+        LPat::Var(place).into()
       }
       &HExpr::Ident(ref name) => {
-        unimplemented!();
+        let ident = self.lookup_name(name);
+        let var = self.fresh_ident_var(ident.clone());
+        ctx.bind_mut(ident, var.clone());
+        LPat::Var(var).into()
       }
       _ => unimplemented!(),
     }
@@ -746,8 +751,28 @@ impl LBuilder {
         unimplemented!();
       }
       &HExpr::Match(ref query, ref pat_arms) => {
-        // FIXME
-        unimplemented!();
+        let query_ctx = ctx.clone();
+        let query_pos = pos + 1;
+        let (query_label, next_pos) = self._lower_rec(query.clone(), query_ctx, stack, query_pos);
+        let query_ = LLoc::new(query_label, query_pos);
+        let mut pat_arms_ = Vec::with_capacity(pat_arms.len());
+        let mut arm_pos = next_pos;
+        for &(ref pat, ref arm) in pat_arms.iter() {
+          let mut pat_arm_ctx = ctx.clone();
+          let pat = self._lower_pat_rec(pat.clone(), &mut pat_arm_ctx);
+          let (arm_label, next_pos) = self._lower_rec(arm.clone(), pat_arm_ctx, stack, arm_pos);
+          let arm_ = LLoc::new(arm_label, arm_pos);
+          pat_arms_.push((pat, arm_));
+          arm_pos = next_pos;
+        }
+        let label = self.fresh_label();
+        let e = LExpr{
+          version:  0,
+          label:    label.clone(),
+          term:     LTerm::Match(query_, pat_arms_)
+        };
+        stack.insert(pos, (e, ctx, pos));
+        (label, arm_pos)
       }
       &HExpr::NilSTupLit => {
         // FIXME
@@ -1001,6 +1026,27 @@ impl LBuilder {
           ))
         })
       }*/
+      &LTerm::Match(ref query, ref pat_arms) => {
+        let query = exp.lookup(query);
+        let pats = Queue::from_iter(pat_arms.iter().map(|&(ref p, _)| p.clone()));
+        let arms = Queue::from_iter(pat_arms.iter().map(|&(_, ref a)| exp.lookup(a)));
+        self._normalize_name(query, &mut |this, query| {
+          let mut new_pat_arms = Vec::with_capacity(pat_arms.len());
+          for &(ref pat, ref arm) in pat_arms.iter() {
+            let arm = this._normalize_term(exp.lookup(arm));
+            new_pat_arms.push((pat.clone(), arm.loc()));
+          }
+          let new_exp = exp.append(this, &mut |_| LTerm::Match(
+              query.loc(),
+              new_pat_arms.clone()
+          ));
+          kont(this, new_exp)
+        })
+      }
+      &LTerm::STuple(_) => {
+        // TODO
+        unimplemented!();
+      }
       &LTerm::BitLit(_) |
       &LTerm::IntLit(_) |
       &LTerm::FlpLit(_) |
@@ -1979,7 +2025,7 @@ impl LBuilder {
           ResolveAdj::Bridge(_, _) |
           ResolveAdj::Dual(_, _) => unreachable!(),
           ResolveAdj::Pair(adj_body_e) => {
-            let lam_freectx = self._freectx_once_exp(exp.clone());
+            //let lam_freectx = self._freectx_once_exp(exp.clone());
             let tmp_new = self.fresh_anon_var();
             let tmp_adj = self.lookup_adj_var(&tmp_new);
             let tmp_sink = self.fresh_anon_var();
@@ -2014,7 +2060,8 @@ impl LBuilder {
                 vec![tmp_sink_e.loc()]
             ));
             let adj_body_app_fixup_e = exp.append(self, &mut |_| LTerm::AReturn(
-                LEnvKeys::Set(lam_freectx.freevars.clone()),
+                LEnvKeys::All,
+                //LEnvKeys::Set(lam_freectx.freevars.clone()),
                 fixup_params.clone(),
                 adj_body_app_e.loc()
             ));
@@ -2148,6 +2195,9 @@ impl LBuilder {
                 }
                 ResolveAdj::Bridge(new_body_e, body_defer) => {
                   // FIXME: possibly defer on `body_defer`.
+                  if body_defer {
+                    println!("WARNING: should have deferred adj pair of let");
+                  }
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
                       name.clone(),
                       new_body_e.loc(),
@@ -2203,7 +2253,36 @@ impl LBuilder {
       }
       &LTerm::Match(ref query, ref pat_arms) => {
         // TODO
-        unimplemented!();
+        let query_e = exp.lookup(query);
+        match self._resolve_adj_exp(query_e, tenv, t_work, work) {
+          ResolveAdj::Primal(query_e) => {
+            let mut adj_pat_arms = Vec::with_capacity(pat_arms.len());
+            for &(ref pat, ref arm) in pat_arms.iter() {
+              let arm_e = exp.lookup(arm);
+              match self._force_adj_pair_exp(arm_e, tenv, t_work, work) {
+                ResolveAdj::Primal(_) |
+                ResolveAdj::Bridge(_, _) |
+                ResolveAdj::Dual(_, _) => unreachable!(),
+                ResolveAdj::Pair(adj_arm_e) => {
+                  adj_pat_arms.push((pat.clone(), adj_arm_e.loc()));
+                }
+                ResolveAdj::Error => return ResolveAdj::Error,
+              }
+            }
+            let new_exp = exp.append(self, &mut |_| LTerm::Match(
+                query_e.loc(),
+                adj_pat_arms.clone()
+            ));
+            self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+          }
+          ResolveAdj::Bridge(new_query_e, query_defer) => {
+            // TODO
+            unimplemented!();
+          }
+          ResolveAdj::Dual(_, _) |
+          ResolveAdj::Pair(_) => unreachable!(),
+          ResolveAdj::Error => ResolveAdj::Error,
+        }
       }
       &LTerm::FlpLit(x) => {
         let tmp_sink = self.fresh_anon_var();
@@ -2747,6 +2826,12 @@ impl LBuilder {
           elem_tys.push(self._gen_pat(elem.clone(), tenv, work));
         }
         Tyexp::STup(elem_tys).into()
+      }
+      &LPat::BitLit(_) => {
+        Tyexp::Bit.into()
+      }
+      &LPat::IntLit(_) => {
+        Tyexp::Int.into()
       }
       &LPat::Var(ref var) => {
         tenv.lookup_var(var).into()
@@ -3839,6 +3924,19 @@ impl PrintBox {
         }
         Ok(())
       }
+      &LPat::BitLit(x) => {
+        match x {
+          true  => write!(&mut buffer, "top")?,
+          false => write!(&mut buffer, "bot")?,
+        }
+        writer.write_all(&buffer.into_inner())?;
+        Ok(())
+      }
+      &LPat::IntLit(x) => {
+        write!(&mut buffer, "{}n", x)?;
+        writer.write_all(&buffer.into_inner())?;
+        Ok(())
+      }
       &LPat::Var(ref var) => {
         match builder.lookup_var(var) {
           LVarBinder::Ident(ident) => {
@@ -3886,30 +3984,6 @@ impl PrintBox {
           unimplemented!();
         }
       }
-      /*&LTerm::_AApply(ref args, ref target) => {
-        write!(&mut buffer, "<A-app>(")?;
-        for &(ref idx, ref key, ref ident) in args.iter() {
-          if ident.is_some() {
-            let ident_s = builder.lookup_ident(ident.as_ref().unwrap());
-            write!(&mut buffer, "{} => ${}({})", idx, key.0, ident_s)?;
-          } else {
-            write!(&mut buffer, "{} => ${}", idx, key.0)?;
-          }
-        }
-        write!(&mut buffer, "; ")?;
-        let mut target_box = PrintBox{
-          left_indent:  self.left_indent + buffer.position() as usize,
-          line_nr:      1,
-        };
-        target_box._print_exp(builder, exp.lookup(target), &mut buffer)?;
-        if target_box.line_nr > 1 {
-          // TODO
-          unimplemented!();
-        }
-        write!(&mut buffer, ")")?;
-        writer.write_all(&buffer.into_inner())?;
-        Ok(())
-      }*/
       &LTerm::AApply(ref args, ref target) => {
         write!(&mut buffer, "<A-app>(")?;
         for &(ref idx, ref key, ref ident, ref adj_key) in args.iter() {
@@ -4155,7 +4229,52 @@ impl PrintBox {
           }
           self._print_exp(builder, exp.lookup(&arm), writer)
         } else {
-          unimplemented!();
+          // TODO
+          write!(&mut buffer, "match ")?;
+          let mut query_box = PrintBox{
+            left_indent:  self.left_indent + buffer.position() as usize,
+            line_nr:      1,
+          };
+          query_box._print_exp(builder, exp.lookup(query), &mut buffer)?;
+          if query_box.line_nr > 1 {
+            // TODO
+            unimplemented!();
+          }
+          writer.write_all(&buffer.into_inner())?;
+          self._newline(writer)?;
+          for (idx, &(ref pat, ref arm)) in pat_arms.iter().enumerate() {
+            let mut buffer = Cursor::new(vec![]);
+            write!(&mut buffer, "  | ")?;
+            let mut pat_box = PrintBox{
+              left_indent:  self.left_indent + buffer.position() as usize,
+              line_nr:      1,
+            };
+            pat_box._print_pat(builder, pat.clone(), &mut buffer)?;
+            if pat_box.line_nr > 1 {
+              // TODO
+              unimplemented!();
+            }
+            write!(&mut buffer, " => ")?;
+            let mut arm_box = PrintBox{
+              left_indent:  self.left_indent + buffer.position() as usize,
+              line_nr:      1,
+            };
+            arm_box._print_exp(builder, exp.lookup(arm), &mut buffer)?;
+            // TODO
+            if arm_box.line_nr > 1 {
+              writer.write_all(&buffer.into_inner())?;
+              self.line_nr += query_box.line_nr - 1;
+              if idx != pat_arms.len() - 1 {
+                self._newline(writer)?;
+              }
+            } else {
+              writer.write_all(&buffer.into_inner())?;
+              if idx != pat_arms.len() - 1 {
+                self._newline(writer)?;
+              }
+            }
+          }
+          Ok(())
         }
       }
       &LTerm::STuple(ref elems) => {

@@ -144,3 +144,19 @@ fn test_ty2_example_5() {
   // TODO
   //builder._print(module.tree);
 }
+
+#[test]
+fn test_ty2_example_6() {
+  println!();
+  let lexer = HLexer::new("let x = 1.0; let n = 5; let f = \\t, k. match k | 0 => t | _ => t; let y = f[x, n]; let dy = d[y]; dy.x");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("DEBUG: htree: {:?}", htree);
+  let mut builder = LBuilder::default();
+  let module = match builder._compile(htree, LCtxRef::default(), LTyctxRef::default()) {
+    Err(_) => panic!(),
+    Ok(module) => module,
+  };
+  // TODO
+  //builder._print(module.tree);
+}
