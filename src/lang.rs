@@ -320,7 +320,7 @@ impl<'src> Iterator for HLexer<'src> {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct HLetAttrs {
+pub struct HLetDecorators {
   pub pub_: bool,
   pub alt:  bool,
   pub rec:  bool,
@@ -358,7 +358,8 @@ pub enum HExpr {
   Adj(Rc<HExpr>),
   Tng(Rc<HExpr>),
   AdjDyn(Rc<HExpr>),
-  Let(Option<HLetAttrs>, Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
+  Const(Rc<HExpr>),
+  Let(Option<HLetDecorators>, Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   //LetFun(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetMatch(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetRand(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
@@ -713,22 +714,26 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
         let e = self.expression(0)?;
         Ok(HExpr::Tng(Rc::new(e)))
       }
+      HLToken::Const => {
+        let e = self.expression(0)?;
+        Ok(HExpr::Const(Rc::new(e)))
+      }
       HLToken::Pub => {
         match self.current_token() {
           HLToken::Let => {}
           _ => panic!(),
         }
         self.expression(0).map(|e| match e {
-          HExpr::Let(attrs, lhs, rhs, rest) => {
-            let mut attrs = attrs.unwrap_or_default();
-            attrs.pub_ = true;
-            HExpr::Let(Some(attrs), lhs, rhs, rest)
+          HExpr::Let(decos, lhs, rhs, rest) => {
+            let mut decos = decos.unwrap_or_default();
+            decos.pub_ = true;
+            HExpr::Let(Some(decos), lhs, rhs, rest)
           }
           _ => panic!(),
         })
       }
       HLToken::Let => {
-        let mut maybe_attrs: Option<HLetAttrs> = None;
+        let mut maybe_decos: Option<HLetDecorators> = None;
         loop {
           match self.current_token() {
             HLToken::Match => {
@@ -749,27 +754,27 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
               return Ok(HExpr::LetMatch(Rc::new(pat_e), Rc::new(query_e), Rc::new(rest_e)));
             }
             HLToken::Alt => {
-              let mut attrs = maybe_attrs.unwrap_or_default();
-              attrs.alt = true;
-              maybe_attrs = Some(attrs);
+              let mut decos = maybe_decos.unwrap_or_default();
+              decos.alt = true;
+              maybe_decos = Some(decos);
               self.advance();
             }
             HLToken::Rec => {
-              let mut attrs = maybe_attrs.unwrap_or_default();
-              attrs.rec = true;
-              maybe_attrs = Some(attrs);
+              let mut decos = maybe_decos.unwrap_or_default();
+              decos.rec = true;
+              maybe_decos = Some(decos);
               self.advance();
             }
             /*HLToken::Rnd => {
-              let mut attrs = maybe_attrs.unwrap_or_default();
-              attrs.rnd = true;
-              maybe_attrs = Some(attrs);
+              let mut decos = maybe_decos.unwrap_or_default();
+              decos.rnd = true;
+              maybe_decos = Some(decos);
               self.advance();
             }*/
             HLToken::Seq => {
-              let mut attrs = maybe_attrs.unwrap_or_default();
-              attrs.seq = true;
-              maybe_attrs = Some(attrs);
+              let mut decos = maybe_decos.unwrap_or_default();
+              decos.seq = true;
+              maybe_decos = Some(decos);
               self.advance();
             }
             _ => break,
@@ -842,9 +847,9 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
             // TODO
             self.advance();
             let ty_e = self.expression(0)?;
-            let mut attrs = maybe_attrs.unwrap_or_default();
-            attrs.ty = Some(Rc::new(ty_e));
-            maybe_attrs = Some(attrs);
+            let mut decos = maybe_decos.unwrap_or_default();
+            decos.ty = Some(Rc::new(ty_e));
+            maybe_decos = Some(decos);
             match self.current_token() {
               HLToken::Equals => {
                 self.advance();
@@ -856,7 +861,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
                   _ => panic!(),
                 }
                 let e2 = self.expression(0)?;
-                Ok(HExpr::Let(maybe_attrs, Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
+                Ok(HExpr::Let(maybe_decos, Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
               }
               _ => panic!(),
             }
@@ -871,7 +876,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
               _ => panic!(),
             }
             let e2 = self.expression(0)?;
-            Ok(HExpr::Let(maybe_attrs, Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
+            Ok(HExpr::Let(maybe_decos, Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
           }
           HLToken::Tilde => {
             self.advance();

@@ -7,9 +7,9 @@
 #![feature(ptr_offset_from)]
 
 extern crate byteorder;
-extern crate envy;
-extern crate fixedbitset;
-extern crate lazycell;
+//extern crate envy;
+//extern crate fixedbitset;
+//extern crate lazycell;
 //#[macro_use] extern crate lazy_static;
 extern crate libc;
 //extern crate parking_lot;
@@ -26,7 +26,6 @@ pub mod builtins;
 pub mod cffi;
 pub mod cfg;
 pub mod coll;
-pub mod ir;
 pub mod ir2;
 pub mod lang;
 pub mod mach;
@@ -34,4 +33,3 @@ pub mod mach_io;
 pub mod num_util;
 pub mod repl;
 pub mod rngs;
-pub mod vm;

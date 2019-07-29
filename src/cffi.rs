@@ -127,6 +127,7 @@ pub extern "C" fn merwyn_machine_step(mach_ptr: *mut CMachine) {
     return;
   }
   let mut mach = unsafe { Box::from_raw(mach_ptr) };
-  mach.inner = mach.inner._step();
+  // FIXME
+  /*mach.inner = mach.inner._step();*/
   assert_eq!(mach_ptr, Box::into_raw(mach));
 }

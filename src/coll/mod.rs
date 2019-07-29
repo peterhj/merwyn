@@ -7,6 +7,8 @@ use rpds::{RedBlackTreeMap};
 use std::fmt::{Debug as FmtDebug, Error as FmtError, Formatter};
 use std::ops::{Deref};
 
+pub mod hashtreap;
+
 pub type RBTreeMap<K, V> = RedBlackTreeMap<K, V>;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Default)]

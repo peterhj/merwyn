@@ -4,10 +4,11 @@
 
 use crate::coll::{RBTreeMap, DebugRBTreeMap};
 use crate::lang::{HExpr};
-use crate::mach::{MAddr, MLambda, MUnsafeCLambda};
+use crate::mach::{MAddr, MTerm, /*MUnsafeCTerm*/};
 
 use rpds::{HashTrieMap, HashTrieSet, Queue, Stack};
 
+use std::borrow::{Borrow};
 use std::cell::{RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{Write as IoWrite, Cursor, Error as IoError, stdout};
@@ -18,20 +19,8 @@ use std::rc::{Rc};
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LLabel(u64);
 
-impl AsRef<LLabel> for LLabel {
-  fn as_ref(&self) -> &LLabel {
-    self
-  }
-}
-
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LMLabel(u64);
-
-impl AsRef<LMLabel> for LMLabel {
-  fn as_ref(&self) -> &LMLabel {
-    self
-  }
-}
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LIdent(u64);
@@ -145,8 +134,14 @@ pub struct LLoc {
   pub pos:      usize,
 }
 
-impl AsRef<LLabel> for LLoc {
-  fn as_ref(&self) -> &LLabel {
+impl<'a> Borrow<LLabel> for &'a LLoc {
+  fn borrow(&self) -> &LLabel {
+    &self.label
+  }
+}
+
+impl Borrow<LLabel> for LLoc {
+  fn borrow(&self) -> &LLabel {
     &self.label
   }
 }
@@ -204,14 +199,15 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   SFix(Vec<LVar>, E),
   //Alt(LVar, LVar, E, E),
   Match(E, Vec<(LPatRef, E)>),
+  Mismatch(E, Vec<(LPatRef, E)>),
   Cons(E, E),
   Concat(E, E),
   STuple(Vec<E>),
   Tuple(Vec<E>),
-  UnitLit,
   BitLit(bool),
   IntLit(i64),
   FlpLit(f64),
+  UnitLit,
   Index(usize),
   Lookup(LVar),
   ProjectVar(E, LVar),
@@ -236,17 +232,33 @@ pub struct LMLoc {
   pub pos:      usize,
 }
 
-impl AsRef<LMLabel> for LMLoc {
-  fn as_ref(&self) -> &LMLabel {
+impl<'a> Borrow<LMLabel> for &'a LMLoc {
+  fn borrow(&self) -> &LMLabel {
+    &self.label
+  }
+}
+
+impl Borrow<LMLabel> for LMLoc {
+  fn borrow(&self) -> &LMLabel {
     &self.label
   }
 }
 
 #[derive(Clone)]
-pub enum LMTerm {
+pub struct LXLambdaDef<Term> {
+  pub ar:   usize,
+  pub cg:   Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef*/) -> Term>>,
+  pub ty:   Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef*/) -> (Vec<LTy>, LTy)>>,
+  pub adj:  Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef,*/ Vec<LVar>, LVar) -> LExpr>>,
+}
+
+#[derive(Clone)]
+pub enum LMTerm<E=LMLoc> {
   Deref(MAddr),
-  Lambda(LMLambdaDef<MLambda>),
-  CLambda(LMLambdaDef<MUnsafeCLambda>),
+  MTerm(MTerm),
+  MLambda(LXLambdaDef<MTerm>, E),
+  //UnsafeCTerm(MUnsafeCTerm),
+  //UnsafeCLambda(LXLambdaDef<MUnsafeCTerm>, E),
 }
 
 #[derive(Clone)]
@@ -254,14 +266,6 @@ pub struct LMExpr {
   pub version:  usize,
   pub label:    LMLabel,
   pub term:     LMTerm,
-}
-
-#[derive(Clone)]
-pub struct LMLambdaDef<Lam> {
-  pub ar:   usize,
-  pub cg:   Option<Rc<dyn Fn() -> Lam>>,
-  pub ty:   Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef*/) -> (Vec<LTy>, LTy)>>,
-  pub adj:  Option<Rc<dyn Fn(&mut LBuilder, /*LCtxRef,*/ Vec<LVar>, LVar) -> LExpr>>,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -455,7 +459,8 @@ impl LBuilder {
   }
 
   fn _print_tys(&self, tenv: &mut TyEnv) {
-    for (var, _) in tenv.var.clone().iter() {
+    // TODO
+    /*for (var, _) in tenv.var.clone().iter() {
       match tenv.mgu_var(var.clone()) {
         None => {
           println!("# ${} : ?", var.0);
@@ -464,7 +469,7 @@ impl LBuilder {
           println!("# ${} : {:?}", var.0, &*ty);
         }
       }
-    }
+    }*/
   }
 }
 
@@ -1430,40 +1435,40 @@ impl LBuilder {
   fn _register_adj(&mut self, exp: &LExprCell, a_work: &mut AdjWork, adj: ResolveAdj<LExprCell>) -> ResolveAdj<LExprCell> {
     match &adj {
       &ResolveAdj::Primal(_) => {
-        match self.reg_adj.get(exp.as_ref()) {
+        match self.reg_adj.get(exp.borrow()) {
           None => {}
           _ => panic!(),
         }
-        self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Primal);
+        self.reg_adj.insert_mut(exp.label(), RegisterAdj::Primal);
       }
       &ResolveAdj::Bridge(ref adj_e, deferred) => {
-        match self.reg_adj.get(exp.as_ref()) {
+        match self.reg_adj.get(exp.borrow()) {
           None |
           Some(&RegisterAdj::Bridge(_, true)) => {}
           _ => panic!(),
         }
-        a_work.appended.push_front(adj_e.as_ref().clone());
-        self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Bridge(adj_e.as_ref().clone(), deferred));
+        a_work.appended.push_front(adj_e.label());
+        self.reg_adj.insert_mut(exp.label(), RegisterAdj::Bridge(adj_e.label(), deferred));
       }
       &ResolveAdj::Dual(_, ref adj_e) => {
-        match self.reg_adj.get(exp.as_ref()) {
+        match self.reg_adj.get(exp.borrow()) {
           None |
           Some(&RegisterAdj::Primal) |
           Some(&RegisterAdj::Bridge(_, _)) => {}
           _ => panic!(),
         }
-        a_work.appended.push_front(adj_e.as_ref().clone());
-        self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Dual(adj_e.as_ref().clone()));
+        a_work.appended.push_front(adj_e.label());
+        self.reg_adj.insert_mut(exp.label(), RegisterAdj::Dual(adj_e.label()));
       }
       &ResolveAdj::Pair(ref adj_e) => {
-        match self.reg_adj.get(exp.as_ref()) {
+        match self.reg_adj.get(exp.borrow()) {
           None |
           Some(&RegisterAdj::Primal) |
           Some(&RegisterAdj::Bridge(_, _)) => {}
           _ => panic!(),
         }
-        a_work.appended.push_front(adj_e.as_ref().clone());
-        self.reg_adj.insert_mut(exp.as_ref().clone(), RegisterAdj::Pair(adj_e.as_ref().clone()));
+        a_work.appended.push_front(adj_e.label());
+        self.reg_adj.insert_mut(exp.label(), RegisterAdj::Pair(adj_e.label()));
       }
       _ => unreachable!(),
     }
@@ -1480,7 +1485,7 @@ impl LBuilder {
 
        i.e. there is no way to preserve the original signature.
     */
-    match self.reg_adj.get(exp.as_ref()) {
+    match self.reg_adj.get(exp.borrow()) {
       Some(&RegisterAdj::Primal) => {
         return ResolveAdj::Primal(exp);
       }
@@ -1620,8 +1625,7 @@ impl LBuilder {
                 None => {}
                 Some(adj_param) => {
                   let tmp_sink = self.fresh_anon_var();
-                  let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_var(param).into()).into();
-                  t_work.cons.push_front(sink_con);
+                  tenv.annotate(&tmp_sink, tenv.lookup_var(&exp, param).into());
                   let param_target_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
                   let param_adj_e = exp.append(self, &mut |_| LTerm::Lambda(
                       vec![tmp_sink.clone()],
@@ -1856,7 +1860,7 @@ impl LBuilder {
   }
 
   fn _force_adj_dual_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
-    match self.reg_adj.get(exp.as_ref()) {
+    match self.reg_adj.get(exp.borrow()) {
       None |
       Some(&RegisterAdj::Primal) |
       Some(&RegisterAdj::Bridge(_, _)) => {}
@@ -1870,8 +1874,7 @@ impl LBuilder {
       // TODO: cases.
       &LTerm::FlpLit(_) => {
         let tmp_sink = self.fresh_anon_var();
-        let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), Tyexp::Flp.into()).into();
-        t_work.cons.push_front(sink_con);
+        tenv.annotate(&tmp_sink, Tyexp::Flp.into());
         let target_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
         let new_exp = exp.append(self, &mut |_| LTerm::Lambda(
             vec![tmp_sink.clone()],
@@ -1880,12 +1883,11 @@ impl LBuilder {
         self._register_adj(&exp, work, ResolveAdj::Dual(exp.clone(), new_exp))
       }
       &LTerm::Lookup(ref var) => {
-        if let Some((_, _, ty)) = tenv.mgu_var(var.clone()) {
+        if let Some((_, _, ty)) = tenv.mgu_var(&exp, var.clone()) {
           match &*ty {
             &LTy::Flp => {
               let tmp_sink = self.fresh_anon_var();
-              let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_var(var).into()).into();
-              t_work.cons.push_front(sink_con);
+              tenv.annotate(&tmp_sink, tenv.lookup_var(&exp, var).into());
               let adj_var = self.lookup_adj_var(var);
               let adj_var_e = exp.append(self, &mut |_| LTerm::Lookup(adj_var.clone()));
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
@@ -1927,7 +1929,7 @@ impl LBuilder {
   }
 
   fn _force_adj_pair_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
-    match self.reg_adj.get(exp.as_ref()) {
+    match self.reg_adj.get(exp.borrow()) {
       None |
       Some(&RegisterAdj::Primal) |
       Some(&RegisterAdj::Bridge(_, _)) => {}
@@ -1948,8 +1950,8 @@ impl LBuilder {
             let tmp_new = self.fresh_anon_var();
             let tmp_adj = self.lookup_adj_var(&tmp_new);
             let tmp_sink = self.fresh_anon_var();
-            let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_exp(&exp).into()).into();
-            t_work.cons.push_front(sink_con);
+            let exp_ty = tenv.lookup_exp(&exp).into();
+            tenv.annotate(&tmp_sink, exp_ty);
             let adj_app_e = exp.append(self, &mut |_| LTerm::Apply(
                 adj_head_e.loc(),
                 args.clone()
@@ -1968,7 +1970,7 @@ impl LBuilder {
                 &LTerm::IntLit(_) |
                 &LTerm::FlpLit(_) => {}
                 &LTerm::Lookup(ref arg_var) => {
-                  match tenv.mgu_var(arg_var.clone()) {
+                  match tenv.mgu_var(&exp, arg_var.clone()) {
                     Some((_, _, ty)) => {
                       match &*ty {
                         // TODO: fixup any smooth type.
@@ -2029,12 +2031,12 @@ impl LBuilder {
             let tmp_new = self.fresh_anon_var();
             let tmp_adj = self.lookup_adj_var(&tmp_new);
             let tmp_sink = self.fresh_anon_var();
-            let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_exp(body).into()).into();
-            t_work.cons.push_front(sink_con);
+            let body_ty = tenv.lookup_exp(body).into();
+            tenv.annotate(&tmp_sink, body_ty);
             let mut fixup_params = Vec::with_capacity(params.len());
             let mut fixup_params_set = HashSet::new();
             for (idx, param) in params.iter().enumerate() {
-              match tenv.mgu_var(param.clone()) {
+              match tenv.mgu_var(&exp, param.clone()) {
                 Some((_, _, ty)) => {
                   match &*ty {
                     // TODO: fixup any smooth type.
@@ -2166,14 +2168,6 @@ impl LBuilder {
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
-      /*&LTerm::MXLam(..) => {
-        // FIXME
-        unimplemented!();
-      }*/
-      /*&LTerm::MXCLam(..) => {
-        // FIXME
-        unimplemented!();
-      }*/
       &LTerm::Let(ref name, ref body, ref rest) => {
         // TODO
         let body_e = exp.lookup(body);
@@ -2284,10 +2278,9 @@ impl LBuilder {
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
-      &LTerm::FlpLit(x) => {
+      &LTerm::FlpLit(_) => {
         let tmp_sink = self.fresh_anon_var();
-        let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), Tyexp::Flp.into()).into();
-        t_work.cons.push_front(sink_con);
+        tenv.annotate(&tmp_sink, Tyexp::Flp.into());
         let target_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
         let adj_e = exp.append(self, &mut |_| LTerm::Lambda(
             vec![tmp_sink.clone()],
@@ -2299,12 +2292,11 @@ impl LBuilder {
         self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
       }
       &LTerm::Lookup(ref var) => {
-        if let Some((_, _, ty)) = tenv.mgu_var(var.clone()) {
+        if let Some((_, _, ty)) = tenv.mgu_var(&exp, var.clone()) {
           match &*ty {
             &LTy::Flp => {
               let tmp_sink = self.fresh_anon_var();
-              let sink_con = TyCon::Eq_(tenv.lookup_var(&tmp_sink).into(), tenv.lookup_var(var).into()).into();
-              t_work.cons.push_front(sink_con);
+              tenv.annotate(&tmp_sink, tenv.lookup_var(&exp, var).into());
               let adj_var = self.lookup_adj_var(var);
               let adj_var_e = exp.append(self, &mut |_| LTerm::Lookup(adj_var.clone()));
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
@@ -2361,6 +2353,7 @@ impl LBuilder {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Tyexp {
+  // TODO
   Var(LTyvar),
   Fun(Vec<TyexpRef>, TyexpRef),
   Env(RBTreeMap<usize, TyexpRef>, RBTreeMap<LVar, TyexpRef>, RBTreeMap<LIdent, LVar>),
@@ -2444,7 +2437,8 @@ enum TyCon {
   Top,
   Cnj(Queue<TyConRef>),
   Eq_(TyexpRef, TyexpRef),
-  IsAApply(TyexpRef, Vec<(usize, LVar, LVarBinder, LVar)>, TyexpRef),
+  //IsAApply(TyexpRef, Vec<(usize, LVar, LVarBinder, LVar)>, TyexpRef),
+  IsAApply(TyexpRef, Vec<(usize, LVar, LVarBinder, LVar, LTyvar)>, TyexpRef),
   IsAReturn(TyexpRef, Vec<LVar>, Vec<(usize, LVar)>, TyexpRef),
   IsACons(TyexpRef, TyexpRef, LVar, LVarBinder, TyexpRef, TyexpRef),
   IsAConcat(TyexpRef, TyexpRef, TyexpRef),
@@ -2486,7 +2480,6 @@ fn conj_tys(cons: Vec<TyConRef>) -> TyConRef {
 
 #[derive(Default, Debug)]
 struct TyWork {
-  //tenv:     TyEnv,
   cons:     VecDeque<TyConRef>,
   unsat:    VecDeque<TyConRef>,
   a_defer:  VecDeque<LLabel>,
@@ -2508,39 +2501,54 @@ impl TyWork {
   }
 }
 
-/*enum TyUnify {
-  OK,
-  Maybe,
-  No,
-}*/
-
-/*#[derive(Default)]
-struct TyUnionFind {
-  db:   BTreeMap<LTyvar, LTyvar>,
-  tag:  BTreeMap<LTyvar, Tytag>,
-  term: BTreeMap<LTyvar, TyexpRef>,
+#[derive(Clone, Default, Debug)]
+struct Tyctx {
+  var:  HashTrieMap<LVar, LTyvar>,
+  vari: HashTrieMap<LTyvar, LVar>,
 }
 
-impl TyUnionFind {
-  fn head(&mut self, query: LTyvar) -> LTyvar {
-    if !self.db.contains_key(&query) {
-      self.db.insert(query.clone(), query.clone());
-      return query;
+impl Tyctx {
+  fn bind_var(&self, var: &LVar, tenv: &mut TyEnv) -> Tyctx {
+    let v = tenv.fresh_tvar();
+    match tenv.anno.get(var) {
+      None => {}
+      Some(ty) => {
+        tenv.texp.insert(v.clone(), ty.clone());
+      }
     }
-    let mut cursor = query;
-    let mut next = self.db.get(&cursor).unwrap().clone();
-    while cursor != next {
-      let next2 = match self.db.get(&next) {
-        None => next.clone(),
-        Some(next2) => next2.clone(),
-      };
-      self.db.insert(next.clone(), next2.clone());
-      cursor = next;
-      next = next2;
+    Tyctx{
+      var:  self.var.insert(var.clone(), v.clone()),
+      vari: self.vari.insert(v.clone(), var.clone()),
     }
-    cursor
   }
-}*/
+
+  fn bind_var_mut(&mut self, var: &LVar, tenv: &mut TyEnv) -> LTyvar {
+    let v = tenv.fresh_tvar();
+    match tenv.anno.get(var) {
+      None => {}
+      Some(ty) => {
+        tenv.texp.insert(v.clone(), ty.clone());
+      }
+    }
+    self.var.insert_mut(var.clone(), v.clone());
+    self.vari.insert_mut(v.clone(), var.clone());
+    v
+  }
+
+  fn _lookup_var(&self, var: &LVar) -> Option<LTyvar> {
+    match self.var.get(var) {
+      None => None,
+      Some(v) => Some(v.clone()),
+    }
+  }
+
+  fn lookup_var(&self, var: &LVar) -> LTyvar {
+    match self.var.get(var) {
+      None => panic!(),
+      Some(v) => v.clone(),
+    }
+  }
+}
 
 #[derive(Debug)]
 enum TyReduce {
@@ -2552,14 +2560,12 @@ enum TyReduce {
 struct TyEnv {
   // TODO
   vctr: u64,
-  var:  HashMap<LVar, LTyvar>,
-  vari: HashMap<LTyvar, LVar>,
+  anno: HashMap<LVar, TyexpRef>,
+  tctx: HashMap<LLabel, Tyctx>,
   exp:  HashMap<LLabel, LTyvar>,
   expi: HashMap<LTyvar, LLabel>,
   db:   HashMap<LTyvar, LTyvar>,
   texp: HashMap<LTyvar, TyexpRef>,
-  //tag:  HashMap<LTyvar, Tytag>,
-  //tadj: HashMap<LTyvar, LTyvar>,
 }
 
 impl TyEnv {
@@ -2574,35 +2580,37 @@ impl TyEnv {
     LTyvar(self.vctr)
   }
 
-  fn _lookup_var(&mut self, var: &LVar) -> Option<LTyvar> {
-    match self.var.get(var) {
+  fn unsafe_set_tctx<L: Borrow<LLabel>>(&mut self, loc: L, tctx: Tyctx) {
+    let label = loc.borrow();
+    self.tctx.insert(label.clone(), tctx);
+  }
+
+  fn _lookup_var<L: Borrow<LLabel>>(&self, loc: L, var: &LVar) -> Option<LTyvar> {
+    let label = loc.borrow();
+    match self.tctx.get(label) {
       None => None,
-      Some(v) => Some(v.clone()),
+      Some(tctx) => tctx._lookup_var(var),
     }
   }
 
-  fn lookup_var(&mut self, var: &LVar) -> LTyvar {
-    match self.var.get(var) {
-      None => {
-        let v = self.fresh_tvar();
-        self.var.insert(var.clone(), v.clone());
-        self.vari.insert(v.clone(), var.clone());
-        v
-      }
-      Some(v) => v.clone(),
+  fn lookup_var<L: Borrow<LLabel>>(&self, loc: L, var: &LVar) -> LTyvar {
+    let label = loc.borrow();
+    match self.tctx.get(label) {
+      None => panic!(),
+      Some(tctx) => tctx.lookup_var(var),
     }
   }
 
-  fn _lookup_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> Option<LTyvar> {
-    let label = loc.as_ref();
+  fn _lookup_exp<L: Borrow<LLabel>>(&mut self, loc: L) -> Option<LTyvar> {
+    let label = loc.borrow();
     match self.exp.get(label) {
       None => None,
       Some(v) => Some(v.clone()),
     }
   }
 
-  fn lookup_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> LTyvar {
-    let label = loc.as_ref();
+  fn lookup_exp<L: Borrow<LLabel>>(&mut self, loc: L) -> LTyvar {
+    let label = loc.borrow();
     match self.exp.get(label) {
       None => {
         let v = self.fresh_tvar();
@@ -2614,16 +2622,9 @@ impl TyEnv {
     }
   }
 
-  /*fn lookup_adj(&mut self, v: LTyvar) -> LTyvar {
-    match self.tadj.get(&v) {
-      None => {
-        let dv = self.fresh_tvar();
-        self.tadj.insert(v, dv.clone());
-        dv
-      }
-      Some(dv) => dv.clone(),
-    }
-  }*/
+  fn annotate(&mut self, var: &LVar, ty: TyexpRef) {
+    self.anno.insert(var.clone(), ty);
+  }
 
   fn head(&mut self, query: LTyvar) -> LTyvar {
     if !self.db.contains_key(&query) {
@@ -2654,14 +2655,6 @@ impl TyEnv {
       return;
     }
     self.db.insert(lw.clone(), rw.clone());
-    /*match self.tag.get(&lw) {
-      None => {}
-      Some(t) => {
-        let t = t.clone();
-        self.tag.remove(&lw);
-        self.tag.insert(rw.clone(), t);
-      }
-    }*/
     match self.texp.get(&lw) {
       None => {}
       Some(t) => {
@@ -2734,8 +2727,8 @@ impl TyEnv {
     }
   }
 
-  fn mgu_var(&mut self, var: LVar) -> Option<(LTyvar, LTyvar, LTyRef)> {
-    match self._lookup_var(&var) {
+  fn mgu_var<L: Borrow<LLabel>>(&mut self, loc: L, var: LVar) -> Option<(LTyvar, LTyvar, LTyRef)> {
+    match self._lookup_var(loc, &var) {
       None => None,
       Some(v) => match self.mgu(v.clone()) {
         None => None,
@@ -2744,7 +2737,7 @@ impl TyEnv {
     }
   }
 
-  fn mgu_exp<L: AsRef<LLabel>>(&mut self, loc: &L) -> Option<(LTyvar, LTyvar, LTyRef)> {
+  fn mgu_exp<L: Borrow<LLabel>>(&mut self, loc: L) -> Option<(LTyvar, LTyvar, LTyRef)> {
     match self._lookup_exp(loc) {
       None => None,
       Some(v) => match self.mgu(v.clone()) {
@@ -2817,13 +2810,13 @@ struct IncTyInfMachine {
 }*/
 
 impl LBuilder {
-  fn _gen_pat(&mut self, pat: LPatRef, tenv: &mut TyEnv, work: &mut TyWork) -> TyexpRef {
+  fn _gen_pat(&mut self, pat: LPatRef, tctx: &mut Tyctx, tenv: &mut TyEnv, work: &mut TyWork) -> TyexpRef {
     // TODO
     match &*pat {
       &LPat::STuple(ref elems) => {
         let mut elem_tys = Vec::with_capacity(elems.len());
         for elem in elems.iter() {
-          elem_tys.push(self._gen_pat(elem.clone(), tenv, work));
+          elem_tys.push(self._gen_pat(elem.clone(), tctx, tenv, work));
         }
         Tyexp::STup(elem_tys).into()
       }
@@ -2834,51 +2827,53 @@ impl LBuilder {
         Tyexp::Int.into()
       }
       &LPat::Var(ref var) => {
-        tenv.lookup_var(var).into()
+        tctx.bind_var_mut(var, tenv).into()
       }
       _ => unimplemented!(),
     }
   }
 
-  fn _gen_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
+  fn _gen_exp(&mut self, exp: LExprCell, tctx: Tyctx, tenv: &mut TyEnv, work: &mut TyWork) {
     /*let ety = match tenv._lookup_exp(&exp) {
       None => tenv.lookup_exp(&exp),
       Some(_) => return,
     };*/
+    tenv.unsafe_set_tctx(&exp, tctx.clone());
     let ety = tenv.lookup_exp(&exp);
     match &exp.term() {
       &LTerm::End => {
-        let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Unit.into()));
+        let con = TyCon::Eq_(ety.into(), Tyexp::Unit.into()).into();
         work.cons.push_front(con);
       }
       &LTerm::Break(ref inner) => {
-        self._gen_exp(exp.lookup(inner), tenv, work);
-        let con = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(inner).into()));
+        self._gen_exp(exp.lookup(inner), tctx, tenv, work);
+        let con = TyCon::Eq_(ety.into(), tenv.lookup_exp(inner).into()).into();
         work.cons.push_front(con);
       }
       &LTerm::Return(ref inner) => {
-        self._gen_exp(exp.lookup(inner), tenv, work);
-        let con = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(inner).into()));
+        self._gen_exp(exp.lookup(inner), tctx, tenv, work);
+        let con = TyCon::Eq_(ety.into(), tenv.lookup_exp(inner).into()).into();
         work.cons.push_front(con);
       }
       &LTerm::Apply(ref head, ref args) => {
-        self._gen_exp(exp.lookup(head), tenv, work);
+        self._gen_exp(exp.lookup(head), tctx.clone(), tenv, work);
         let mut arg_tys = Vec::with_capacity(args.len());
         for a in args.iter() {
-          self._gen_exp(exp.lookup(a), tenv, work);
+          self._gen_exp(exp.lookup(a), tctx.clone(), tenv, work);
           arg_tys.push(tenv.lookup_exp(a).into());
         }
-        let app_con = TyConRef::new(TyCon::Eq_(tenv.lookup_exp(&head).into(), Tyexp::Fun(arg_tys, ety.into()).into()));
+        let app_con = TyCon::Eq_(tenv.lookup_exp(head).into(), Tyexp::Fun(arg_tys, ety.into()).into()).into();
         work.cons.push_front(app_con);
       }
       &LTerm::Lambda(ref params, ref body) => {
         let mut param_tys = Vec::with_capacity(params.len());
+        let mut body_tctx = tctx;
         for p in params.iter() {
-          let p_v = tenv.lookup_var(p);
+          let p_v = body_tctx.bind_var_mut(p, tenv);
           param_tys.push(p_v.into());
         }
-        self._gen_exp(exp.lookup(body), tenv, work);
-        let lam_con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Fun(param_tys, tenv.lookup_exp(body).into()).into()));
+        self._gen_exp(exp.lookup(body), body_tctx, tenv, work);
+        let lam_con = TyCon::Eq_(ety.into(), Tyexp::Fun(param_tys, tenv.lookup_exp(body).into()).into()).into();
         work.cons.push_front(lam_con);
       }
       &LTerm::Export => {
@@ -2910,7 +2905,7 @@ impl LBuilder {
           let idxs = RBTreeMap::default();
           let keys = RBTreeMap::default();
           let idents = RBTreeMap::default();
-          let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Env(idxs, keys, idents).into()));
+          let con = TyCon::Eq_(ety.into(), Tyexp::Env(idxs, keys, idents).into()).into();
           work.cons.push_front(con);
         } else {
           unimplemented!();
@@ -2918,25 +2913,29 @@ impl LBuilder {
       }
       &LTerm::AApply(ref args, ref target) => {
         println!("TRACE: _gen_exp: generating IsAApply constraint");
-        self._gen_exp(exp.lookup(target), tenv, work);
-        let con = TyConRef::new(TyCon::IsAApply(ety.into(), args.clone(), tenv.lookup_exp(target).into()));
+        self._gen_exp(exp.lookup(target), tctx, tenv, work);
+        let args_ = args.iter().map(|&(idx, ref key, ref key_ident, ref key_adj)| {
+          let key_adj_ty = tenv.lookup_var(&exp, key_adj);
+          (idx, key.clone(), key_ident.clone(), key_adj.clone(), key_adj_ty)
+        }).collect();
+        let con = TyCon::IsAApply(ety.into(), args_, tenv.lookup_exp(target).into()).into();
         work.cons.push_front(con);
       }
       &LTerm::AReturn(ref free, ref params, ref target) => {
         // TODO
         println!("TRACE: _gen_exp: generating IsAReturn constraint");
-        self._gen_exp(exp.lookup(target), tenv, work);
+        self._gen_exp(exp.lookup(target), tctx, tenv, work);
         // FIXME: free env keys.
-        let con = TyConRef::new(TyCon::IsAReturn(ety.into(), Vec::new(), params.clone(), tenv.lookup_exp(target).into()));
+        let con = TyCon::IsAReturn(ety.into(), Vec::new(), params.clone(), tenv.lookup_exp(target).into()).into();
         work.cons.push_front(con);
       }
       &LTerm::ACons(ref key, ref ident, ref value, ref target) => {
         println!("TRACE: _gen_exp: generating IsACons constraint");
-        let key_v = tenv.lookup_var(key);
-        self._gen_exp(exp.lookup(value), tenv, work);
-        self._gen_exp(exp.lookup(target), tenv, work);
-        let key_con = TyConRef::new(TyCon::Eq_(key_v.clone().into(), tenv.lookup_exp(value).into()));
-        let con = TyConRef::new(TyCon::IsACons(ety.into(), key_v.into(), key.clone(), ident.clone(), tenv.lookup_exp(value).into(), tenv.lookup_exp(target).into()));
+        let key_v = tctx.lookup_var(key);
+        self._gen_exp(exp.lookup(value), tctx.clone(), tenv, work);
+        self._gen_exp(exp.lookup(target), tctx.clone(), tenv, work);
+        let key_con = TyCon::Eq_(key_v.clone().into(), tenv.lookup_exp(value).into()).into();
+        let con = TyCon::IsACons(ety.into(), key_v.into(), key.clone(), ident.clone(), tenv.lookup_exp(value).into(), tenv.lookup_exp(target).into()).into();
         work.cons.push_front(con);
         work.cons.push_front(key_con);
       }
@@ -2944,8 +2943,8 @@ impl LBuilder {
         // TODO
       }
       &LTerm::PtlD(ref target) => {
-        self._gen_exp(exp.lookup(target), tenv, work);
-        work.a_defer.push_front(exp.as_ref().clone());
+        self._gen_exp(exp.lookup(target), tctx, tenv, work);
+        work.a_defer.push_front(exp.label());
       }
       &LTerm::AdjD(ref _target) => {
         unimplemented!();
@@ -2954,77 +2953,95 @@ impl LBuilder {
         unimplemented!();
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
-        let name_v = tenv.lookup_var(name);
-        self._gen_exp(exp.lookup(body), tenv, work);
-        self._gen_exp(exp.lookup(rest), tenv, work);
-        let let_con1 = TyConRef::new(TyCon::Eq_(name_v.into(), tenv.lookup_exp(body).into()));
-        let let_con2 = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(rest).into()));
+        let mut rest_tctx = tctx.clone();
+        let name_v = rest_tctx.bind_var_mut(name, tenv);
+        self._gen_exp(exp.lookup(body), tctx, tenv, work);
+        self._gen_exp(exp.lookup(rest), rest_tctx, tenv, work);
+        let let_con1 = TyCon::Eq_(name_v.into(), tenv.lookup_exp(body).into()).into();
+        let let_con2 = TyCon::Eq_(ety.into(), tenv.lookup_exp(rest).into()).into();
         work.cons.push_front(let_con2);
         work.cons.push_front(let_con1);
       }
       &LTerm::Fix(ref fixname, ref fixbody) => {
-        let fixname_v = tenv.lookup_var(fixname);
-        self._gen_exp(exp.lookup(fixbody), tenv, work);
-        let fixname_con = TyConRef::new(TyCon::Eq_(fixname_v.into(), tenv.lookup_exp(fixbody).into()));
-        let fix_con = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(fixbody).into()));
+        let mut fixbody_tctx = tctx;
+        let fixname_v = fixbody_tctx.bind_var_mut(fixname, tenv);
+        self._gen_exp(exp.lookup(fixbody), fixbody_tctx, tenv, work);
+        let fixname_con = TyCon::Eq_(fixname_v.into(), tenv.lookup_exp(fixbody).into()).into();
+        let fix_con = TyCon::Eq_(ety.into(), tenv.lookup_exp(fixbody).into()).into();
         work.cons.push_front(fix_con);
         work.cons.push_front(fixname_con);
       }
       &LTerm::SFix(ref fixnames, ref fixbody) => {
         let mut fixname_tys = Vec::with_capacity(fixnames.len());
+        let mut fixbody_tctx = tctx;
         for fixname in fixnames.iter() {
-          let fixname_v = tenv.lookup_var(fixname);
+          let fixname_v = fixbody_tctx.bind_var_mut(fixname, tenv);
           fixname_tys.push(fixname_v.into());
         }
-        self._gen_exp(exp.lookup(fixbody), tenv, work);
-        let fixnames_con = TyConRef::new(TyCon::Eq_(tenv.lookup_exp(fixbody).into(), Tyexp::STup(fixname_tys).into()));
-        let fix_con = TyConRef::new(TyCon::Eq_(ety.into(), tenv.lookup_exp(fixbody).into()));
+        self._gen_exp(exp.lookup(fixbody), fixbody_tctx, tenv, work);
+        let fixnames_con = TyCon::Eq_(tenv.lookup_exp(fixbody).into(), Tyexp::STup(fixname_tys).into()).into();
+        let fix_con = TyCon::Eq_(ety.into(), tenv.lookup_exp(fixbody).into()).into();
         work.cons.push_front(fix_con);
         work.cons.push_front(fixnames_con);
       }
       &LTerm::Match(ref query, ref pat_arms) => {
-        self._gen_exp(exp.lookup(query), tenv, work);
+        self._gen_exp(exp.lookup(query), tctx.clone(), tenv, work);
         for &(ref pat, ref arm) in pat_arms.iter() {
-          self._gen_exp(exp.lookup(arm), tenv, work);
-          let pat_ty = self._gen_pat(pat.clone(), tenv, work);
-          let pat_con = TyConRef::new(TyCon::Eq_(tenv.lookup_exp(query).into(), pat_ty));
-          let arm_con = TyConRef::new(TyCon::Eq_(ety.clone().into(), tenv.lookup_exp(arm).into()));
+          let mut pat_arm_tctx = tctx.clone();
+          let pat_ty = self._gen_pat(pat.clone(), &mut pat_arm_tctx, tenv, work);
+          self._gen_exp(exp.lookup(arm), pat_arm_tctx, tenv, work);
+          let pat_con = TyCon::Eq_(tenv.lookup_exp(query).into(), pat_ty).into();
+          let arm_con = TyCon::Eq_(ety.clone().into(), tenv.lookup_exp(arm).into()).into();
           work.cons.push_front(arm_con);
+          work.cons.push_front(pat_con);
+        }
+      }
+      &LTerm::Mismatch(ref query, ref pat_arms) => {
+        self._gen_exp(exp.lookup(query), tctx.clone(), tenv, work);
+        for &(ref pat, ref arm) in pat_arms.iter() {
+          let mut pat_arm_tctx = tctx.clone();
+          let pat_ty = self._gen_pat(pat.clone(), &mut pat_arm_tctx, tenv, work);
+          self._gen_exp(exp.lookup(arm), pat_arm_tctx, tenv, work);
+          let pat_con = TyCon::Eq_(tenv.lookup_exp(query).into(), pat_ty).into();
           work.cons.push_front(pat_con);
         }
       }
       &LTerm::STuple(ref elems) => {
         let mut elem_tys = Vec::with_capacity(elems.len());
         for elem in elems.iter() {
-          self._gen_exp(exp.lookup(elem), tenv, work);
+          self._gen_exp(exp.lookup(elem), tctx.clone(), tenv, work);
           elem_tys.push(tenv.lookup_exp(elem).into());
         }
-        let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::STup(elem_tys).into()));
+        let con = TyCon::Eq_(ety.into(), Tyexp::STup(elem_tys).into()).into();
         work.cons.push_front(con);
       }
       &LTerm::BitLit(_) => {
-        let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Bit.into()));
+        let con = TyCon::Eq_(ety.into(), Tyexp::Bit.into()).into();
         work.cons.push_front(con);
       }
       &LTerm::IntLit(_) => {
-        let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Int.into()));
+        let con = TyCon::Eq_(ety.into(), Tyexp::Int.into()).into();
         work.cons.push_front(con);
       }
       &LTerm::FlpLit(_) => {
-        let con = TyConRef::new(TyCon::Eq_(ety.into(), Tyexp::Flp.into()));
+        let con = TyCon::Eq_(ety.into(), Tyexp::Flp.into()).into();
         work.cons.push_front(con);
       }
       &LTerm::Lookup(ref name) => {
-        let name_v = tenv.lookup_var(name);
-        let con = TyConRef::new(TyCon::Eq_(ety.into(), name_v.into()));
+        let name_v = tctx.lookup_var(name);
+        let con = TyCon::Eq_(ety.into(), name_v.into()).into();
         work.cons.push_front(con);
       }
+      // FIXME: embed the key type into the term.
       &LTerm::ProjectVar(ref target, ref key) => {
-        // TODO
+        let key_v = tctx.lookup_var(key);
+        self._gen_exp(exp.lookup(target), tctx, tenv, work);
+        let con = TyCon::Eq_(ety.into(), key_v.into()).into();
+        work.cons.push_front(con);
       }
       &LTerm::ProjectIdent(ref target, _) => {
-        let target_con = self._gen_exp(exp.lookup(target), tenv, work);
-        work.a_defer.push_front(exp.as_ref().clone());
+        self._gen_exp(exp.lookup(target), tctx, tenv, work);
+        work.a_defer.push_front(exp.label());
       }
       //_ => unimplemented!(),
       t => {
@@ -3035,7 +3052,8 @@ impl LBuilder {
 
   fn gen(&mut self, tree: &LTreeCell, tenv: &mut TyEnv, work: &mut TyWork) {
     //work._reset();
-    self._gen_exp(tree.root(), tenv, work);
+    let tctx = Tyctx::default();
+    self._gen_exp(tree.root(), tctx, tenv, work);
   }
 
   /*fn gen_inc(&mut self, old_tree: &LTreeCell, new_tree: &LTreeCell) -> TyConRef {
@@ -3051,14 +3069,14 @@ impl LBuilder {
     unimplemented!();
   }*/
 
-  fn gen_inc_adj(&mut self, tree: &LTreeCell, a_work: &mut AdjWork, tenv: &mut TyEnv, work: &mut TyWork) {
+  /*fn gen_inc_adj(&mut self, tree: &LTreeCell, a_work: &mut AdjWork, tenv: &mut TyEnv, work: &mut TyWork) {
     // TODO
     //work._reset();
     let root = tree.root();
     for e in a_work.appended.drain(..) {
       self._gen_exp(root.lookup_exp(&e), tenv, work);
     }
-  }
+  }*/
 
   fn _solve_eq_var(&mut self, lv: LTyvar, rv: LTyvar, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
     let lquery = tenv.reduce(lv.clone());
@@ -3182,9 +3200,9 @@ impl LBuilder {
                 work.cons.push_back(TyCon::Bottom.into());
                 return self.solve(root, tenv, work);
               }
-              /*work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ty.clone(), r_ty.clone())));*/
-              work.cons.push_back(TyConRef::new(TyCon::Eq_(tenv.lookup_var(l_key).into(), l_ty.clone())));
-              work.cons.push_back(TyConRef::new(TyCon::Eq_(tenv.lookup_var(l_key).into(), r_ty.clone())));
+              work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ty.clone(), r_ty.clone())));
+              /*work.cons.push_back(TyConRef::new(TyCon::Eq_(tenv.lookup_var(l_key).into(), l_ty.clone())));
+              work.cons.push_back(TyConRef::new(TyCon::Eq_(tenv.lookup_var(l_key).into(), r_ty.clone())));*/
             }
             for ((l_id, l_key), (r_id, r_key)) in l_idents.iter().zip(r_idents.iter()) {
               if l_id != r_id || l_key != r_key {
@@ -3233,7 +3251,7 @@ impl LBuilder {
             println!("TRACE: solve: IsAApply: instantiating a new env tyexp");
             let mut adj_doms = Vec::with_capacity(args.len());
             let mut adj_rets = Vec::with_capacity(args.len());
-            for &(idx, _, _, ref key_adj) in args.iter() {
+            for &(idx, _, _, ref key_adj, ref key_adj_ty) in args.iter() {
               match tg_idxs.get(&idx) {
                 None => {
                   /*println!("WARNING: solve: IsAApply: missing idx in target env type");
@@ -3242,8 +3260,8 @@ impl LBuilder {
                   return self.solve(root, tenv, work);*/
                 }
                 Some(_) => {
-                  let key_adj_ty = tenv.lookup_var(key_adj);
-                  match &*tenv.reduce_texp(key_adj_ty.into()) {
+                  //let key_adj_ty = tenv.lookup_var(key_adj);
+                  match &*tenv.reduce_texp(key_adj_ty.clone().into()) {
                     &Tyexp::Var(_) => {
                       work.cons.push_back(con);
                       return self.solve(root, tenv, work);
@@ -3280,7 +3298,7 @@ impl LBuilder {
             let mut app_idxs = tg_idxs.clone();
             let mut app_keys = tg_keys.clone();
             let mut app_idents = tg_idents.clone();
-            for (adj_idx, &(idx, _, ref ident, _)) in args.iter().enumerate().rev() {
+            for (adj_idx, &(idx, _, ref ident, _, _)) in args.iter().enumerate().rev() {
               match app_idxs.get(&idx) {
                 //None => unreachable!(),
                 None => {}
@@ -3315,7 +3333,7 @@ impl LBuilder {
                 }
               }
             }
-            for &(idx, ref key, ref ident, _) in args.iter() {
+            for &(idx, ref key, ref ident, _, _) in args.iter() {
               match app_idxs.get(&idx) {
                 //None => unreachable!(),
                 None => {}
@@ -3564,7 +3582,7 @@ pub struct LTreeView {
 
 impl From<LTreeViewCell> for LTreeView {
   fn from(view: LTreeViewCell) -> LTreeView {
-    view.data.borrow().clone()
+    RefCell::borrow(&view.data).clone()
   }
 }
 
@@ -3587,7 +3605,7 @@ pub struct LTreeCell {
 
 impl LTreeCell {
   pub fn root(&self) -> LExprCell {
-    let data = self.data.borrow();
+    let data = RefCell::borrow(&self.data);
     let label = data.exps[self.view.root.pos].label.clone();
     assert_eq!(self.view.root.label, label);
     LExprCell{
@@ -3617,7 +3635,8 @@ impl LTreeCell {
   }
 
   fn final_tctx(&self, ctx: &LCtxRef, tenv: &mut TyEnv) -> Option<LTyctxRef> {
-    let tree = self.data.borrow();
+    // FIXME
+    /*let tree = self.data.borrow();
     let mut tctx = LTyctxRef::default();
     for var in ctx.var_stack.iter() {
       let v = match tenv._lookup_var(var) {
@@ -3637,7 +3656,25 @@ impl LTreeCell {
         }
       }
     }
-    Some(tctx)
+    Some(tctx)*/
+    None
+  }
+}
+
+#[derive(Clone)]
+pub struct LMExprCell {
+  pub view:     LTreeViewCell,
+  pub tree:     LTreeCell,
+  pub pos:      usize,
+  pub label:    LMLabel,
+}
+
+impl LMExprCell {
+  pub fn term(&self) -> LMTerm {
+    let tree = RefCell::borrow(&self.tree.data);
+    let mexp = tree.mexps[self.pos].clone();
+    assert_eq!(self.label, mexp.label);
+    mexp.term
   }
 }
 
@@ -3649,8 +3686,14 @@ pub struct LExprCell {
   pub label:    LLabel,
 }
 
-impl AsRef<LLabel> for LExprCell {
-  fn as_ref(&self) -> &LLabel {
+impl<'a> Borrow<LLabel> for &'a LExprCell {
+  fn borrow(&self) -> &LLabel {
+    &self.label
+  }
+}
+
+impl Borrow<LLabel> for LExprCell {
+  fn borrow(&self) -> &LLabel {
     &self.label
   }
 }
@@ -3668,7 +3711,7 @@ impl LExprCell {
   }
 
   pub fn term(&self) -> LTerm {
-    let tree = self.tree.data.borrow();
+    let tree = RefCell::borrow(&self.tree.data);
     let exp = tree.exps[self.pos].clone();
     assert_eq!(self.label, exp.label);
     exp.term
@@ -3696,7 +3739,7 @@ impl LExprCell {
   }
 
   pub fn ctx(&self) -> LCtxRef {
-    let tree = self.tree.data.borrow();
+    let tree = RefCell::borrow(&self.tree.data);
     match tree.ctxs.get(&self.label) {
       None => panic!("bug"),
       Some(ctx) => ctx.clone()
@@ -3704,7 +3747,7 @@ impl LExprCell {
   }
 
   pub fn _freectx(&self) -> Option<LFreeCtxRef> {
-    let tree = self.tree.data.borrow();
+    let tree = RefCell::borrow(&self.tree.data);
     match tree.freectxs.get(&self.label) {
       None => None,
       Some(ctx) => Some(ctx.clone())
@@ -3712,15 +3755,19 @@ impl LExprCell {
   }
 
   pub fn freectx(&self) -> LFreeCtxRef {
-    let tree = self.tree.data.borrow();
+    let tree = RefCell::borrow(&self.tree.data);
     match tree.freectxs.get(&self.label) {
       None => panic!("bug"),
       Some(ctx) => ctx.clone()
     }
   }
 
+  pub fn jump<L: Borrow<LLoc>>(&self, loc: L) -> LExprCell {
+    self.lookup(loc.borrow())
+  }
+
   pub fn lookup(&self, loc: &LLoc) -> LExprCell {
-    let tree = self.tree.data.borrow();
+    let tree = RefCell::borrow(&self.tree.data);
     assert_eq!(loc.label, tree.exps[loc.pos].label);
     LExprCell{
       view:     self.view.clone(),
@@ -3730,9 +3777,9 @@ impl LExprCell {
     }
   }
 
-  pub fn lookup_exp<L: AsRef<LLabel>>(&self, loc: &L) -> LExprCell {
-    let label = loc.as_ref();
-    let tree = self.tree.data.borrow();
+  pub fn lookup_exp<L: Borrow<LLabel>>(&self, loc: L) -> LExprCell {
+    let tree = RefCell::borrow(&self.tree.data);
+    let label = loc.borrow();
     let pos = match tree.index.get(label) {
       None => panic!(),
       Some(pos) => *pos,
@@ -3746,7 +3793,22 @@ impl LExprCell {
     }
   }
 
-  pub fn append_mexp(&self) {
+  pub fn mjump<L: Borrow<LMLoc>>(&self, loc: L) -> LMExprCell {
+    self.mlookup(loc.borrow())
+  }
+
+  pub fn mlookup(&self, loc: &LMLoc) -> LMExprCell {
+    let tree = RefCell::borrow(&self.tree.data);
+    assert_eq!(loc.label, tree.mexps[loc.pos].label);
+    LMExprCell{
+      view:     self.view.clone(),
+      tree:     self.tree.clone(),
+      pos:      loc.pos,
+      label:    loc.label.clone(),
+    }
+  }
+
+  pub fn mappend(&self) {
     // TODO
     unimplemented!();
   }
@@ -3839,7 +3901,17 @@ pub struct LCode {
 }
 
 #[derive(Clone)]
+pub struct LMTermRef {
+  // FIXME
+  pub code:     LCodeRef,
+  pub pos:      usize,
+  //pub label:    LLabel,
+  //pub term:     LTerm,
+}
+
+#[derive(Clone)]
 pub struct LTermRef {
+  // FIXME
   pub code:     LCodeRef,
   pub pos:      usize,
   //pub label:    LLabel,
@@ -4037,7 +4109,7 @@ impl PrintBox {
       &LTerm::ACons(ref key, ref _ident, ref value, ref target) => {
         // TODO
         /*if ident.is_some() {
-          let ident_s = builder.lookup_ident(ident.as_ref().unwrap());
+          let ident_s = builder.lookup_ident(ident.borrow().unwrap());
           write!(&mut buffer, "({{${}({}) => ", key.0, ident_s)?;
         } else {
           write!(&mut buffer, "({{${} => ", key.0)?;
