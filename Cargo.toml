@@ -23,13 +23,8 @@ gpu = []
 
 [dependencies]
 byteorder = "^1.3"
-#envy = "^0.3"
-#fixedbitset = "^0.1"
-#lazycell = "^1.2"
-#lazy_static = "*"
 libc = "^0.2"
 #num-traits = "^0.2"
-#parking_lot = { version = "*", features = ["nightly"] }
 #plex = { git = "https://github.com/goffrie/plex", rev = "a4c1068fc31293b209677f6347aa51bbf73c1e53", default-features = false, features = ["lexer"] }
 plex = { version = "~0.2.5", default-features = false, features = ["lexer"] }
 rand_core = "^0.5"

@@ -12,7 +12,7 @@ CARGO_FLAGS ?=
 CARGO := cargo +nightly $(CARGO_FLAGS)
 RUSTC := rustc +nightly
 
-.PHONY: all clean pre versions debuglib lib debugtools tools test test-lang test-ir test-ir2 test-mach test-rngs test-ty test-ty2 test-vm test-vmad
+.PHONY: all clean pre versions debuglib lib debugtools tools test test-lang test-ir2 test-mach test-rngs test-ty2
 
 all: lib
 
@@ -37,38 +37,20 @@ debugtools: debuglib
 tools: lib
 	$(CARGO) build --release --bins
 
-test: pre
+test: lib
 	RUST_TEST_THREADS=1 $(CARGO) test --release -- --nocapture
 
-test-lang: pre
+test-lang: lib
 	RUST_TEST_THREADS=1 $(CARGO) test --test lang --release -- --nocapture
 
-test-ir: pre
-	RUST_TEST_THREADS=1 $(CARGO) test --test ir --release -- --nocapture
-
-test-ir-debug: pre
-	RUST_TEST_THREADS=1 $(CARGO) test --test ir -- --nocapture
-
-test-ir2: pre
+test-ir2: lib
 	RUST_TEST_THREADS=1 $(CARGO) test --test ir2 --release -- --nocapture
 
-test-mach: pre
+test-mach: lib
 	RUST_TEST_THREADS=1 $(CARGO) test --test mach --release -- --nocapture
 
-test-rngs: pre
+test-rngs: lib
 	RUST_TEST_THREADS=1 $(CARGO) test --test rngs --release -- --nocapture
 
-test-ty: pre
-	RUST_TEST_THREADS=1 $(CARGO) test --test ty --release -- --nocapture
-
-test-ty2: pre
+test-ty2: lib
 	RUST_TEST_THREADS=1 $(CARGO) test --test ty2 --release -- --nocapture
-
-test-vm: pre
-	RUST_TEST_THREADS=1 $(CARGO) test --test vm --release -- --nocapture
-
-test-vmad: pre
-	RUST_TEST_THREADS=1 $(CARGO) test --test vmad --release -- --nocapture
-
-test-vmfix: pre
-	RUST_TEST_THREADS=1 $(CARGO) test --test vmfix --release -- --nocapture

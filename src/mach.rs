@@ -120,18 +120,18 @@ pub struct MUnsafeCTerm {
 
 #[derive(Clone)]
 pub enum MReg {
-  Rst,
   Val(MValRef),
   Term(LExprCell),
   MTerm(LMExprCell),
   //Term(LTermRef),
   //MTerm(LMTermRef),
   //UnsafeCTerm(_),
+  Bot,
 }
 
 impl Default for MReg {
   fn default() -> MReg {
-    MReg::Rst
+    MReg::Bot
   }
 }
 
@@ -339,21 +339,23 @@ pub struct MachineState {
 }
 
 impl MachineState {
-  pub fn _reset(&mut self, exp: LExprCell) -> MachineTuple {
+  pub fn _reset(&mut self) -> MachineTuple {
     self.store.reset();
     MachineTuple{
-      ctrl: MReg::Term(exp),
+      ctrl: MReg::Bot,
       env:  MEnvRef::default(),
       kont: MKont::Hlt.into(),
     }
   }
 
+  pub fn _load(&mut self, mut tuple: MachineTuple, exp: LExprCell) -> MachineTuple {
+    tuple.ctrl = MReg::Term(exp);
+    tuple
+  }
+
   pub fn _step(&mut self, tuple: MachineTuple) -> MachineTuple {
     let MachineTuple{ctrl, env, kont} = tuple;
     let next_tuple = match ctrl {
-      MReg::Rst => {
-        panic!("machine: reset");
-      }
       MReg::Val(val) => {
         let kont = match Rc::try_unwrap(kont) {
           Ok(k) => k,
@@ -549,7 +551,7 @@ impl MachineState {
             match &*kont {
               &MKont::Hlt => {
                 MachineTuple{
-                  ctrl: MReg::Rst,
+                  ctrl: MReg::Bot,
                   kont: MKont::Hlt.into(),
                   env,
                 }
@@ -757,6 +759,9 @@ impl MachineState {
           _ => unimplemented!(),
         }
       }
+      MReg::Bot => {
+        panic!("machine: invalid state");
+      }
       _ => unimplemented!(),
     };
     next_tuple
@@ -775,7 +780,8 @@ impl Machine {
   }
 
   pub fn reset_eval(&mut self, exp: LExprCell) -> &MVal {
-    self.tuple = Some(self.state._reset(exp));
+    self.tuple = Some(self.state._reset());
+    self.tuple = Some(self.state._load(self.tuple.take().unwrap(), exp));
     loop {
       match self.tuple.as_ref() {
         None => unreachable!(),

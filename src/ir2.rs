@@ -284,7 +284,7 @@ enum RegisterAdj {
   Primal,
   Bridge(LLabel, bool),
   Dual(LLabel),
-  Pair(LLabel),
+  Pair(LLabel, bool),
 }
 
 #[derive(Clone, Default)]
@@ -297,7 +297,6 @@ pub struct LBuilder {
   var_to_bind:  HashTrieMap<LVar, LVarBinder>,
   adj_var:      HashTrieMap<LVar, LVar>,
   reg_adj:      HashTrieMap<LLabel, RegisterAdj>,
-  //tyinf:        IncTyInfMachine,
   //ctx:          LCtxRef,
   //tctx:         LTyctxRef,
 }
@@ -397,9 +396,10 @@ impl LBuilder {
     if t_work.unsat() {
       return Err(());
     }
-    self._print_tys(&mut tenv);
+    //self._print_tys(&mut tenv);
     let mut tree = tree;
     if t_work.defer_adj() {
+      let mut term = false;
       loop {
         match self._resolve_adj(tree.clone(), &mut tenv, &mut t_work) {
           ResolveAdjResult::Primal(_) => unreachable!(),
@@ -412,17 +412,13 @@ impl LBuilder {
             self._print(new_tree.clone());
             self.gen(&new_tree, &mut tenv, &mut t_work);
             self.solve(new_tree.root(), &mut tenv, &mut t_work);
-            self._print_tys(&mut tenv);
+            //self._print_tys(&mut tenv);
             if !deferred {
+              term = true;
               tree = new_tree;
               break;
             }
           }
-          /*ResolveAdjResult::Defer(old_tree, mut a_work) => {
-            tree = old_tree;
-            self.gen_inc_adj(&tree, &mut a_work, &mut tenv, &mut t_work);
-            self.solve(tree.root(), &mut tenv, &mut t_work);
-          }*/
           ResolveAdjResult::Error(_, a_work) => {
             // TODO: error reporting.
             println!("DEBUG: _compile: adj resolution error: {:?}", a_work.errored);
@@ -430,6 +426,7 @@ impl LBuilder {
           }
         }
       }
+      assert!(term);
     }
     if t_work.unsat() {
       return Err(());
@@ -1383,8 +1380,8 @@ enum ResolveAdj<E> {
   Primal(E),
   //Bridge(E),
   Bridge(E, bool),
-  Dual(E, E),
-  Pair(E),
+  Dual(E, E, /*bool*/),
+  Pair(E, bool),
   //Defer,
   Error,
 }
@@ -1425,8 +1422,8 @@ impl LBuilder {
           data: new_root.tree.data.clone(),
         }, deferred)
       }
-      ResolveAdj::Dual(_, _) |
-      ResolveAdj::Pair(_) => unreachable!(),
+      ResolveAdj::Dual(..) |
+      ResolveAdj::Pair(..) => unreachable!(),
       //ResolveAdj::Defer => ResolveAdjResult::Defer(tree, work),
       ResolveAdj::Error => ResolveAdjResult::Error(tree, work),
     }
@@ -1454,21 +1451,22 @@ impl LBuilder {
         match self.reg_adj.get(exp.borrow()) {
           None |
           Some(&RegisterAdj::Primal) |
-          Some(&RegisterAdj::Bridge(_, _)) => {}
+          Some(&RegisterAdj::Bridge(..)) => {}
           _ => panic!(),
         }
         a_work.appended.push_front(adj_e.label());
         self.reg_adj.insert_mut(exp.label(), RegisterAdj::Dual(adj_e.label()));
       }
-      &ResolveAdj::Pair(ref adj_e) => {
+      &ResolveAdj::Pair(ref adj_e, deferred) => {
         match self.reg_adj.get(exp.borrow()) {
           None |
           Some(&RegisterAdj::Primal) |
-          Some(&RegisterAdj::Bridge(_, _)) => {}
+          Some(&RegisterAdj::Bridge(..)) |
+          Some(&RegisterAdj::Pair(_, true)) => {}
           _ => panic!(),
         }
         a_work.appended.push_front(adj_e.label());
-        self.reg_adj.insert_mut(exp.label(), RegisterAdj::Pair(adj_e.label()));
+        self.reg_adj.insert_mut(exp.label(), RegisterAdj::Pair(adj_e.label(), deferred));
       }
       _ => unreachable!(),
     }
@@ -1504,8 +1502,8 @@ impl LBuilder {
               let target_e = exp.lookup(target);
               let adj_target_e = match self._force_adj_dual_exp(target_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
-                ResolveAdj::Bridge(_, _) |
-                ResolveAdj::Pair(_) => unreachable!(),
+                ResolveAdj::Bridge(..) |
+                ResolveAdj::Pair(..) => unreachable!(),
                 ResolveAdj::Dual(_, adj_target_e) => adj_target_e,
                 //ResolveAdj::Defer => return ResolveAdj::Defer,
                 ResolveAdj::Error => return ResolveAdj::Error,
@@ -1537,8 +1535,6 @@ impl LBuilder {
             }
           }
         } else {
-          //work.deferred.push_back(exp.label());
-          //ResolveAdj::Defer
           self._register_adj(&exp, work, ResolveAdj::Bridge(exp.clone(), true))
         }
       }
@@ -1563,8 +1559,8 @@ impl LBuilder {
                   any_bridge = true;
                   new_args.push(arg_e);
                 }
-                ResolveAdj::Dual(_, _) |
-                ResolveAdj::Pair(_) => unreachable!(),
+                ResolveAdj::Dual(..) |
+                ResolveAdj::Pair(..) => unreachable!(),
                 //ResolveAdj::Defer => return ResolveAdj::Defer,
                 ResolveAdj::Error => return ResolveAdj::Error,
               }
@@ -1593,8 +1589,8 @@ impl LBuilder {
                   deferred |= arg_defer;
                   new_args.push(new_arg_e);
                 }
-                ResolveAdj::Dual(_, _) |
-                ResolveAdj::Pair(_) => unreachable!(),
+                ResolveAdj::Dual(..) |
+                ResolveAdj::Pair(..) => unreachable!(),
                 //ResolveAdj::Defer => return ResolveAdj::Defer,
                 ResolveAdj::Error => return ResolveAdj::Error,
               }
@@ -1605,8 +1601,8 @@ impl LBuilder {
             ));
             self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, deferred))
           }
-          ResolveAdj::Dual(_, _) |
-          ResolveAdj::Pair(_) => unreachable!(),
+          ResolveAdj::Dual(..) |
+          ResolveAdj::Pair(..) => unreachable!(),
           //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
@@ -1645,8 +1641,8 @@ impl LBuilder {
             ));
             self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, body_defer))
           }
-          ResolveAdj::Dual(_, _) |
-          ResolveAdj::Pair(_) => unreachable!(),
+          ResolveAdj::Dual(..) |
+          ResolveAdj::Pair(..) => unreachable!(),
           //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
@@ -1670,8 +1666,8 @@ impl LBuilder {
                 ));
                 self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, deferred))
               }
-              ResolveAdj::Dual(_, _) |
-              ResolveAdj::Pair(_) => unreachable!(),
+              ResolveAdj::Dual(..) |
+              ResolveAdj::Pair(..) => unreachable!(),
               //ResolveAdj::Defer => ResolveAdj::Defer,
               ResolveAdj::Error => ResolveAdj::Error,
             }
@@ -1697,16 +1693,17 @@ impl LBuilder {
                   ));
                   self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, deferred))
                 }
-                ResolveAdj::Dual(_, _) |
-                ResolveAdj::Pair(_) => unreachable!(),
+                ResolveAdj::Dual(..) |
+                ResolveAdj::Pair(..) => unreachable!(),
                 //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               },
               Some(adj_name) => match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
-                ResolveAdj::Bridge(_, _) |
-                ResolveAdj::Dual(_, _) => unreachable!(),
-                ResolveAdj::Pair(adj_body_e) => {
+                ResolveAdj::Bridge(..) |
+                ResolveAdj::Dual(..) => unreachable!(),
+                ResolveAdj::Pair(adj_body_e, body_defer) => {
+                  deferred |= body_defer;
                   let new_exp = exp.append(self, &mut |_| LTerm::Match(
                       adj_body_e.loc(),
                       vec![(
@@ -1721,8 +1718,8 @@ impl LBuilder {
               }
             }
           }
-          ResolveAdj::Dual(_, _) |
-          ResolveAdj::Pair(_) => unreachable!(),
+          ResolveAdj::Dual(..) |
+          ResolveAdj::Pair(..) => unreachable!(),
           //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
@@ -1745,9 +1742,9 @@ impl LBuilder {
               }
               Some(adj_fixname) => match self._force_adj_pair_exp(redo_fixbody_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
-                ResolveAdj::Bridge(_, _) |
-                ResolveAdj::Dual(_, _) => unreachable!(),
-                ResolveAdj::Pair(adj_fixbody_e) => {
+                ResolveAdj::Bridge(..) |
+                ResolveAdj::Dual(..) => unreachable!(),
+                ResolveAdj::Pair(adj_fixbody_e, redo_fixbody_defer) => {
                   let adj_fix_e = exp.append(self, &mut |_| LTerm::SFix(
                       vec![fixname.clone(), adj_fixname.clone()],
                       adj_fixbody_e.loc()
@@ -1762,15 +1759,15 @@ impl LBuilder {
                         tmp_new_name_e.loc()
                       )]
                   ));
-                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, fixbody_defer))
+                  self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, redo_fixbody_defer))
                 }
                 //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               }
             }
           }
-          ResolveAdj::Dual(_, _) |
-          ResolveAdj::Pair(_) => unreachable!(),
+          ResolveAdj::Dual(..) |
+          ResolveAdj::Pair(..) => unreachable!(),
           //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
@@ -1831,8 +1828,8 @@ impl LBuilder {
                       ));
                       self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, target_defer))
                     }
-                    ResolveAdj::Dual(_, _) |
-                    ResolveAdj::Pair(_) => unreachable!(),
+                    ResolveAdj::Dual(..) |
+                    ResolveAdj::Pair(..) => unreachable!(),
                     //ResolveAdj::Defer => ResolveAdj::Defer,
                     ResolveAdj::Error => ResolveAdj::Error,
                   }
@@ -1849,8 +1846,6 @@ impl LBuilder {
             }
           }
         } else {
-          //work.deferred.push_back(exp.label());
-          //ResolveAdj::Defer
           self._register_adj(&exp, work, ResolveAdj::Bridge(exp.clone(), true))
         }
       }
@@ -1932,26 +1927,28 @@ impl LBuilder {
     match self.reg_adj.get(exp.borrow()) {
       None |
       Some(&RegisterAdj::Primal) |
-      Some(&RegisterAdj::Bridge(_, _)) => {}
-      Some(&RegisterAdj::Pair(ref adj_e)) => {
-        return ResolveAdj::Pair(exp.lookup_exp(adj_e));
+      Some(&RegisterAdj::Bridge(..)) |
+      Some(&RegisterAdj::Pair(_, true)) => {}
+      Some(&RegisterAdj::Pair(ref adj_e, false)) => {
+        return ResolveAdj::Pair(exp.lookup_exp(adj_e), false);
       }
       Some(_) => unreachable!(),
     }
     match &exp.term() {
       // TODO: cases.
       &LTerm::Apply(ref head, ref args) => {
+        let mut deferred = false;
         let head_e = exp.lookup(head);
         match self._force_adj_dual_exp(head_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
-          ResolveAdj::Bridge(_, _) |
-          ResolveAdj::Pair(_) => unreachable!(),
+          ResolveAdj::Bridge(..) |
+          ResolveAdj::Pair(..) => unreachable!(),
           ResolveAdj::Dual(_, adj_head_e) => {
             let tmp_new = self.fresh_anon_var();
             let tmp_adj = self.lookup_adj_var(&tmp_new);
             let tmp_sink = self.fresh_anon_var();
-            let exp_ty = tenv.lookup_exp(&exp).into();
-            tenv.annotate(&tmp_sink, exp_ty);
+            let exp_ty = tenv.lookup_exp(&exp);
+            tenv.annotate(&tmp_sink, exp_ty.into());
             let adj_app_e = exp.append(self, &mut |_| LTerm::Apply(
                 adj_head_e.loc(),
                 args.clone()
@@ -1962,6 +1959,7 @@ impl LBuilder {
                 tmp_adj_e.loc(),
                 vec![tmp_sink_e.loc()]
             ));
+            // TODO: inspect the function type.
             let mut adj_app_app_fixup_args = Vec::with_capacity(args.len());
             for (idx, arg) in args.iter().enumerate() {
               let arg_e = exp.lookup(arg);
@@ -1971,6 +1969,9 @@ impl LBuilder {
                 &LTerm::FlpLit(_) => {}
                 &LTerm::Lookup(ref arg_var) => {
                   match tenv.mgu_var(&exp, arg_var.clone()) {
+                    None => {
+                      deferred = true;
+                    }
                     Some((_, _, ty)) => {
                       match &*ty {
                         // TODO: fixup any smooth type.
@@ -1981,13 +1982,6 @@ impl LBuilder {
                         }
                         _ => {}
                       }
-                    }
-                    None => {
-                      // FIXME: need to be able to defer pairs.
-                      println!("WARNING: should have deferred adj pair of apply");
-                      let arg_ident = self.lookup_var(arg_var);
-                      let arg_adj = self.lookup_adj_var(arg_var);
-                      adj_app_app_fixup_args.push((idx, arg_var.clone(), arg_ident, arg_adj));
                     }
                   }
                 }
@@ -2014,44 +2008,46 @@ impl LBuilder {
                     new_pair_e.loc()
                 )]
             ));
-            self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+            self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, deferred))
           }
           //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
       &LTerm::Lambda(ref params, ref body) => {
+        let mut deferred = false;
         let body_e = exp.lookup(body);
+        let body_ty = tenv.lookup_exp(body);
         match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
-          ResolveAdj::Bridge(_, _) |
-          ResolveAdj::Dual(_, _) => unreachable!(),
-          ResolveAdj::Pair(adj_body_e) => {
+          ResolveAdj::Bridge(..) |
+          ResolveAdj::Dual(..) => unreachable!(),
+          ResolveAdj::Pair(adj_body_e, body_defer) => {
+            deferred |= body_defer;
             //let lam_freectx = self._freectx_once_exp(exp.clone());
             let tmp_new = self.fresh_anon_var();
             let tmp_adj = self.lookup_adj_var(&tmp_new);
             let tmp_sink = self.fresh_anon_var();
-            let body_ty = tenv.lookup_exp(body).into();
-            tenv.annotate(&tmp_sink, body_ty);
+            tenv.annotate(&tmp_sink, body_ty.clone().into());
             let mut fixup_params = Vec::with_capacity(params.len());
-            let mut fixup_params_set = HashSet::new();
             for (idx, param) in params.iter().enumerate() {
-              match tenv.mgu_var(&exp, param.clone()) {
-                Some((_, _, ty)) => {
-                  match &*ty {
-                    // TODO: fixup any smooth type.
-                    &LTy::Flp => {
-                      fixup_params.push((idx, param.clone()));
-                      fixup_params_set.insert(param.clone());
+              match self._lookup_adj_var(param) {
+                None => {}
+                Some(_) => {
+                  match tenv.mgu_var(body, param.clone()) {
+                    None => {
+                      deferred = true;
                     }
-                    _ => {}
+                    Some((_, _, ty)) => match &*ty {
+                      // TODO: allowed smooth types.
+                      &LTy::Flp => {}
+                      _ => {
+                        work.errored.push_back((exp.label(), AdjError::NonsmoothParam(param.clone())));
+                        return ResolveAdj::Error;
+                      }
+                    }
                   }
-                }
-                None => {
-                  // FIXME: need to be able to defer pairs.
-                  println!("WARNING: should have deferred adj pair of lambda");
                   fixup_params.push((idx, param.clone()));
-                  fixup_params_set.insert(param.clone());
                 }
               }
             }
@@ -2061,6 +2057,8 @@ impl LBuilder {
                 tmp_adj_e.loc(),
                 vec![tmp_sink_e.loc()]
             ));
+            // TODO: can eliminate keys that are not formal params or free vars
+            // (need freectx info).
             let adj_body_app_fixup_e = exp.append(self, &mut |_| LTerm::AReturn(
                 LEnvKeys::All,
                 //LEnvKeys::Set(lam_freectx.freevars.clone()),
@@ -2080,11 +2078,8 @@ impl LBuilder {
               match self._lookup_adj_var(param) {
                 None => {}
                 Some(adj_param) => {
-                  if !fixup_params_set.contains(param) {
-                    work.errored.push_back((exp.label(), AdjError::NonsmoothParam(param.clone())));
-                    return ResolveAdj::Error;
-                  }
                   let tmp_sink = self.fresh_anon_var();
+                  tenv.annotate(&tmp_sink, body_ty.clone().into());
                   let param_target_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
                   let param_adj_e = exp.append(self, &mut |_| LTerm::Lambda(
                       vec![tmp_sink.clone()],
@@ -2115,14 +2110,15 @@ impl LBuilder {
             let tmp_adj_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_adj_name.clone()));
             let mut new_params = Vec::with_capacity(params.len());
             for param in params.iter() {
-              match self.lookup_var(param) {
+              let new_param = match self.lookup_var(param) {
                 LVarBinder::Ident(ident) => {
-                  new_params.push(self.fresh_ident_var(ident));
+                  self.fresh_ident_var(ident)
                 }
-                _ => {
-                  new_params.push(self.fresh_anon_var());
-                }
-              }
+                _ => self.fresh_anon_var(),
+              };
+              let param_ty = tenv.lookup_var(body, param);
+              tenv.annotate(&new_param, param_ty.into());
+              new_params.push(new_param);
             }
             let mut new_params_e = Vec::with_capacity(params.len());
             for np in new_params.iter() {
@@ -2162,7 +2158,7 @@ impl LBuilder {
                 adj_lam_e.loc(),
                 bind_new_e.loc()
             ));
-            self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+            self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, deferred))
           }
           //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
@@ -2170,13 +2166,15 @@ impl LBuilder {
       }
       &LTerm::Let(ref name, ref body, ref rest) => {
         // TODO
+        let mut deferred = false;
         let body_e = exp.lookup(body);
         let rest_e = exp.lookup(rest);
         match self._force_adj_pair_exp(rest_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
-          ResolveAdj::Bridge(_, _) |
-          ResolveAdj::Dual(_, _) => unreachable!(),
-          ResolveAdj::Pair(adj_rest_e) => {
+          ResolveAdj::Bridge(..) |
+          ResolveAdj::Dual(..) => unreachable!(),
+          ResolveAdj::Pair(adj_rest_e, rest_defer) => {
+            deferred |= rest_defer;
             match self._lookup_adj_var(name) {
               None => match self._resolve_adj_exp(body_e, tenv, t_work, work) {
                 ResolveAdj::Primal(body_e) => {
@@ -2185,30 +2183,28 @@ impl LBuilder {
                       body_e.loc(),
                       adj_rest_e.loc()
                   ));
-                  self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+                  self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, deferred))
                 }
                 ResolveAdj::Bridge(new_body_e, body_defer) => {
-                  // FIXME: possibly defer on `body_defer`.
-                  if body_defer {
-                    println!("WARNING: should have deferred adj pair of let");
-                  }
+                  deferred |= body_defer;
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
                       name.clone(),
                       new_body_e.loc(),
                       adj_rest_e.loc()
                   ));
-                  self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+                  self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, deferred))
                 }
-                ResolveAdj::Dual(_, _) |
-                ResolveAdj::Pair(_) => unreachable!(),
+                ResolveAdj::Dual(..) |
+                ResolveAdj::Pair(..) => unreachable!(),
                 //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               },
               Some(adj_name) => match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
-                ResolveAdj::Bridge(_, _) |
-                ResolveAdj::Dual(_, _) => unreachable!(),
-                ResolveAdj::Pair(adj_body_e) => {
+                ResolveAdj::Bridge(..) |
+                ResolveAdj::Dual(..) => unreachable!(),
+                ResolveAdj::Pair(adj_body_e, body_defer) => {
+                  deferred |= body_defer;
                   let new_exp = exp.append(self, &mut |_| LTerm::Match(
                       adj_body_e.loc(),
                       vec![(
@@ -2216,7 +2212,7 @@ impl LBuilder {
                         adj_rest_e.loc()
                       )]
                   ));
-                  self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+                  self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, deferred))
                 }
                 //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
@@ -2231,15 +2227,15 @@ impl LBuilder {
         let fixbody_e = exp.lookup(fixbody);
         match self._force_adj_pair_exp(fixbody_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
-          ResolveAdj::Bridge(_, _) |
-          ResolveAdj::Dual(_, _) => unreachable!(),
-          ResolveAdj::Pair(adj_fixbody_e) => {
+          ResolveAdj::Bridge(..) |
+          ResolveAdj::Dual(..) => unreachable!(),
+          ResolveAdj::Pair(adj_fixbody_e, fixbody_defer) => {
             let adj_fixname = self.lookup_adj_var(fixname);
             let new_exp = exp.append(self, &mut |_| LTerm::SFix(
                 vec![fixname.clone(), adj_fixname.clone()],
                 adj_fixbody_e.loc()
             ));
-            self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+            self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, fixbody_defer))
           }
           //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
@@ -2247,6 +2243,7 @@ impl LBuilder {
       }
       &LTerm::Match(ref query, ref pat_arms) => {
         // TODO
+        let mut deferred = false;
         let query_e = exp.lookup(query);
         match self._resolve_adj_exp(query_e, tenv, t_work, work) {
           ResolveAdj::Primal(query_e) => {
@@ -2257,7 +2254,8 @@ impl LBuilder {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(_, _) |
                 ResolveAdj::Dual(_, _) => unreachable!(),
-                ResolveAdj::Pair(adj_arm_e) => {
+                ResolveAdj::Pair(adj_arm_e, arm_defer) => {
+                  deferred |= arm_defer;
                   adj_pat_arms.push((pat.clone(), adj_arm_e.loc()));
                 }
                 ResolveAdj::Error => return ResolveAdj::Error,
@@ -2267,14 +2265,14 @@ impl LBuilder {
                 query_e.loc(),
                 adj_pat_arms.clone()
             ));
-            self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+            self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, deferred))
           }
           ResolveAdj::Bridge(new_query_e, query_defer) => {
             // TODO
             unimplemented!();
           }
-          ResolveAdj::Dual(_, _) |
-          ResolveAdj::Pair(_) => unreachable!(),
+          ResolveAdj::Dual(..) |
+          ResolveAdj::Pair(..) => unreachable!(),
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
@@ -2289,7 +2287,7 @@ impl LBuilder {
         let new_exp = exp.append(self, &mut |_| LTerm::STuple(
             vec![exp.loc(), adj_e.loc()]
         ));
-        self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+        self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, false))
       }
       &LTerm::Lookup(ref var) => {
         if let Some((_, _, ty)) = tenv.mgu_var(&exp, var.clone()) {
@@ -2319,7 +2317,7 @@ impl LBuilder {
               let new_exp = exp.append(self, &mut |_| LTerm::STuple(
                   vec![exp.loc(), adj_e.loc()]
               ));
-              self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+              self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, false))
             }
             &LTy::Fun(..) => {
               // FIXME: scalar/smooth.
@@ -2328,7 +2326,7 @@ impl LBuilder {
               let new_exp = exp.append(self, &mut |_| LTerm::STuple(
                   vec![exp.loc(), adj_e.loc()]
               ));
-              self._register_adj(&exp, work, ResolveAdj::Pair(new_exp))
+              self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, false))
             }
             _ => unimplemented!(),
           }
@@ -2349,6 +2347,21 @@ impl LBuilder {
     // TODO
     unimplemented!();
   }
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Tyredex {
+  // TODO
+  Var(LTyvar),
+  Fun(Vec<LTyvar>, LTyvar),
+  Env(RBTreeMap<usize, LTyvar>, RBTreeMap<LVar, LTyvar>, RBTreeMap<LIdent, LVar>),
+  STup(Vec<LTyvar>),
+  HTup,
+  Bit,
+  Int,
+  Flp,
+  VFlp,
+  Unit,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -2442,7 +2455,7 @@ enum TyCon {
   IsAReturn(TyexpRef, Vec<LVar>, Vec<(usize, LVar)>, TyexpRef),
   IsACons(TyexpRef, TyexpRef, LVar, LVarBinder, TyexpRef, TyexpRef),
   IsAConcat(TyexpRef, TyexpRef, TyexpRef),
-  Bottom,
+  Bot,
 }
 
 /*fn conj_ty2(lhs: TyConRef, rhs: TyConRef) -> TyConRef {
@@ -2478,10 +2491,23 @@ fn conj_tys(cons: Vec<TyConRef>) -> TyConRef {
   }
 }*/
 
+#[derive(Debug)]
+enum TyUnsat {
+  AdjArity,
+  EnvArity,
+  EnvBinder,
+  EnvKey,
+  ExpectedEnv,
+  ExpectedFun,
+  FunArity,
+  STupArity,
+  Unknown,
+}
+
 #[derive(Default, Debug)]
 struct TyWork {
   cons:     VecDeque<TyConRef>,
-  unsat:    VecDeque<TyConRef>,
+  unsat:    VecDeque<(TyConRef, TyUnsat)>,
   a_defer:  VecDeque<LLabel>,
 }
 
@@ -2535,12 +2561,12 @@ impl Tyctx {
     v
   }
 
-  fn _lookup_var(&self, var: &LVar) -> Option<LTyvar> {
+  /*fn _lookup_var(&self, var: &LVar) -> Option<LTyvar> {
     match self.var.get(var) {
       None => None,
       Some(v) => Some(v.clone()),
     }
-  }
+  }*/
 
   fn lookup_var(&self, var: &LVar) -> LTyvar {
     match self.var.get(var) {
@@ -2585,13 +2611,13 @@ impl TyEnv {
     self.tctx.insert(label.clone(), tctx);
   }
 
-  fn _lookup_var<L: Borrow<LLabel>>(&self, loc: L, var: &LVar) -> Option<LTyvar> {
+  /*fn _lookup_var<L: Borrow<LLabel>>(&self, loc: L, var: &LVar) -> Option<LTyvar> {
     let label = loc.borrow();
     match self.tctx.get(label) {
-      None => None,
+      None => panic!(),
       Some(tctx) => tctx._lookup_var(var),
     }
-  }
+  }*/
 
   fn lookup_var<L: Borrow<LLabel>>(&self, loc: L, var: &LVar) -> LTyvar {
     let label = loc.borrow();
@@ -2612,6 +2638,14 @@ impl TyEnv {
   fn lookup_exp<L: Borrow<LLabel>>(&mut self, loc: L) -> LTyvar {
     let label = loc.borrow();
     match self.exp.get(label) {
+      None => panic!(),
+      Some(v) => v.clone(),
+    }
+  }
+
+  fn lookup_or_fresh_exp<L: Borrow<LLabel>>(&mut self, loc: L) -> LTyvar {
+    let label = loc.borrow();
+    match self.exp.get(label) {
       None => {
         let v = self.fresh_tvar();
         self.exp.insert(label.clone(), v.clone());
@@ -2623,7 +2657,12 @@ impl TyEnv {
   }
 
   fn annotate(&mut self, var: &LVar, ty: TyexpRef) {
-    self.anno.insert(var.clone(), ty);
+    match self.anno.get(var) {
+      None => {
+        self.anno.insert(var.clone(), ty);
+      }
+      Some(_) => panic!(),
+    }
   }
 
   fn head(&mut self, query: LTyvar) -> LTyvar {
@@ -2670,7 +2709,7 @@ impl TyEnv {
     self.texp.insert(w, query);
   }
 
-  fn reduce(&mut self, v: LTyvar) -> TyReduce {
+  fn reduce_tvar(&mut self, v: LTyvar) -> TyReduce {
     let w = self.head(v);
     match self.texp.get(&w) {
       None => TyReduce::Var(w),
@@ -2687,7 +2726,7 @@ impl TyEnv {
     match &*query {
       // TODO: cases.
       &Tyexp::Var(ref v) => {
-        match self.reduce(v.clone()) {
+        match self.reduce_tvar(v.clone()) {
           TyReduce::Exp(e) => e,
           TyReduce::Var(w) => w.into(),
         }
@@ -2728,26 +2767,24 @@ impl TyEnv {
   }
 
   fn mgu_var<L: Borrow<LLabel>>(&mut self, loc: L, var: LVar) -> Option<(LTyvar, LTyvar, LTyRef)> {
-    match self._lookup_var(loc, &var) {
+    let v = self.lookup_var(loc, &var);
+    match self.mgu_tvar(v.clone()) {
       None => None,
-      Some(v) => match self.mgu(v.clone()) {
-        None => None,
-        Some((w, e)) => Some((v, w, e)),
-      }
+      Some((w, e)) => Some((v, w, e)),
     }
   }
 
   fn mgu_exp<L: Borrow<LLabel>>(&mut self, loc: L) -> Option<(LTyvar, LTyvar, LTyRef)> {
     match self._lookup_exp(loc) {
-      None => None,
-      Some(v) => match self.mgu(v.clone()) {
+      None => panic!(),
+      Some(v) => match self.mgu_tvar(v.clone()) {
         None => None,
         Some((w, e)) => Some((v, w, e)),
       }
     }
   }
 
-  fn mgu(&mut self, v: LTyvar) -> Option<(LTyvar, LTyRef)> {
+  fn mgu_tvar(&mut self, v: LTyvar) -> Option<(LTyvar, LTyRef)> {
     let w = self.head(v);
     match self.texp.get(&w) {
       None => None,
@@ -2835,11 +2872,11 @@ impl LBuilder {
 
   fn _gen_exp(&mut self, exp: LExprCell, tctx: Tyctx, tenv: &mut TyEnv, work: &mut TyWork) {
     /*let ety = match tenv._lookup_exp(&exp) {
-      None => tenv.lookup_exp(&exp),
+      None => tenv.lookup_or_fresh_exp(&exp),
       Some(_) => return,
     };*/
     tenv.unsafe_set_tctx(&exp, tctx.clone());
-    let ety = tenv.lookup_exp(&exp);
+    let ety = tenv.lookup_or_fresh_exp(&exp);
     match &exp.term() {
       &LTerm::End => {
         let con = TyCon::Eq_(ety.into(), Tyexp::Unit.into()).into();
@@ -3078,9 +3115,9 @@ impl LBuilder {
     }
   }*/
 
-  fn _solve_eq_var(&mut self, lv: LTyvar, rv: LTyvar, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
-    let lquery = tenv.reduce(lv.clone());
-    let rquery = tenv.reduce(rv.clone());
+  fn _solve_eq_tvar(&mut self, lv: LTyvar, rv: LTyvar, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
+    let lquery = tenv.reduce_tvar(lv.clone());
+    let rquery = tenv.reduce_tvar(rv.clone());
     match (lquery, rquery) {
       (TyReduce::Exp(lquery), TyReduce::Exp(rquery)) => {
         let con = TyConRef::new(TyCon::Eq_(lquery, rquery));
@@ -3094,8 +3131,8 @@ impl LBuilder {
     }
   }
 
-  fn _solve_eq_exp(&mut self, v: LTyvar, query: TyexpRef, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
-    let lquery = tenv.reduce(v.clone());
+  fn _solve_eq_texp(&mut self, v: LTyvar, query: TyexpRef, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
+    let lquery = tenv.reduce_tvar(v.clone());
     let rquery = tenv.reduce_texp(query.clone());
     match lquery {
       TyReduce::Exp(lquery) => {
@@ -3109,26 +3146,6 @@ impl LBuilder {
       }
     }
   }
-
-  fn _debug_solve_dump(&mut self) {
-    /*println!("DEBUG: solve: done");
-    println!("DEBUG: solve:   # vtys:");
-    //println!("DEBUG: solve:   {:?}", self.root.etys);
-    println!("DEBUG: solve:   {:?}", root.tree.data.borrow().vtys);
-    println!("DEBUG: solve:   # db:");
-    for (lv, _) in tenv.db.clone().iter() {
-      let lw = tenv.head(lv.clone());
-      let q = match tenv.texp.get(&lw) {
-        None => None,
-        Some(e) => Some(tenv.reduce_texp(e.clone())),
-      };
-      println!("DEBUG: solve:   {:?} => {:?} :: {:?}", lv, lw, q);
-    }
-    println!("DEBUG: solve:   # texp:");
-    for (v, t) in tenv.texp.iter() {
-      println!("DEBUG: solve:   {:?} => {:?}", v, t);
-    }*/
-  }
 }
 
 impl LBuilder {
@@ -3139,8 +3156,6 @@ impl LBuilder {
   fn solve(&mut self, root: LExprCell, tenv: &mut TyEnv, work: &mut TyWork) {
     let con = match work.cons.pop_front() {
       None => {
-        //self._debug_solve_dump();
-        //return Ok(());
         return;
       }
       Some(c) => c,
@@ -3149,46 +3164,43 @@ impl LBuilder {
       &TyCon::Top => {
         self.solve(root, tenv, work)
       }
-      &TyCon::Bottom => {
-        return;
-      }
       &TyCon::Eq_(ref lquery, ref rquery) => {
         match (&**lquery, &**rquery) {
           // TODO: cases.
           (&Tyexp::Var(ref lv), &Tyexp::Var(ref rv)) => {
-            self._solve_eq_var(lv.clone(), rv.clone(), root, tenv, work)
+            self._solve_eq_tvar(lv.clone(), rv.clone(), root, tenv, work)
           }
           (&Tyexp::Var(ref lv), _) => {
-            self._solve_eq_exp(lv.clone(), rquery.clone(), root, tenv, work)
+            self._solve_eq_texp(lv.clone(), rquery.clone(), root, tenv, work)
           }
           (_, &Tyexp::Var(ref rv)) => {
-            self._solve_eq_exp(rv.clone(), lquery.clone(), root, tenv, work)
+            self._solve_eq_texp(rv.clone(), lquery.clone(), root, tenv, work)
           }
-          (&Tyexp::Fun(ref ldom, ref lret), &Tyexp::Fun(ref rdom, ref rret)) => {
-            if ldom.len() != rdom.len() {
+          (&Tyexp::Fun(ref l_dom, ref l_ret), &Tyexp::Fun(ref r_dom, ref r_ret)) => {
+            if l_dom.len() != r_dom.len() {
               println!("WARNING: solve: Eq_: fun arity mismatch");
-              work.unsat.push_back(con.clone());
-              work.cons.push_back(TyCon::Bottom.into());
+              work.unsat.push_back((con.clone(), TyUnsat::FunArity));
+              work.cons.push_back(TyCon::Bot.into());
               return self.solve(root, tenv, work);
             }
-            for (ld, rd) in ldom.iter().zip(rdom.iter()) {
-              work.cons.push_back(TyConRef::new(TyCon::Eq_(ld.clone(), rd.clone())));
+            for (lty, rty) in l_dom.iter().zip(r_dom.iter()) {
+              work.cons.push_back(TyConRef::new(TyCon::Eq_(lty.clone(), rty.clone())));
             }
-            work.cons.push_back(TyConRef::new(TyCon::Eq_(lret.clone(), rret.clone())));
+            work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ret.clone(), r_ret.clone())));
             self.solve(root, tenv, work)
           }
           (&Tyexp::Env(ref l_idxs, ref l_keys, ref l_idents), &Tyexp::Env(ref r_idxs, ref r_keys, ref r_idents)) => {
             if l_idxs != r_idxs || l_keys != r_keys {
               println!("WARNING: solve: Eq_: env arity mismatch");
-              work.unsat.push_back(con.clone());
-              work.cons.push_back(TyCon::Bottom.into());
+              work.unsat.push_back((con.clone(), TyUnsat::EnvArity));
+              work.cons.push_back(TyCon::Bot.into());
               return self.solve(root, tenv, work);
             }
             for ((l_idx, l_ty), (r_idx, r_ty)) in l_idxs.iter().zip(r_idxs.iter()) {
               if l_idx != r_idx {
                 println!("WARNING: solve: Eq_: env index key mismatch");
-                work.unsat.push_back(con.clone());
-                work.cons.push_back(TyCon::Bottom.into());
+                work.unsat.push_back((con.clone(), TyUnsat::EnvKey));
+                work.cons.push_back(TyCon::Bot.into());
                 return self.solve(root, tenv, work);
               }
               work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ty.clone(), r_ty.clone())));
@@ -3196,8 +3208,8 @@ impl LBuilder {
             for ((l_key, l_ty), (r_key, r_ty)) in l_keys.iter().zip(r_keys.iter()) {
               if l_key != r_key {
                 println!("WARNING: solve: Eq_: env var key mismatch");
-                work.unsat.push_back(con.clone());
-                work.cons.push_back(TyCon::Bottom.into());
+                work.unsat.push_back((con.clone(), TyUnsat::EnvKey));
+                work.cons.push_back(TyCon::Bot.into());
                 return self.solve(root, tenv, work);
               }
               work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ty.clone(), r_ty.clone())));
@@ -3207,8 +3219,8 @@ impl LBuilder {
             for ((l_id, l_key), (r_id, r_key)) in l_idents.iter().zip(r_idents.iter()) {
               if l_id != r_id || l_key != r_key {
                 println!("WARNING: solve: Eq_: env var binding mismatch");
-                work.unsat.push_back(con.clone());
-                work.cons.push_back(TyCon::Bottom.into());
+                work.unsat.push_back((con.clone(), TyUnsat::EnvBinder));
+                work.cons.push_back(TyCon::Bot.into());
                 return self.solve(root, tenv, work);
               }
             }
@@ -3217,8 +3229,8 @@ impl LBuilder {
           (&Tyexp::STup(ref l_elems), &Tyexp::STup(ref r_elems)) => {
             if l_elems.len() != r_elems.len() {
               println!("WARNING: solve: Eq_: stup arity mismatch");
-              work.unsat.push_back(con.clone());
-              work.cons.push_back(TyCon::Bottom.into());
+              work.unsat.push_back((con.clone(), TyUnsat::STupArity));
+              work.cons.push_back(TyCon::Bot.into());
               return self.solve(root, tenv, work);
             }
             for (le, re) in l_elems.iter().zip(r_elems.iter()) {
@@ -3235,8 +3247,8 @@ impl LBuilder {
           }
           (lhs, rhs) => {
             println!("WARNING: solve: Eq_: type mismatch or unimpl: {:?} vs {:?}", lhs, rhs);
-            work.unsat.push_back(con);
-            work.cons.push_back(TyCon::Bottom.into());
+            work.unsat.push_back((con, TyUnsat::Unknown));
+            work.cons.push_back(TyCon::Bot.into());
             self.solve(root, tenv, work)
           }
         }
@@ -3253,14 +3265,9 @@ impl LBuilder {
             let mut adj_rets = Vec::with_capacity(args.len());
             for &(idx, _, _, ref key_adj, ref key_adj_ty) in args.iter() {
               match tg_idxs.get(&idx) {
-                None => {
-                  /*println!("WARNING: solve: IsAApply: missing idx in target env type");
-                  work.unsat.push_back(con);
-                  work.cons.push_back(TyCon::Bottom.into());
-                  return self.solve(root, tenv, work);*/
-                }
+                None => {}
                 Some(_) => {
-                  //let key_adj_ty = tenv.lookup_var(key_adj);
+                  /*let key_adj_ty = tenv.lookup_var(key_adj);*/
                   match &*tenv.reduce_texp(key_adj_ty.clone().into()) {
                     &Tyexp::Var(_) => {
                       work.cons.push_back(con);
@@ -3278,16 +3285,16 @@ impl LBuilder {
                         }
                         _ => {
                           println!("WARNING: solve: IsAApply: non-env adj ret type");
-                          work.unsat.push_back(con);
-                          work.cons.push_back(TyCon::Bottom.into());
+                          work.unsat.push_back((con, TyUnsat::ExpectedEnv));
+                          work.cons.push_back(TyCon::Bot.into());
                           return self.solve(root, tenv, work);
                         }
                       }
                     }
                     _ => {
                       println!("WARNING: solve: IsAApply: non-fun adj type");
-                      work.unsat.push_back(con);
-                      work.cons.push_back(TyCon::Bottom.into());
+                      work.unsat.push_back((con, TyUnsat::ExpectedFun));
+                      work.cons.push_back(TyCon::Bot.into());
                       return self.solve(root, tenv, work);
                     }
                   }
@@ -3306,8 +3313,8 @@ impl LBuilder {
                   let val_ty = val_ty.clone();
                   if adj_doms[adj_idx].len() != 1 {
                     println!("WARNING: solve: IsAApply: non-unity adj arity");
-                    work.unsat.push_back(con);
-                    work.cons.push_back(TyCon::Bottom.into());
+                    work.unsat.push_back((con, TyUnsat::AdjArity));
+                    work.cons.push_back(TyCon::Bot.into());
                     return self.solve(root, tenv, work);
                   }
                   let adj_dom_con = TyConRef::new(TyCon::Eq_(val_ty.clone(), adj_doms[adj_idx][0].clone()));
@@ -3335,7 +3342,6 @@ impl LBuilder {
             }
             for &(idx, ref key, ref ident, _, _) in args.iter() {
               match app_idxs.get(&idx) {
-                //None => unreachable!(),
                 None => {}
                 Some(val_ty) => {
                   let val_ty = val_ty.clone();
@@ -3362,8 +3368,8 @@ impl LBuilder {
           }
           _ => {
             println!("WARNING: solve: IsAApply: unsat!");
-            work.unsat.push_back(con);
-            work.cons.push_back(TyCon::Bottom.into());
+            work.unsat.push_back((con, TyUnsat::ExpectedEnv));
+            work.cons.push_back(TyCon::Bot.into());
             self.solve(root, tenv, work)
           }
         }
@@ -3378,8 +3384,8 @@ impl LBuilder {
             println!("TRACE: solve: IsAReturn: instantiating a new env tyexp");
             if !tg_idxs.is_empty() {
               println!("WARNING: solve: IsAReturn: nonempty target index set");
-              work.unsat.push_back(con.clone());
-              work.cons.push_back(TyCon::Bottom.into());
+              work.unsat.push_back((con.clone(), TyUnsat::EnvArity));
+              work.cons.push_back(TyCon::Bot.into());
               return self.solve(root, tenv, work);
             }
             // TODO: fixup idents.
@@ -3388,12 +3394,7 @@ impl LBuilder {
             let mut ret_idents = tg_idents.clone();
             for &(idx, ref key) in params.iter() {
               match ret_keys.get(key) {
-                None => {
-                  /*println!("WARNING: solve: IsAReturn: missing idx in target env type");
-                  work.unsat.push_back(con.clone());
-                  work.cons.push_back(TyCon::Bottom.into());
-                  return self.solve(root, tenv, work);*/
-                }
+                None => {}
                 Some(val_ty) => {
                   let val_ty = val_ty.clone();
                   match self.lookup_var(key) {
@@ -3420,8 +3421,8 @@ impl LBuilder {
           }
           _ => {
             println!("WARNING: solve: IsAReturn: unsat!");
-            work.unsat.push_back(con);
-            work.cons.push_back(TyCon::Bottom.into());
+            work.unsat.push_back((con, TyUnsat::ExpectedEnv));
+            work.cons.push_back(TyCon::Bot.into());
             self.solve(root, tenv, work)
           }
         }
@@ -3446,8 +3447,8 @@ impl LBuilder {
           }
           _ => {
             println!("WARNING: solve: IsACons: unsat!");
-            work.unsat.push_back(con);
-            work.cons.push_back(TyCon::Bottom.into());
+            work.unsat.push_back((con, TyUnsat::ExpectedEnv));
+            work.cons.push_back(TyCon::Bot.into());
             self.solve(root, tenv, work)
           }
         }
@@ -3455,6 +3456,9 @@ impl LBuilder {
       &TyCon::IsAConcat(ref query, ref lhs, ref rhs) => {
         // TODO
         unimplemented!();
+      }
+      &TyCon::Bot => {
+        return;
       }
       _ => unimplemented!(),
     }
@@ -3646,7 +3650,7 @@ impl LTreeCell {
         }
         Some(v) => v,
       };
-      match tenv.mgu(v.clone()) {
+      match tenv.mgu_tvar(v.clone()) {
         None => {
           //println!("DEBUG: resolve_ctx: no mgu");
           return None;
@@ -3728,10 +3732,10 @@ impl LExprCell {
     tree.ctxs.insert(self.label.clone(), new_ctx);
   }
 
-  fn unsafe_unset_ctx(&self) {
+  /*fn unsafe_unset_ctx(&self) {
     let mut tree = self.tree.data.borrow_mut();
     tree.ctxs.remove(&self.label);
-  }
+  }*/
 
   fn unsafe_set_freectx(&self, new_ctx: LFreeCtxRef) {
     let mut tree = self.tree.data.borrow_mut();
