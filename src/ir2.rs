@@ -2017,7 +2017,6 @@ impl LBuilder {
       &LTerm::Lambda(ref params, ref body) => {
         let mut deferred = false;
         let body_e = exp.lookup(body);
-        let body_ty = tenv.lookup_exp(body);
         match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
           ResolveAdj::Bridge(..) |
@@ -2028,7 +2027,8 @@ impl LBuilder {
             let tmp_new = self.fresh_anon_var();
             let tmp_adj = self.lookup_adj_var(&tmp_new);
             let tmp_sink = self.fresh_anon_var();
-            tenv.annotate(&tmp_sink, body_ty.clone().into());
+            let body_ty = tenv.lookup_exp(body);
+            tenv.annotate(&tmp_sink, body_ty.into());
             let mut fixup_params = Vec::with_capacity(params.len());
             for (idx, param) in params.iter().enumerate() {
               match self._lookup_adj_var(param) {
@@ -2079,7 +2079,7 @@ impl LBuilder {
                 None => {}
                 Some(adj_param) => {
                   let tmp_sink = self.fresh_anon_var();
-                  tenv.annotate(&tmp_sink, body_ty.clone().into());
+                  tenv.annotate(&tmp_sink, tenv.lookup_var(body, param).into());
                   let param_target_e = exp.append(self, &mut |_| LTerm::Env(vec![]));
                   let param_adj_e = exp.append(self, &mut |_| LTerm::Lambda(
                       vec![tmp_sink.clone()],
