@@ -2,7 +2,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use byteorder::{ReadBytesExt, WriteBytesExt, LE};
+use crate::io_util::{ReadBytesExt, WriteBytesExt, LE};
+
+//use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use rand_core::{RngCore, Error as RandError};
 use rand_core::block::{BlockRngCore, BlockRng, BlockRng64};
 

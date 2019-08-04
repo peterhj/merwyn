@@ -6,7 +6,6 @@
 #![feature(proc_macro_hygiene)]
 #![feature(ptr_offset_from)]
 
-extern crate byteorder;
 extern crate libc;
 extern crate plex;
 extern crate rand_core;
@@ -21,6 +20,7 @@ pub mod builtins;
 pub mod cffi;
 pub mod cfg;
 pub mod coll;
+pub mod io_util;
 pub mod ir2;
 pub mod lang;
 pub mod mach;

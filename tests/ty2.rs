@@ -2,7 +2,7 @@ extern crate merwyn;
 
 use merwyn::ir2::{LBuilder, LCtxRef, LTyctxRef};
 use merwyn::lang::{HLexer, HParser};
-use merwyn::mach::{Machine};
+use merwyn::mach::{Machine, MValUnpack};
 
 #[test]
 fn test_ty2_example_0() {
@@ -75,6 +75,10 @@ fn test_ty2_example_3() {
   };
   // TODO
   //builder._print(module.tree);
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }
 
 #[should_panic]
@@ -96,6 +100,10 @@ fn test_ty2_example_3_fails() {
   };
   // TODO
   //builder._print(module.tree);
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }
 
 #[test]
@@ -116,6 +124,10 @@ fn test_ty2_example_4() {
   };
   // TODO
   //builder._print(module.tree);
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }
 
 #[test]
@@ -136,6 +148,10 @@ fn test_ty2_example_5() {
   };
   // TODO
   //builder._print(module.tree);
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }
 
 #[test]
@@ -151,6 +167,10 @@ fn test_ty2_example_6() {
   };
   // TODO
   //builder._print(module.tree);
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }
 
 /*// TODO
@@ -167,4 +187,8 @@ fn test_ty2_example_7() {
   };
   // TODO
   //builder._print(module.tree);
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }*/

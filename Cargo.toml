@@ -22,7 +22,6 @@ gpu = []
 #[dev-dependencies]
 
 [dependencies]
-byteorder = "^1.3"
 libc = "^0.2"
 #num-traits = "^0.2"
 #plex = { git = "https://github.com/goffrie/plex", rev = "a4c1068fc31293b209677f6347aa51bbf73c1e53", default-features = false, features = ["lexer"] }

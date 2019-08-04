@@ -13,17 +13,13 @@ lexer! {
   r#"#[^\n]*"#      => HLToken::LineComment,
   r#"\([*](~(.*[*]\).*))[*]\)"# => HLToken::BlockComment,
 
-  r#"export"#       => HLToken::Export,
-  r#"import"#       => HLToken::Import,
-  r#"mod"#          => HLToken::Module,
-  r#"module"#       => HLToken::Module,
-  r#"req"#          => HLToken::Require,
-  r#"require"#      => HLToken::Require,
+  r#"end"#          => HLToken::End,
   r#"break"#        => HLToken::Break,
-  r#"trace"#        => HLToken::Trace,
-  r#"lam"#          => HLToken::Lambda,
-  r#"lambda"#       => HLToken::Lambda,
-  //r#"λ"#            => HLToken::Lambda,
+  r#"return"#       => HLToken::Return,
+  //r#"trace"#        => HLToken::Trace,
+  r#"module"#       => HLToken::Module,
+  r#"include"#      => HLToken::Include,
+  r#"require"#      => HLToken::Require,
   r#"d'"#           => HLToken::DMinorPrime,
   r#"d"#            => HLToken::DMinor,
   r#"D'"#           => HLToken::DMajorPrime,
@@ -32,15 +28,19 @@ lexer! {
   r#"J"#            => HLToken::JMajor,
   r#"adj"#          => HLToken::Adj,
   r#"tng"#          => HLToken::Tng,
-  r#"dyn"#          => HLToken::Dyn,
-  r#"mod"#          => HLToken::Mod,
-  r#"pub"#          => HLToken::Pub,
-  r#"ref"#          => HLToken::Ref,
-  r#"def"#          => HLToken::Def,
-  r#"let"#          => HLToken::Let,
   r#"alt"#          => HLToken::Alt,
+  r#"alternate"#    => HLToken::Alternate,
   r#"const"#        => HLToken::Const,
+  r#"export"#       => HLToken::Export,
+  r#"def"#          => HLToken::Def,
+  r#"dyn"#          => HLToken::Dyn,
+  r#"generic"#      => HLToken::Generic,
+  r#"import"#       => HLToken::Import,
+  //r#"lambda"#       => HLToken::Lambda,
+  r#"let"#          => HLToken::Let,
+  r#"pub"#          => HLToken::Pub,
   r#"rec"#          => HLToken::Rec,
+  r#"ref"#          => HLToken::Ref,
   r#"rnd"#          => HLToken::Rnd,
   r#"seq"#          => HLToken::Seq,
   r#"in"#           => HLToken::In,
@@ -49,7 +49,7 @@ lexer! {
   r#"for"#          => HLToken::For,
   r#"switch"#       => HLToken::Switch,
   r#"match"#        => HLToken::Match,
-  r#"end"#          => HLToken::End,
+  r#"λ"#            => HLToken::Lambda,
   r#":-"#           => HLToken::If,
   r#":="#           => HLToken::Assigns,
   r#"<="#           => HLToken::LtEquals,
@@ -111,13 +111,11 @@ lexer! {
 
   r#"_"#            => HLToken::PlacePat,
   r#"unit"#         => HLToken::UnitLit,
-  r#"bot"#          => HLToken::BotLit,
-  //r#"⊥"#            => HLToken::BotLit,
   r#"tee"#          => HLToken::TeeLit,
-  //r#"⊤"#            => HLToken::TeeLit,
+  r#"bot"#          => HLToken::BotLit,
 
-  r#"'_"#           => HLToken::PlaceTylit,
-  r#"'\?"#          => HLToken::TopTylit,
+  r#"'_"#           => HLToken::PlaceTy,
+  r#"'\?"#          => HLToken::TopTy,
   r#"Bit"#          => HLToken::BitTylit,
   r#"Int"#          => HLToken::IntTylit,
   r#"Flp"#          => HLToken::FlpTylit,
@@ -149,12 +147,15 @@ pub enum HLToken {
   Whitespace,
   LineComment,
   BlockComment,
+  End,
+  Break,
+  Return,
+  Trace,
+  Module,
+  Include,
+  Require,
   Export,
   Import,
-  Module,
-  Require,
-  Break,
-  Trace,
   Lambda,
   DMajor,
   DMajorPrime,
@@ -165,12 +166,13 @@ pub enum HLToken {
   Adj,
   Tng,
   Dyn,
-  Mod,
   Pub,
   Ref,
   Def,
   Let,
   Alt,
+  Alternate,
+  Generic,
   Const,
   Rec,
   Rnd,
@@ -181,7 +183,6 @@ pub enum HLToken {
   For,
   Switch,
   Match,
-  End,
   If,
   Assigns,
   Equals,
@@ -241,16 +242,16 @@ pub enum HLToken {
   UnitLit,
   NilSTupLit,
   NilTupLit,
-  BotLit,
   TeeLit,
+  BotLit,
   IntLit(i64),
   FlpLit(f64),
   Ident(String),
   InfixIdent(String),
   CrypticIdent(String),
   UseIdent(String),
-  PlaceTylit,
-  TopTylit,
+  PlaceTy,
+  TopTy,
   BitTylit,
   IntTylit,
   FlpTylit,
@@ -331,8 +332,8 @@ pub struct HLetDecorators {
 
 #[derive(Clone, Debug)]
 pub enum HTypat {
-  TopTylit,
-  PlaceTylit,
+  TopTy,
+  PlaceTy,
   Ident(String),
   Tyvar(String),
   Tyfun(Vec<Rc<HTypat>>, Rc<HTypat>),
@@ -361,7 +362,7 @@ pub enum HExpr {
   Const(Rc<HExpr>),
   Let(Option<HLetDecorators>, Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   //LetFun(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
-  LetMatch(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
+  //LetMatch(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetRand(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   LetEmpty(Rc<HExpr>, Rc<HExpr>),
   LetWhere(Rc<HExpr>, Vec<Rc<HExpr>>, Rc<HExpr>, Rc<HExpr>),
@@ -393,8 +394,8 @@ pub enum HExpr {
   UnitLit,
   NilSTupLit,
   NilTupLit,
-  BotLit,
   TeeLit,
+  BotLit,
   IntLit(i64),
   FlpLit(f64),
   Ident(String),
@@ -463,8 +464,10 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       &HLToken::Export |
       &HLToken::Import |
       &HLToken::Module |
+      &HLToken::Include |
       &HLToken::Require |
       &HLToken::Break |
+      &HLToken::Return |
       &HLToken::Trace |
       &HLToken::DMajor |
       &HLToken::DMajorPrime |
@@ -531,8 +534,8 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       &HLToken::UnitLit |
       &HLToken::NilSTupLit |
       &HLToken::NilTupLit |
-      &HLToken::BotLit |
       &HLToken::TeeLit |
+      &HLToken::BotLit |
       &HLToken::IntLit(_) |
       &HLToken::FlpLit(_) |
       &HLToken::Ident(_) |
@@ -736,7 +739,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
         let mut maybe_decos: Option<HLetDecorators> = None;
         loop {
           match self.current_token() {
-            HLToken::Match => {
+            /*HLToken::Match => {
               self.advance();
               let pat_e = self.expression(0)?;
               match self.current_token() {
@@ -752,7 +755,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
               self.advance();
               let rest_e = self.expression(0)?;
               return Ok(HExpr::LetMatch(Rc::new(pat_e), Rc::new(query_e), Rc::new(rest_e)));
-            }
+            }*/
             HLToken::Alt => {
               let mut decos = maybe_decos.unwrap_or_default();
               decos.alt = true;
@@ -1034,7 +1037,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
               self.advance();
               break;
             }
-            HLToken::TopTylit => {
+            HLToken::TopTy => {
               self.advance();
               arg_typats.push(Rc::new(HTypat::TopLit));
               match self.current_token() {
@@ -1176,11 +1179,11 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       HLToken::NilTupLit => {
         Ok(HExpr::NilTupLit)
       }
-      HLToken::BotLit => {
-        Ok(HExpr::BotLit)
-      }
       HLToken::TeeLit => {
         Ok(HExpr::TeeLit)
+      }
+      HLToken::BotLit => {
+        Ok(HExpr::BotLit)
       }
       HLToken::IntLit(x) => {
         Ok(HExpr::IntLit(x))

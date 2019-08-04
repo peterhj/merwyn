@@ -229,16 +229,16 @@ fn test_lang_let_lam() {
 }
 
 #[test]
-fn test_lang_let_match_tup() {
-  let lexer = HLexer::new("let match (|a, b|) = x; 0");
+fn test_lang_let_stup() {
+  let lexer = HLexer::new("let (a, b) = x; 0");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);
 }
 
 #[test]
-fn test_lang_let_match_stup() {
-  let lexer = HLexer::new("let match (a, b) = x; 0");
+fn test_lang_let_tup() {
+  let lexer = HLexer::new("let (|a, b|) = x; 0");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);
