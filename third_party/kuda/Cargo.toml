@@ -1,0 +1,10 @@
+[package]
+name = "kuda"
+version = "0.1.0-devel"
+authors = ["Peter Jin <peterhaijin@gmail.com>"]
+edition = "2018"
+license = "MIT"
+
+[dependencies]
+lazy_static = "^1.3"
+libloading = "^0.5"

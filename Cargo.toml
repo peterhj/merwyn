@@ -17,11 +17,12 @@ panic = "abort"
 
 [features]
 default = []
-gpu = []
+xgpu = ["kuda", "objrs", "objrs_frameworks_foundation"]
 
 #[dev-dependencies]
 
 [dependencies]
+kuda = { path = "third_party/kuda", optional = true }
 libc = "^0.2"
 #num-traits = "^0.2"
 #plex = { git = "https://github.com/goffrie/plex", rev = "a4c1068fc31293b209677f6347aa51bbf73c1e53", default-features = false, features = ["lexer"] }
@@ -29,9 +30,13 @@ plex = { version = "~0.2.5", default-features = false, features = ["lexer"] }
 rand_core = "^0.5"
 #rearray = { path = "../rearray" }
 rpds = "^0.6"
-serde = "^1.0"
-serde_derive = "^1.0"
+#serde = "^1.0"
+#serde_derive = "^1.0"
 termion = "^1.5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objrs = { path = "third_party/objrs", optional = true }
+objrs_frameworks_foundation = { path = "third_party/objrs/frameworks/foundation", optional = true }
 
 #[lib]
 #crate-type = ["lib", "cdylib"]

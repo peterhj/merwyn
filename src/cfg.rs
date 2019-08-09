@@ -8,7 +8,8 @@
   0
 }*/
 
-#[derive(Deserialize, Debug)]
+//#[derive(Deserialize, Debug)]
+#[derive(Debug)]
 pub struct GlobalConfig {
   /*#[serde(default="default_repro_level")]
   pub merwyn_rt_repro_level: i32,*/

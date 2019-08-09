@@ -4,13 +4,13 @@
 
 use crate::io_util::{ReadBytesExt, WriteBytesExt, LE};
 
-//use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use rand_core::{RngCore, Error as RandError};
 use rand_core::block::{BlockRngCore, BlockRng, BlockRng64};
 
 use std::io::{Read, Write, Error as IoError, Cursor};
 
 #[derive(Clone, Copy)]
+#[repr(C)]
 pub struct ChaCha20State {
   state:    [u32; 16],
 }

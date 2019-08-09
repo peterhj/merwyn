@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use crate::arch_util::{CpuInfo};
 use crate::io_util::{WriteBytesExt, LE};
 
 #[cfg(target_os = "linux")]
@@ -41,7 +42,7 @@ pub struct IOEntropySource {}
 #[cfg(target_arch = "x86_64")]
 impl Default for IOEntropySource {
   fn default() -> IOEntropySource {
-    if is_x86_feature_detected!("rdseed") {
+    if CpuInfo::cached().rdseed {
       IOEntropySource{}
     } else {
       panic!();

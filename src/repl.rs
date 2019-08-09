@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use crate::arch_util::{CpuInfo, GpuInfo};
 use crate::build::{GIT_COMMIT_HASH, GIT_MODIFIED};
 use crate::ir2::{LBuilder};
 use crate::mach::{Machine};
@@ -128,9 +129,16 @@ impl ReplInterpreter {
   }
 
   pub fn runloop(mut self) {
-    writeln!(&mut self.info_fd, "(** Merwyn | git:{}..{} | :? for help *)",
+    writeln!(&mut self.info_fd,
+        "(** Merwyn | git:{}..{} | {}{} | :? for help *)",
         &GIT_COMMIT_HASH[ .. 7],
-        if GIT_MODIFIED { "+mod" } else { "." }).unwrap();
+        if GIT_MODIFIED { "+mod" } else { "." },
+        CpuInfo::cached().digest(),
+        match GpuInfo::cached().digest() {
+          Some(s) => format!(" | {}", s),
+          None => "".to_owned(),
+        },
+    ).unwrap();
     self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
     loop {
       match self.line_rq.recv() {
@@ -139,7 +147,9 @@ impl ReplInterpreter {
           self.mod_ctr += 1;
           assert!(self.mod_ctr != 0);
           writeln!(&mut self.prmpt_fd, "(*:{}*) {}", self.mod_ctr, eval_buf).unwrap();
-          writeln!(&mut self.trace_fd, "# todo: machine eval").unwrap();
+          writeln!(&mut self.trace_fd, "# TODO: The repl is currently unplugged from the embedded").unwrap();
+          writeln!(&mut self.trace_fd, "# interpreter, so expression evaluation will not yet work.").unwrap();
+          writeln!(&mut self.trace_fd, "# But please feel free to look around (type :? for help).").unwrap();
           self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
         }
         Ok(ReplLine::Command(cmd_buf)) => {
