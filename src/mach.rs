@@ -3,9 +3,9 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 //use crate::cffi::{MCValRef};
+//use crate::coll::{HTreapMap};
 use crate::coll::{IHTreapMap, IHTreapSet};
-use crate::coll::{HTreapMap};
-use crate::ir2::{LCodeRef, LEnvMask, LExprCell, LMExprCell, LPat, LPatRef, LTerm, LTermRef, LMTermRef, LVar};
+use crate::ir2::{LCodeRef, LEnvMask, LExprCell, LMExprCell, LPat, LPatRef, LTerm, LTermRef, LMTerm, LMTermRef, LVar};
 use crate::num_util::{Checked, checked};
 
 use std::cell::{RefCell};
@@ -93,7 +93,7 @@ pub enum MCode {
 #[derive(Clone)]
 pub enum MLamCode {
   Term(Vec<LVar>, LExprCell),
-  MTerm(usize, LMExprCell),
+  MTerm(usize, MLamTerm),
   //Term(Vec<LVar>, LTermRef),
   //MTerm(usize, LMTermRef),
   //UnsafeCTerm(...),
@@ -105,15 +105,21 @@ pub struct MClosure {
   pub code: MLamCode,
 }
 
-#[derive(Clone)]
+/*#[derive(Clone)]
 pub struct MTerm {
+  // TODO
+  pub fun:  Rc<dyn Fn(Vec<MValRef>) -> MValRef>,
+}*/
+
+#[derive(Clone)]
+pub struct MLamTerm {
   // TODO
   pub fun:  Rc<dyn Fn(Vec<MValRef>) -> MValRef>,
 }
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct MUnsafeCTerm {
+pub struct MUnsafeCLamTerm {
   // TODO
   //pub cfun: Option<extern "C" fn (*mut MCValRef, usize) -> MCValRef>,
 }
@@ -285,7 +291,7 @@ pub enum MThunkData {
 pub struct MThunk {
   pub env:  Option<MEnvRef>,
   pub code: Option<MCode>,
-  pub lens: Vec<usize>,
+  //pub lens: Vec<usize>,
   pub data: RefCell<MThunkData>,
 }
 
@@ -294,25 +300,25 @@ impl MThunk {
     MThunk{
       env:  None,
       code: None,
-      lens: vec![],
+      //lens: vec![],
       data: RefCell::new(MThunkData::Emp),
     }
   }
 
-  pub fn new_lens_1(idx: usize, env: MEnvRef, code: MCode) -> MThunk {
+  /*pub fn new_lens_1(idx: usize, env: MEnvRef, code: MCode) -> MThunk {
     MThunk{
       env:  Some(env),
       code: Some(code),
       lens: vec![1],
       data: RefCell::new(MThunkData::Emp),
     }
-  }
+  }*/
 
   pub fn new(env: MEnvRef, code: MCode) -> MThunk {
     MThunk{
       env:  Some(env),
       code: Some(code),
-      lens: vec![],
+      //lens: vec![],
       data: RefCell::new(MThunkData::Emp),
     }
   }
@@ -577,31 +583,31 @@ impl MachineState {
               _ => panic!("machine: bug"),
             }
           }
-          MKont::ESymmV0(lhs, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
-              Ok(val) => val,
-              Err(v) => (*v).clone()
-            };
-            match val {
-              MVal::Env(rhs) => {
-                MachineTuple{
-                  ctrl: MReg::Term(lhs),
-                  kont: MKont::ESymmV1(rhs, prev_env, prev_kont).into(),
-                  env,
-                }
-              }
-              _ => panic!("machine: bug"),
-            }
-          }
-          MKont::ESymmV1(mut rhs, prev_env, prev_kont) => {
+          MKont::ESymmV0(rhs, prev_env, prev_kont) => {
             let val = match Rc::try_unwrap(val) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
             match val {
               MVal::Env(lhs) => {
-                rhs.vars.symmetric_difference_mut(&lhs.vars);
-                let val = MVal::Env(rhs).into();
+                MachineTuple{
+                  ctrl: MReg::Term(rhs),
+                  kont: MKont::ESymmV1(lhs, prev_env, prev_kont).into(),
+                  env,
+                }
+              }
+              _ => panic!("machine: bug"),
+            }
+          }
+          MKont::ESymmV1(mut lhs, prev_env, prev_kont) => {
+            let val = match Rc::try_unwrap(val) {
+              Ok(val) => val,
+              Err(v) => (*v).clone()
+            };
+            match val {
+              MVal::Env(rhs) => {
+                lhs.vars.symmetric_difference_mut(&rhs.vars);
+                let val = MVal::Env(lhs).into();
                 MachineTuple{
                   ctrl: MReg::Val(val),
                   env:  prev_env,
@@ -633,13 +639,13 @@ impl MachineState {
                               kont: MKont::Ret(prev_env, prev_kont).into(),
                             }
                           }
-                          MLamCode::MTerm(arity, mbody) => {
+                          MLamCode::MTerm(arity, mlamterm) => {
                             assert_eq!(arity, 0);
-                            let next_ctrl = MReg::MTerm(mbody);
+                            let ret_val = (mlamterm.fun)(arg_vals);
                             MachineTuple{
-                              ctrl: next_ctrl,
-                              env:  MEnvRef::default(),
-                              kont: MKont::Ret(prev_env, prev_kont).into(),
+                              ctrl: MReg::Val(ret_val),
+                              env:  prev_env,
+                              kont: prev_kont,
                             }
                           }
                         }
@@ -677,10 +683,14 @@ impl MachineState {
                           env:  next_env,
                         }
                       }
-                      MLamCode::MTerm(arity, _) => {
-                        // FIXME
+                      MLamCode::MTerm(arity, mlamterm) => {
                         assert_eq!(arity, arg_vals.len());
-                        unimplemented!();
+                        let ret_val = (mlamterm.fun)(arg_vals);
+                        MachineTuple{
+                          ctrl: MReg::Val(ret_val),
+                          env:  prev_env,
+                          kont: prev_kont,
+                        }
                       }
                     }
                   }
@@ -863,8 +873,8 @@ impl MachineState {
           }
           LTerm::ESymmVars(lhs, rhs) => {
             MachineTuple{
-              ctrl: MReg::Term(exp.jump(rhs)),
-              kont: MKont::ESymmV0(exp.jump(lhs), env.clone(), kont.into()).into(),
+              ctrl: MReg::Term(exp.jump(lhs)),
+              kont: MKont::ESymmV0(exp.jump(rhs), env.clone(), kont.into()).into(),
               env,
             }
           }
@@ -904,6 +914,22 @@ impl MachineState {
               kont,
             }
           }
+          LTerm::FixLambda(fixvar, params, body) => {
+            let body = exp.jump(body);
+            let thk = MThunk::new(env.clone(), MCode::Term(exp.clone())).into();
+            let thk_a = self.store.insert(thk);
+            let fix_env = env.bind_var(fixvar, thk_a);
+            let closure = MClosure{
+              env:  fix_env,
+              code: MLamCode::Term(params, body),
+            };
+            let val = MVal::Clo(closure).into();
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env,
+              kont,
+            }
+          }
           LTerm::Let(var, body, rest) => {
             let body = exp.jump(body);
             let rest = exp.jump(rest);
@@ -916,7 +942,7 @@ impl MachineState {
               env,
             }
           }
-          LTerm::Fix(fixvar, fixbody) => {
+          /*LTerm::Fix(fixvar, fixbody) => {
             let fixbody = exp.jump(fixbody);
             let thk = MThunk::new(env.clone(), MCode::Term(exp.clone())).into();
             let thk_a = self.store.insert(thk);
@@ -940,7 +966,7 @@ impl MachineState {
               env:  next_env,
               kont,
             }
-          }
+          }*/
           LTerm::Match(query, pat_arms) => {
             let mut pat_arms_ = VecDeque::new();
             for (pat, arm) in pat_arms.into_iter() {
@@ -1032,8 +1058,12 @@ impl MachineState {
               }
               MThunkState::Emp => {
                 let (next_env, next_ctrl) = match (thk.env.clone(), thk.code.clone()) {
-                  (Some(e), Some(MCode::Term(term))) => (e, MReg::Term(term)),
-                  (Some(e), Some(MCode::MTerm(mterm))) => (e, MReg::MTerm(mterm)),
+                  (Some(thk_env), Some(MCode::Term(term))) => {
+                    (thk_env, MReg::Term(term))
+                  }
+                  (Some(thk_env), Some(MCode::MTerm(mterm))) => {
+                    (thk_env, MReg::MTerm(mterm))
+                  }
                   _ => panic!("machine: bug"),
                 };
                 MachineTuple{
@@ -1050,11 +1080,26 @@ impl MachineState {
               }
             }
           }
-          // TODO
           LTerm::MX(mterm) => {
-            let mterm = exp.mjump(mterm);
             MachineTuple{
-              ctrl: MReg::MTerm(mterm),
+              ctrl: MReg::MTerm(exp.mjump(mterm)),
+              env,
+              kont,
+            }
+          }
+          _ => unimplemented!(),
+        }
+      }
+      MReg::MTerm(mexp) => {
+        match mexp.term() {
+          LMTerm::Lambda(mlamdef, mlamterm) => {
+            let closure = MClosure{
+              env:  env.clone(),
+              code: MLamCode::MTerm(mlamdef.ar, mlamterm),
+            };
+            let val = MVal::Clo(closure).into();
+            MachineTuple{
+              ctrl: MReg::Val(val),
               env,
               kont,
             }

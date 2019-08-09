@@ -26,29 +26,26 @@ thread_local! {
   static TL_GEN: RandomState = RandomState::new();
 }
 
-pub type InlineHashTreapMap<K, V> = HashTreapMap<K, V, Record<K, V>>;
-
-#[derive(Clone, Hash)]
-pub struct HashTreapMap<K, V, Storage=RecordRef<K, V>> {
-  root: HTNodeRef<K, Storage>,
+pub struct HashTreapMapIter<'a, K, V, Storage> {
+  iter: HTNodeIter<'a, K, Storage>,
   _pd:  PhantomData<V>,
 }
 
-impl<K: FmtDebug, V: FmtDebug, Storage: Borrow<K> + AsRef<V>> FmtDebug for HashTreapMap<K, V, Storage> {
-  fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
-    let len = self.len();
-    write!(f, "{{")?;
-    for (i, item) in HTNodeIter::new(&self.root).enumerate() {
-      item.borrow().fmt(f)?;
-      write!(f, " => ")?;
-      item.as_ref().fmt(f)?;
-      if i != len - 1 {
-        write!(f, ", ")?;
-      }
-    }
-    write!(f, "}}")?;
-    Ok(())
+impl<'a, K: 'a, V: 'a, Storage: Borrow<K> + AsRef<V>> Iterator for HashTreapMapIter<'a, K, V, Storage> {
+  type Item = (&'a K, &'a V);
+
+  fn next(&mut self) -> Option<(&'a K, &'a V)> {
+    self.iter.next()
+      .map(|data| (data.borrow(), data.as_ref()))
   }
+}
+
+pub type InlineHashTreapMap<K, V> = HashTreapMap<K, V, Record<K, V>>;
+
+#[derive(Hash)]
+pub struct HashTreapMap<K, V, Storage=RecordRef<K, V>> {
+  root: HTNodeRef<K, Storage>,
+  _pd:  PhantomData<V>,
 }
 
 impl<K, V> Default for InlineHashTreapMap<K, V> {
@@ -81,6 +78,32 @@ impl<K, V> HashTreapMap<K, V> {
   }
 }
 
+impl<K: FmtDebug, V: FmtDebug, Storage: Borrow<K> + AsRef<V>> FmtDebug for HashTreapMap<K, V, Storage> {
+  fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
+    let len = self.len();
+    write!(f, "{{")?;
+    for (i, item) in HTNodeIter::new(&self.root).enumerate() {
+      item.borrow().fmt(f)?;
+      write!(f, " => ")?;
+      item.as_ref().fmt(f)?;
+      if i != len - 1 {
+        write!(f, ", ")?;
+      }
+    }
+    write!(f, "}}")?;
+    Ok(())
+  }
+}
+
+impl<K, V, Storage> Clone for HashTreapMap<K, V, Storage> {
+  fn clone(&self) -> HashTreapMap<K, V, Storage> {
+    HashTreapMap{
+      root: self.root.clone(),
+      _pd:  PhantomData,
+    }
+  }
+}
+
 impl<K, V, Storage> HashTreapMap<K, V, Storage> {
   pub fn len(&self) -> usize {
     self.root.as_ref()
@@ -107,6 +130,25 @@ impl<K: Ord, V, Storage: Borrow<K>> HashTreapMap<K, V, Storage> {
     self.root.as_ref()
       .and_then(|root| HTNode::search(root, key))
       .is_some()
+  }
+
+  pub fn iter<'a>(&'a self) -> HashTreapMapIter<'a, K, V, Storage> {
+    HashTreapMapIter{
+      iter: HTNodeIter::new(&self.root),
+      _pd:  PhantomData,
+    }
+  }
+
+  pub fn keys_eq<VR, SR: Borrow<K>>(&self, other: &HashTreapMap<K, VR, SR>) -> bool {
+    if self.len() != other.len() {
+      return false;
+    }
+    for (li, ri) in HTNodeIter::new(&self.root).zip(HTNodeIter::new(&other.root)) {
+      if li.borrow() != ri.borrow() {
+        return false;
+      }
+    }
+    true
   }
 }
 
@@ -201,20 +243,39 @@ impl<K: Ord, V: Clone> HashTreapMap<K, V> {
   }
 }
 
-impl<K: Ord, V, Storage: Clone + Borrow<K>> HashTreapMap<K, V, Storage> {
-  pub fn left_union(&self, other: &HashTreapMap<K, V, Storage>) -> HashTreapMap<K, V, Storage> {
-    let new_root = HTNode::union_left(self.root.clone(), other.root.clone());
-    HashTreapMap{
+impl<K: Clone + Ord, V: Clone> InlineHashTreapMap<K, V> {
+  pub fn keys(&self) -> InlineHashTreapSet<K> {
+    let new_root = HTNode::map(self.root.clone(), &mut |_| ());
+    InlineHashTreapSet{
       root: new_root,
-      _pd:  PhantomData,
     }
   }
 
-  pub fn left_union_mut(&mut self, other: &HashTreapMap<K, V, Storage>) {
-    let new_root = HTNode::union_left(self.root.take(), other.root.clone());
-    self.root = new_root;
+  pub fn keys_intersection(&self, other: &InlineHashTreapMap<K, V>) -> InlineHashTreapSet<K> {
+    let new_root = HTNode::intersect_map(self.root.clone(), other.root.clone(), &mut |_, _| ());
+    InlineHashTreapSet{
+      root: new_root,
+    }
+  }
+}
+
+impl<K: Clone + Ord, V: Clone> HashTreapMap<K, V> {
+  pub fn keys(&self) -> HashTreapSet<K> {
+    let new_root = HTNode::map_ref(self.root.clone(), &mut |_| ());
+    HashTreapSet{
+      root: new_root,
+    }
   }
 
+  pub fn keys_intersection(&self, other: &HashTreapMap<K, V>) -> HashTreapSet<K> {
+    let new_root = HTNode::intersect_map_ref(self.root.clone(), other.root.clone(), &mut |_, _| ());
+    HashTreapSet{
+      root: new_root,
+    }
+  }
+}
+
+impl<K: Ord, V, Storage: Clone + Borrow<K>> HashTreapMap<K, V, Storage> {
   pub fn left_intersection(&self, other: &HashTreapMap<K, V, Storage>) -> HashTreapMap<K, V, Storage> {
     let new_root = HTNode::intersect_left(self.root.clone(), other.root.clone());
     HashTreapMap{
@@ -241,8 +302,21 @@ impl<K: Ord, V, Storage: Clone + Borrow<K>> HashTreapMap<K, V, Storage> {
     self.root = new_root;
   }
 
+  pub fn left_union(&self, other: &HashTreapMap<K, V, Storage>) -> HashTreapMap<K, V, Storage> {
+    let new_root = HTNode::union_left(self.root.clone(), other.root.clone());
+    HashTreapMap{
+      root: new_root,
+      _pd:  PhantomData,
+    }
+  }
+
+  pub fn left_union_mut(&mut self, other: &HashTreapMap<K, V, Storage>) {
+    let new_root = HTNode::union_left(self.root.take(), other.root.clone());
+    self.root = new_root;
+  }
+
   pub fn difference(&self, other: &HashTreapMap<K, V, Storage>) -> HashTreapMap<K, V, Storage> {
-    let new_root = HTNode::diff_left(self.root.clone(), other.root.clone(), true);
+    let new_root = HTNode::diff(self.root.clone(), other.root.clone(), true);
     HashTreapMap{
       root: new_root,
       _pd:  PhantomData,
@@ -250,7 +324,7 @@ impl<K: Ord, V, Storage: Clone + Borrow<K>> HashTreapMap<K, V, Storage> {
   }
 
   pub fn difference_mut(&mut self, other: &HashTreapMap<K, V, Storage>) {
-    let new_root = HTNode::diff_left(self.root.take(), other.root.clone(), true);
+    let new_root = HTNode::diff(self.root.take(), other.root.clone(), true);
     self.root = new_root;
   }
 
@@ -268,26 +342,24 @@ impl<K: Ord, V, Storage: Clone + Borrow<K>> HashTreapMap<K, V, Storage> {
   }
 }
 
-pub type InlineHashTreapSet<K> = HashTreapSet<K, K>;
-
-#[derive(Clone, Hash)]
-pub struct HashTreapSet<K, Storage=Rc<K>> {
-  root: HTNodeRef<K, Storage>,
+pub struct HashTreapSetIter<'a, K, Storage> {
+  iter: HTNodeIter<'a, K, Storage>,
 }
 
-impl<K: FmtDebug, Storage: Borrow<K>> FmtDebug for HashTreapSet<K, Storage> {
-  fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
-    let len = self.len();
-    write!(f, "{{")?;
-    for (i, item) in HTNodeIter::new(&self.root).enumerate() {
-      item.borrow().fmt(f)?;
-      if i != len - 1 {
-        write!(f, ", ")?;
-      }
-    }
-    write!(f, "}}")?;
-    Ok(())
+impl<'a, K: 'a, Storage: Borrow<K>> Iterator for HashTreapSetIter<'a, K, Storage> {
+  type Item = &'a K;
+
+  fn next(&mut self) -> Option<&'a K> {
+    self.iter.next()
+      .map(|data| data.borrow())
   }
+}
+
+pub type InlineHashTreapSet<K> = HashTreapSet<K, Record<K, ()>>;
+
+#[derive(Hash)]
+pub struct HashTreapSet<K, Storage=RecordRef<K, ()>> {
+  root: HTNodeRef<K, Storage>,
 }
 
 impl<K> Default for InlineHashTreapSet<K> {
@@ -318,6 +390,29 @@ impl<K> HashTreapSet<K> {
   }
 }
 
+impl<K: FmtDebug, Storage: Borrow<K>> FmtDebug for HashTreapSet<K, Storage> {
+  fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
+    let len = self.len();
+    write!(f, "{{")?;
+    for (i, item) in HTNodeIter::new(&self.root).enumerate() {
+      item.borrow().fmt(f)?;
+      if i != len - 1 {
+        write!(f, ", ")?;
+      }
+    }
+    write!(f, "}}")?;
+    Ok(())
+  }
+}
+
+impl<K, Storage> Clone for HashTreapSet<K, Storage> {
+  fn clone(&self) -> HashTreapSet<K, Storage> {
+    HashTreapSet{
+      root: self.root.clone(),
+    }
+  }
+}
+
 impl<K, Storage> HashTreapSet<K, Storage> {
   pub fn len(&self) -> usize {
     self.root.as_ref()
@@ -343,18 +438,24 @@ impl<K: Ord, Storage: Borrow<K>> HashTreapSet<K, Storage> {
       .and_then(|root| HTNode::search(root, key))
       .is_some()
   }
+
+  pub fn iter<'a>(&'a self) -> HashTreapSetIter<'a, K, Storage> {
+    HashTreapSetIter{
+      iter: HTNodeIter::new(&self.root),
+    }
+  }
 }
 
 impl<K: Clone + Ord + Hash> InlineHashTreapSet<K> {
   pub fn insert(&self, key: K) -> InlineHashTreapSet<K> {
-    let (new_root, _) = HTNode::insert(self.root.clone(), key);
+    let (new_root, _) = HTNode::insert(self.root.clone(), key.into());
     HashTreapSet{
       root: Some(new_root.into()),
     }
   }
 
   pub fn insert_mut(&mut self, key: K) {
-    let (new_root, _) = HTNode::insert(self.root.take(), key);
+    let (new_root, _) = HTNode::insert(self.root.take(), key.into());
     self.root = Some(new_root.into());
   }
 }
@@ -387,7 +488,9 @@ impl<K: Ord, Storage: Clone + Borrow<K>> HashTreapSet<K, Storage> {
     let (new_root, _) = HTNode::remove(self.root.take(), key);
     self.root = new_root;
   }
+}
 
+impl<K: Ord, Storage: Clone + Borrow<K>> HashTreapSet<K, Storage> {
   pub fn intersection(&self, other: &HashTreapSet<K, Storage>) -> HashTreapSet<K, Storage> {
     let new_root = HTNode::intersect_one(self.root.clone(), other.root.clone());
     HashTreapSet{
@@ -396,7 +499,7 @@ impl<K: Ord, Storage: Clone + Borrow<K>> HashTreapSet<K, Storage> {
   }
 
   pub fn intersection_mut(&mut self, other: &HashTreapSet<K, Storage>) {
-    let new_root = HTNode::intersect_one(self.root.clone(), other.root.clone());
+    let new_root = HTNode::intersect_one(self.root.take(), other.root.clone());
     self.root = new_root;
   }
 
@@ -408,19 +511,19 @@ impl<K: Ord, Storage: Clone + Borrow<K>> HashTreapSet<K, Storage> {
   }
 
   pub fn union_mut(&mut self, other: &HashTreapSet<K, Storage>) {
-    let new_root = HTNode::union_one(self.root.clone(), other.root.clone());
+    let new_root = HTNode::union_one(self.root.take(), other.root.clone());
     self.root = new_root;
   }
 
   pub fn difference(&self, other: &HashTreapSet<K, Storage>) -> HashTreapSet<K, Storage> {
-    let new_root = HTNode::diff_left(self.root.clone(), other.root.clone(), true);
+    let new_root = HTNode::diff(self.root.clone(), other.root.clone(), true);
     HashTreapSet{
       root: new_root,
     }
   }
 
   pub fn difference_mut(&mut self, other: &HashTreapSet<K, Storage>) {
-    let new_root = HTNode::diff_left(self.root.clone(), other.root.clone(), true);
+    let new_root = HTNode::diff(self.root.take(), other.root.clone(), true);
     self.root = new_root;
   }
 
@@ -432,7 +535,7 @@ impl<K: Ord, Storage: Clone + Borrow<K>> HashTreapSet<K, Storage> {
   }
 
   pub fn symmetric_difference_mut(&mut self, other: &HashTreapSet<K, Storage>) {
-    let new_root = HTNode::symm_diff(self.root.clone(), other.root.clone());
+    let new_root = HTNode::symm_diff(self.root.take(), other.root.clone());
     self.root = new_root;
   }
 }
@@ -461,6 +564,20 @@ pub struct RecordRef<K, V>(pub Rc<Record<K, V>>);
 pub struct Record<K, V> {
   pub key:      K,
   pub value:    V,
+}
+
+impl<K> From<K> for Record<K, ()> {
+  #[inline(always)]
+  fn from(key: K) -> Record<K, ()> {
+    Record{key, value: ()}
+  }
+}
+
+impl<K> From<K> for RecordRef<K, ()> {
+  #[inline(always)]
+  fn from(key: K) -> RecordRef<K, ()> {
+    RecordRef(Rc::new(Record{key, value: ()}))
+  }
 }
 
 impl<K, V> From<Record<K, V>> for RecordRef<K, V> {
@@ -741,7 +858,7 @@ impl<K: Ord, Item: Clone + Borrow<K>> HTNode<K, Item> {
     }
   }
 
-  fn diff_left(lhs: HTNodeRef<K, Item>, rhs: HTNodeRef<K, Item>, mut sub_rhs: bool) -> HTNodeRef<K, Item> {
+  fn diff(lhs: HTNodeRef<K, Item>, rhs: HTNodeRef<K, Item>, mut sub_rhs: bool) -> HTNodeRef<K, Item> {
     match (lhs, rhs) {
       (None, None) => None,
       (None, rhs) => {
@@ -756,8 +873,8 @@ impl<K: Ord, Item: Clone + Borrow<K>> HTNode<K, Item> {
           swap(&mut lhs, &mut rhs);
         }
         let (lss, gtr, query) = HTNode::split(Some(rhs), lhs.data.borrow());
-        let new_lhs = HTNode::diff_left(lhs.lhs.clone(), lss, sub_rhs);
-        let new_rhs = HTNode::diff_left(lhs.rhs.clone(), gtr, sub_rhs);
+        let new_lhs = HTNode::diff(lhs.lhs.clone(), lss, sub_rhs);
+        let new_rhs = HTNode::diff(lhs.rhs.clone(), gtr, sub_rhs);
         if query.is_none() && sub_rhs {
           let mut new_root = HTNode{
             lhs:        new_lhs,
@@ -931,7 +1048,90 @@ impl<K: Ord, Item: Clone + Borrow<K>> HTNode<K, Item> {
   }
 }
 
+impl<K: Clone + Ord, V: Clone> HTNode<K, Record<K, V>> {
+  fn map<F: FnMut(V) -> W, W: Clone>(root: HTNodeRef<K, Record<K, V>>, f: &mut F) -> HTNodeRef<K, Record<K, W>> {
+    match root {
+      None => None,
+      Some(root) => {
+        let priority = root.priority;
+        let key = root.data.key.clone();
+        let value = (f)(root.data.value.clone());
+        let new_data = Record{key, value};
+        let mut new_root = HTNode{
+          lhs:      HTNode::map(root.lhs.clone(), f),
+          rhs:      HTNode::map(root.rhs.clone(), f),
+          size:     0,
+          priority,
+          data:     new_data,
+          _phantom: PhantomData,
+        };
+        new_root.subtree_update();
+        Some(new_root.into())
+      }
+    }
+  }
+
+  fn intersect_map<F: FnMut(V, V) -> W, W: Clone>(lhs: HTNodeRef<K, Record<K, V>>, rhs: HTNodeRef<K, Record<K, V>>, f: &mut F) -> HTNodeRef<K, Record<K, W>> {
+    match (lhs, rhs) {
+      (None, None) |
+      (None, _) |
+      (_, None) => None,
+      (Some(mut lhs), Some(mut rhs)) => {
+        if lhs.priority < rhs.priority {
+          swap(&mut lhs, &mut rhs);
+        }
+        let (lss, gtr, query) = HTNode::split(Some(rhs), lhs.data.borrow());
+        let new_lhs = HTNode::intersect_map(lhs.lhs.clone(), lss, f);
+        let new_rhs = HTNode::intersect_map(lhs.rhs.clone(), gtr, f);
+        match query {
+          None => HTNode::join(new_lhs, new_rhs),
+          Some(query) => {
+            let priority = lhs.priority;
+            let key = lhs.data.key.clone();
+            let lvalue = lhs.data.value.clone();
+            let rvalue = query.data.value.clone();
+            let value = (f)(lvalue, rvalue);
+            let new_data = Record{key, value};
+            let mut new_root = HTNode{
+              lhs:      new_lhs,
+              rhs:      new_rhs,
+              size:     0,
+              priority,
+              data:     new_data,
+              _phantom: PhantomData,
+            };
+            new_root.subtree_update();
+            Some(new_root.into())
+          }
+        }
+      }
+    }
+  }
+}
+
 impl<K: Clone + Ord, V: Clone> HTNode<K, RecordRef<K, V>> {
+  fn map_ref<F: FnMut(V) -> W, W>(root: HTNodeRef<K, RecordRef<K, V>>, f: &mut F) -> HTNodeRef<K, RecordRef<K, W>> {
+    match root {
+      None => None,
+      Some(root) => {
+        let priority = root.priority;
+        let key = root.data.key.clone();
+        let value = (f)(root.data.value.clone());
+        let new_data = Record{key, value};
+        let mut new_root = HTNode{
+          lhs:      HTNode::map_ref(root.lhs.clone(), f),
+          rhs:      HTNode::map_ref(root.rhs.clone(), f),
+          size:     0,
+          priority,
+          data:     new_data.into(),
+          _phantom: PhantomData,
+        };
+        new_root.subtree_update();
+        Some(new_root.into())
+      }
+    }
+  }
+
   fn intersect_map_ref<F: FnMut(V, V) -> W, W>(lhs: HTNodeRef<K, RecordRef<K, V>>, rhs: HTNodeRef<K, RecordRef<K, V>>, f: &mut F) -> HTNodeRef<K, RecordRef<K, W>> {
     match (lhs, rhs) {
       (None, None) |

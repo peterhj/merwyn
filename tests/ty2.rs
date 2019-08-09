@@ -157,7 +157,7 @@ fn test_ty2_example_5() {
 #[test]
 fn test_ty2_example_6() {
   println!();
-  let lexer = HLexer::new("let x = 1.0; let n = 5; let f = \\t, k. match k | 0 => t | _ => t; let y = f[x, n]; let dy = d[y]; dy.x");
+  let lexer = HLexer::new("let x = 3.0; let n = 5; let f = \\t, k. match k | 0 => t | _ => t; let y = f[x, n]; let dy = d[y]; dy.x");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   let mut builder = LBuilder::default();
