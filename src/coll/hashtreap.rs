@@ -245,14 +245,14 @@ impl<K: Ord, V: Clone> HashTreapMap<K, V> {
 
 impl<K: Clone + Ord, V: Clone> InlineHashTreapMap<K, V> {
   pub fn keys(&self) -> InlineHashTreapSet<K> {
-    let new_root = HTNode::map(self.root.clone(), &mut |_| ());
+    let new_root = HTNode::map(self.root.clone(), &mut |_, _| ());
     InlineHashTreapSet{
       root: new_root,
     }
   }
 
   pub fn keys_intersection(&self, other: &InlineHashTreapMap<K, V>) -> InlineHashTreapSet<K> {
-    let new_root = HTNode::intersect_map(self.root.clone(), other.root.clone(), &mut |_, _| ());
+    let new_root = HTNode::intersect_map(self.root.clone(), other.root.clone(), &mut |_, _, _| ());
     InlineHashTreapSet{
       root: new_root,
     }
@@ -261,14 +261,14 @@ impl<K: Clone + Ord, V: Clone> InlineHashTreapMap<K, V> {
 
 impl<K: Clone + Ord, V: Clone> HashTreapMap<K, V> {
   pub fn keys(&self) -> HashTreapSet<K> {
-    let new_root = HTNode::map_ref(self.root.clone(), &mut |_| ());
+    let new_root = HTNode::map_ref(self.root.clone(), &mut |_, _| ());
     HashTreapSet{
       root: new_root,
     }
   }
 
   pub fn keys_intersection(&self, other: &HashTreapMap<K, V>) -> HashTreapSet<K> {
-    let new_root = HTNode::intersect_map_ref(self.root.clone(), other.root.clone(), &mut |_, _| ());
+    let new_root = HTNode::intersect_map_ref(self.root.clone(), other.root.clone(), &mut |_, _, _| ());
     HashTreapSet{
       root: new_root,
     }
@@ -802,45 +802,35 @@ impl<K: Ord + Hash, Item: Clone + Borrow<K>> HTNode<K, Item> {
 }
 
 impl<K: Ord, Item: Clone + Borrow<K>> HTNode<K, Item> {
-  fn split<Q: ?Sized + Ord>(root: HTNodeRef<K, Item>, key: &Q) -> (HTNodeRef<K, Item>, HTNodeRef<K, Item>, Option<HTNode<K, Item>>)
+  fn split<Q: ?Sized + Ord>(root: HTNodeRef<K, Item>, key: &Q) -> (HTNodeRef<K, Item>, HTNodeRef<K, Item>, Option<Item>)
   where K: Borrow<Q> {
-    let mut lss = None;
-    let mut gtr = None;
-    let query = HTNode::_split(root, &mut lss, &mut gtr, key);
-    (lss, gtr, query)
+    HTNode::_split(root, key)
   }
 
-  fn _split<'r, Q: ?Sized + Ord>(root: HTNodeRef<K, Item>, lss: &'r mut HTNodeRef<K, Item>, gtr: &'r mut HTNodeRef<K, Item>, key: &Q) -> Option<HTNode<K, Item>>
+  fn _split<Q: ?Sized + Ord>(root: HTNodeRef<K, Item>, key: &Q) -> (HTNodeRef<K, Item>, HTNodeRef<K, Item>, Option<Item>)
   where K: Borrow<Q> {
     match root {
-      None => {
-        *lss = None;
-        *gtr = None;
-        None
-      }
+      None => (None, None, None),
       Some(root) => {
-        let root = match Rc::try_unwrap(root) {
+        let mut root = match Rc::try_unwrap(root) {
           Ok(r) => r,
           Err(rr) => (*rr).clone(),
         };
-        let mut new_root = HTNode::new2(root.data, root.priority);
-        match key.cmp(new_root.data.borrow().borrow()) {
+        match key.borrow().cmp(root.data.borrow().borrow()) {
           Ordering::Less => {
-            let query = HTNode::_split(root.lhs, lss, &mut new_root.lhs, key);
-            new_root.subtree_update();
-            *gtr = Some(new_root.into());
-            query
+            let (lss, gtr, data) = HTNode::_split(root.lhs, key);
+            root.lhs = gtr;
+            root.subtree_update();
+            (lss, Some(root.into()), data)
           }
           Ordering::Greater => {
-            let query = HTNode::_split(root.rhs, &mut new_root.rhs, gtr, key);
-            new_root.subtree_update();
-            *lss = Some(new_root.into());
-            query
+            let (lss, gtr, data) = HTNode::_split(root.rhs, key);
+            root.rhs = lss;
+            root.subtree_update();
+            (Some(root.into()), gtr, data)
           }
           Ordering::Equal => {
-            *lss = root.lhs;
-            *gtr = root.rhs;
-            Some(new_root)
+            (root.lhs, root.rhs, Some(root.data))
           }
         }
       }
@@ -849,11 +839,11 @@ impl<K: Ord, Item: Clone + Borrow<K>> HTNode<K, Item> {
 
   fn remove<Q: ?Sized + Ord>(root: HTNodeRef<K, Item>, key: &Q) -> (HTNodeRef<K, Item>, Option<Item>)
   where K: Borrow<Q> {
-    let (new_lhs, new_rhs, query) = HTNode::split(root.clone(), key);
+    let (lss, gtr, query) = HTNode::split(root.clone(), key);
     match query {
       None => (root, None),
       Some(query) => {
-        (HTNode::join(new_lhs, new_rhs), Some(query.data))
+        (HTNode::join(lss, gtr), Some(query))
       }
     }
   }
@@ -1048,14 +1038,14 @@ impl<K: Ord, Item: Clone + Borrow<K>> HTNode<K, Item> {
   }
 }
 
-impl<K: Clone + Ord, V: Clone> HTNode<K, Record<K, V>> {
-  fn map<F: FnMut(V) -> W, W: Clone>(root: HTNodeRef<K, Record<K, V>>, f: &mut F) -> HTNodeRef<K, Record<K, W>> {
+impl<K: Clone + Ord, V> HTNode<K, Record<K, V>> {
+  fn map<F: FnMut(&K, &V) -> W, W>(root: HTNodeRef<K, Record<K, V>>, f: &mut F) -> HTNodeRef<K, Record<K, W>> {
     match root {
       None => None,
       Some(root) => {
         let priority = root.priority;
         let key = root.data.key.clone();
-        let value = (f)(root.data.value.clone());
+        let value = (f)(&key, &root.data.value);
         let new_data = Record{key, value};
         let mut new_root = HTNode{
           lhs:      HTNode::map(root.lhs.clone(), f),
@@ -1070,8 +1060,10 @@ impl<K: Clone + Ord, V: Clone> HTNode<K, Record<K, V>> {
       }
     }
   }
+}
 
-  fn intersect_map<F: FnMut(V, V) -> W, W: Clone>(lhs: HTNodeRef<K, Record<K, V>>, rhs: HTNodeRef<K, Record<K, V>>, f: &mut F) -> HTNodeRef<K, Record<K, W>> {
+impl<K: Clone + Ord, V: Clone> HTNode<K, Record<K, V>> {
+  fn intersect_map<F: FnMut(&K, &V, &V) -> W, W: Clone>(lhs: HTNodeRef<K, Record<K, V>>, rhs: HTNodeRef<K, Record<K, V>>, f: &mut F) -> HTNodeRef<K, Record<K, W>> {
     match (lhs, rhs) {
       (None, None) |
       (None, _) |
@@ -1088,9 +1080,7 @@ impl<K: Clone + Ord, V: Clone> HTNode<K, Record<K, V>> {
           Some(query) => {
             let priority = lhs.priority;
             let key = lhs.data.key.clone();
-            let lvalue = lhs.data.value.clone();
-            let rvalue = query.data.value.clone();
-            let value = (f)(lvalue, rvalue);
+            let value = (f)(&key, &lhs.data.value, &query.value);
             let new_data = Record{key, value};
             let mut new_root = HTNode{
               lhs:      new_lhs,
@@ -1109,14 +1099,14 @@ impl<K: Clone + Ord, V: Clone> HTNode<K, Record<K, V>> {
   }
 }
 
-impl<K: Clone + Ord, V: Clone> HTNode<K, RecordRef<K, V>> {
-  fn map_ref<F: FnMut(V) -> W, W>(root: HTNodeRef<K, RecordRef<K, V>>, f: &mut F) -> HTNodeRef<K, RecordRef<K, W>> {
+impl<K: Clone + Ord, V> HTNode<K, RecordRef<K, V>> {
+  fn map_ref<F: FnMut(&K, &V) -> W, W>(root: HTNodeRef<K, RecordRef<K, V>>, f: &mut F) -> HTNodeRef<K, RecordRef<K, W>> {
     match root {
       None => None,
       Some(root) => {
         let priority = root.priority;
         let key = root.data.key.clone();
-        let value = (f)(root.data.value.clone());
+        let value = (f)(&key, &root.data.value);
         let new_data = Record{key, value};
         let mut new_root = HTNode{
           lhs:      HTNode::map_ref(root.lhs.clone(), f),
@@ -1132,7 +1122,7 @@ impl<K: Clone + Ord, V: Clone> HTNode<K, RecordRef<K, V>> {
     }
   }
 
-  fn intersect_map_ref<F: FnMut(V, V) -> W, W>(lhs: HTNodeRef<K, RecordRef<K, V>>, rhs: HTNodeRef<K, RecordRef<K, V>>, f: &mut F) -> HTNodeRef<K, RecordRef<K, W>> {
+  fn intersect_map_ref<F: FnMut(&K, &V, &V) -> W, W>(lhs: HTNodeRef<K, RecordRef<K, V>>, rhs: HTNodeRef<K, RecordRef<K, V>>, f: &mut F) -> HTNodeRef<K, RecordRef<K, W>> {
     match (lhs, rhs) {
       (None, None) |
       (None, _) |
@@ -1149,9 +1139,7 @@ impl<K: Clone + Ord, V: Clone> HTNode<K, RecordRef<K, V>> {
           Some(query) => {
             let priority = lhs.priority;
             let key = lhs.data.key.clone();
-            let lvalue = lhs.data.value.clone();
-            let rvalue = query.data.value.clone();
-            let value = (f)(lvalue, rvalue);
+            let value = (f)(&key, &lhs.data.value, &query.value);
             let new_data = Record{key, value};
             let mut new_root = HTNode{
               lhs:      new_lhs,
