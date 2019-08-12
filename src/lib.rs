@@ -12,7 +12,7 @@ extern crate libc;
 extern crate plex;
 extern crate rand_core;
 //extern crate rearray;
-extern crate rpds;
+//extern crate rpds;
 //extern crate serde;
 //#[macro_use] extern crate serde_derive;
 extern crate termion;

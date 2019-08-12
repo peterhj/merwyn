@@ -804,11 +804,6 @@ impl<K: Ord + Hash, Item: Clone + Borrow<K>> HTNode<K, Item> {
 impl<K: Ord, Item: Clone + Borrow<K>> HTNode<K, Item> {
   fn split<Q: ?Sized + Ord>(root: HTNodeRef<K, Item>, key: &Q) -> (HTNodeRef<K, Item>, HTNodeRef<K, Item>, Option<Item>)
   where K: Borrow<Q> {
-    HTNode::_split(root, key)
-  }
-
-  fn _split<Q: ?Sized + Ord>(root: HTNodeRef<K, Item>, key: &Q) -> (HTNodeRef<K, Item>, HTNodeRef<K, Item>, Option<Item>)
-  where K: Borrow<Q> {
     match root {
       None => (None, None, None),
       Some(root) => {
@@ -818,13 +813,13 @@ impl<K: Ord, Item: Clone + Borrow<K>> HTNode<K, Item> {
         };
         match key.borrow().cmp(root.data.borrow().borrow()) {
           Ordering::Less => {
-            let (lss, gtr, data) = HTNode::_split(root.lhs, key);
+            let (lss, gtr, data) = HTNode::split(root.lhs, key);
             root.lhs = gtr;
             root.subtree_update();
             (lss, Some(root.into()), data)
           }
           Ordering::Greater => {
-            let (lss, gtr, data) = HTNode::_split(root.rhs, key);
+            let (lss, gtr, data) = HTNode::split(root.rhs, key);
             root.rhs = lss;
             root.subtree_update();
             (Some(root.into()), gtr, data)

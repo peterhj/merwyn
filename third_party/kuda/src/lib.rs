@@ -11,6 +11,7 @@ use libloading::{Library};
 
 use std::cmp::{Ordering};
 
+#[cfg(target_os = "linux")]
 lazy_static! {
   static ref _CUDA: Option<Library> = Library::new("libcuda.so").ok();
   pub static ref CUDA: Option<Libcuda<'static>> = {

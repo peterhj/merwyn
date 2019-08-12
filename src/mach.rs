@@ -213,6 +213,17 @@ impl MNamedEnvRef {
     self.vars.get(var).map(|thk_a| thk_a.clone())
   }
 
+  pub fn bind_idx(&self, idx: usize, addr: MAddr) -> MNamedEnvRef {
+    MNamedEnvRef{
+      idxs: self.idxs.insert(idx, addr),
+      vars: self.vars.clone(),
+    }
+  }
+
+  pub fn bind_idx_mut(&mut self, idx: usize, addr: MAddr) {
+    self.idxs.insert_mut(idx, addr);
+  }
+
   pub fn bind_var(&self, var: LVar, addr: MAddr) -> MNamedEnvRef {
     MNamedEnvRef{
       idxs: self.idxs.clone(),
@@ -754,7 +765,7 @@ impl MachineState {
       }
       MReg::Term(exp) => {
         match exp.term() {
-          LTerm::End => {
+          LTerm::Top => {
             match &*kont {
               &MKont::Hlt => {
                 MachineTuple{
@@ -808,9 +819,23 @@ impl MachineState {
               env,
             }
           }*/
-          LTerm::EnvVarsLazy(keys) => {
+          LTerm::EnvIdxsLazy(idx_keys) => {
             let mut target = MEnvRef::default();
-            for (var, value) in keys.into_iter() {
+            for (idx, value) in idx_keys.into_iter() {
+              let thk = MThunk::new(env.clone(), MCode::Term(exp.jump(value))).into();
+              let thk_a = self.store.insert(thk);
+              target.bind_idx_mut(idx, thk_a.clone());
+            }
+            let val = MVal::Env(target).into();
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env,
+              kont,
+            }
+          }
+          LTerm::EnvVarsLazy(var_keys) => {
+            let mut target = MEnvRef::default();
+            for (var, value) in var_keys.into_iter() {
               let thk = MThunk::new(env.clone(), MCode::Term(exp.jump(value))).into();
               let thk_a = self.store.insert(thk);
               target.bind_var_mut(var, thk_a.clone());
