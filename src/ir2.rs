@@ -205,7 +205,7 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   EPopIdx(usize, LVar, E),
   EPopVars(Vec<(LVar, usize)>, E),
   ESymmVars(E, E),
-  AApply(Vec<(usize, LVar, LVarBinder, LVar)>, E),
+  AApply(E, Vec<(usize, LVar, LVarBinder, LVar)>),
   AReturn(/*LEnvMask,*/ Vec<(usize, LVar)>, E),
   ACons(/*LEnvMask,*/ LVar, LVarBinder, E, E),
   AConcat(E, E),
@@ -326,7 +326,7 @@ pub struct LBuilder {
   id_to_name:   HTreapMap<LIdent, String>,
   var_to_bind:  IHTreapMap<LVar, LVarBinder>,
   adj_var:      IHTreapMap<LVar, LVar>,
-  reg_adj:      IHTreapMap<LLabel, RegisterAdj>,
+  //reg_adj:      IHTreapMap<LLabel, RegisterAdj>,
 }
 
 impl LBuilder {
@@ -482,9 +482,10 @@ impl LBuilder {
             self.gen(&new_tree, &mut tenv, &mut t_work);
             self.solve(new_tree.root(), &mut tenv, &mut t_work);
             //self._print_tys(&mut tenv);
+            tree = new_tree;
             if !incomplete {
               term = true;
-              tree = new_tree;
+              //tree = new_tree;
               break;
             }
           }
@@ -1114,7 +1115,7 @@ impl LBuilder {
           unreachable!();
         }
       }
-      &LTerm::AApply(.., ref target) => {
+      &LTerm::AApply(ref target, ..) => {
         // TODO
         self._ctx_exp(exp.lookup(target), ctx.clone(), env, tenv);
       }
@@ -1577,7 +1578,7 @@ impl LBuilder {
     }
   }
 
-  fn _register_adj(&mut self, exp: &LExprCell, a_work: &mut AdjWork, adj: ResolveAdj<LExprCell>) -> ResolveAdj<LExprCell> {
+  /*fn _register_adj(&mut self, exp: &LExprCell, a_work: &mut AdjWork, adj: ResolveAdj<LExprCell>) -> ResolveAdj<LExprCell> {
     match &adj {
       &ResolveAdj::Primal(_) => {
         match self.reg_adj.get(exp.borrow()) {
@@ -1619,6 +1620,23 @@ impl LBuilder {
       _ => unreachable!(),
     }
     adj
+  }*/
+
+  fn _register_adj(&mut self, exp: &LExprCell, a_work: &mut AdjWork, adj: ResolveAdj<LExprCell>) -> ResolveAdj<LExprCell> {
+    match &adj {
+      &ResolveAdj::Primal(_) => {}
+      &ResolveAdj::Bridge(ref adj_e, incomplete) => {
+        a_work.appended.push_front(adj_e.label());
+      }
+      &ResolveAdj::Dual(_, ref adj_e) => {
+        a_work.appended.push_front(adj_e.label());
+      }
+      &ResolveAdj::Pair(ref adj_e, incomplete) => {
+        a_work.appended.push_front(adj_e.label());
+      }
+      _ => unreachable!(),
+    }
+    adj
   }
 
   fn _resolve_adj_exp(&mut self, exp: LExprCell, env: &mut Env, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
@@ -1631,7 +1649,7 @@ impl LBuilder {
 
        i.e. there is no way to preserve the original signature.
     */
-    match self.reg_adj.get(exp.borrow()) {
+    /*match self.reg_adj.get(exp.borrow()) {
       Some(&RegisterAdj::Primal) => {
         return ResolveAdj::Primal(exp);
       }
@@ -1641,8 +1659,27 @@ impl LBuilder {
       None |
       Some(&RegisterAdj::Bridge(_, true)) => {}
       Some(_) => unreachable!(),
-    }
+    }*/
     match &exp.term() {
+      &LTerm::Top => {
+        self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
+      }
+      &LTerm::EnvVars(ref keys) => {
+        // FIXME
+        self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
+      }
+      &LTerm::AApply(ref target, ref args) => {
+        // FIXME
+        self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
+      }
+      &LTerm::AReturn(ref params, ref target) => {
+        // FIXME
+        self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
+      }
+      &LTerm::ACons(ref var, ref binder, ref value, ref target) => {
+        // FIXME
+        self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
+      }
       &LTerm::PtlD(ref target) => {
         if let Some((_, _, ty)) = tenv.mgu_exp(target) {
           match &*ty {
@@ -1685,9 +1722,6 @@ impl LBuilder {
         } else {
           self._register_adj(&exp, work, ResolveAdj::Bridge(exp.clone(), true))
         }
-      }
-      &LTerm::Top => {
-        self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
       }
       &LTerm::Apply(ref head, ref args) => {
         let mut incomplete = false;
@@ -1932,8 +1966,7 @@ impl LBuilder {
         //let mut arms = Vec::with_capacity(pat_arms.len());
         let mut pat_arms_ = Vec::with_capacity(pat_arms.len());
         for &(ref pat, ref arm) in pat_arms.iter() {
-          let arm_e = exp.lookup(arm);
-          match self._resolve_adj_exp(arm_e, env, tenv, t_work, work) {
+          match self._resolve_adj_exp(exp.lookup(arm), env, tenv, t_work, work) {
             ResolveAdj::Primal(arm_e) => {
               // TODO
               //unimplemented!();
@@ -1989,8 +2022,33 @@ impl LBuilder {
         }
       }
       &LTerm::STuple(ref elems) => {
-        // TODO
-        unimplemented!();
+        let mut incomplete = false;
+        let mut any_bridge = false;
+        let mut elems_ = Vec::with_capacity(elems.len());
+        for elem in elems.iter() {
+          match self._resolve_adj_exp(exp.lookup(elem), env, tenv, t_work, work) {
+            ResolveAdj::Primal(elem_e) => {
+              elems_.push(elem_e.loc());
+            }
+            ResolveAdj::Bridge(new_elem_e, elem_defer) => {
+              incomplete |= elem_defer;
+              any_bridge = true;
+              elems_.push(new_elem_e.loc());
+            }
+            ResolveAdj::Dual(..) |
+            ResolveAdj::Pair(..) => unreachable!(),
+            ResolveAdj::Error => return ResolveAdj::Error,
+          }
+        }
+        if any_bridge {
+          let new_exp = exp.append(self, &mut |_| LTerm::STuple(
+              elems_.clone()
+          ));
+          self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, incomplete))
+        } else {
+          assert!(!incomplete);
+          self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
+        }
       }
       &LTerm::UnitLit |
       &LTerm::BitLit(_) |
@@ -2066,12 +2124,13 @@ impl LBuilder {
         self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
       }
       // TODO
-      _ => unimplemented!(),
+      //_ => unimplemented!(),
+      t => panic!("_resolve_adj_exp: unimplemented term: {:?}", t),
     }
   }
 
   fn _force_adj_dual_exp(&mut self, exp: LExprCell, env: &mut Env, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
-    match self.reg_adj.get(exp.borrow()) {
+    /*match self.reg_adj.get(exp.borrow()) {
       None |
       Some(&RegisterAdj::Primal) |
       Some(&RegisterAdj::Bridge(_, _)) => {}
@@ -2080,7 +2139,7 @@ impl LBuilder {
         return ResolveAdj::Dual(exp, adj_exp);
       }
       Some(_) => unreachable!(),
-    }
+    }*/
     match &exp.term() {
       // TODO: cases.
       &LTerm::FlpLit(_) => {
@@ -2111,10 +2170,11 @@ impl LBuilder {
                   vec![tmp_sink_e.loc()]
               ));
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
-              let ident = self.lookup_var(var);
+              let binder = self.lookup_var(var);
+              /*let ident = env.lookup_var(&exp, var);*/
               let cons_e = exp.append(self, &mut |_| LTerm::ACons(
                   var.clone(),
-                  ident.clone(),
+                  binder.clone(),
                   tmp_sink_e.loc(),
                   adj_app_e.loc()
               ));
@@ -2144,7 +2204,7 @@ impl LBuilder {
   }
 
   fn _force_adj_pair_exp(&mut self, exp: LExprCell, env: &mut Env, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
-    match self.reg_adj.get(exp.borrow()) {
+    /*match self.reg_adj.get(exp.borrow()) {
       None |
       Some(&RegisterAdj::Primal) |
       Some(&RegisterAdj::Bridge(..)) |
@@ -2153,7 +2213,7 @@ impl LBuilder {
         return ResolveAdj::Pair(exp.lookup_exp(adj_e), false);
       }
       Some(_) => unreachable!(),
-    }
+    }*/
     match &exp.term() {
       // TODO: cases.
       &LTerm::Apply(ref head, ref args) => {
@@ -2196,9 +2256,9 @@ impl LBuilder {
                       match &*ty {
                         // TODO: fixup any smooth type.
                         &LTy::Flp => {
-                          let arg_ident = self.lookup_var(arg_var);
+                          let arg_binder = self.lookup_var(arg_var);
                           let arg_adj = self.lookup_or_fresh_adj_var(arg_var);
-                          adj_app_app_fixup_args.push((idx, arg_var.clone(), arg_ident, arg_adj));
+                          adj_app_app_fixup_args.push((idx, arg_var.clone(), arg_binder, arg_adj));
                         }
                         _ => {}
                       }
@@ -2209,8 +2269,8 @@ impl LBuilder {
               }
             }
             let adj_app_app_fixup_e = exp.append(self, &mut |_| LTerm::AApply(
-                adj_app_app_fixup_args.clone(),
-                adj_app_app_e.loc()
+                adj_app_app_e.loc(),
+                adj_app_app_fixup_args.clone()
             ));
             let target_e = adj_app_app_fixup_e;
             let tmp_new_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_new.clone()));
@@ -2572,10 +2632,10 @@ impl LBuilder {
                   vec![tmp_sink_e.loc()]
               ));
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
-              let ident = self.lookup_var(var);
+              let binder = self.lookup_var(var);
               let cons_e = exp.append(self, &mut |_| LTerm::ACons(
                   var.clone(),
-                  ident.clone(),
+                  binder.clone(),
                   tmp_sink_e.loc(),
                   adj_app_e.loc()
               ));
@@ -2653,7 +2713,7 @@ impl LBuilder {
         ));
         new_exp
       }
-      &LTerm::AApply(ref args, ref target) => {
+      &LTerm::AApply(ref target, ref args) => {
         if let Some((_, _, tg_ty)) = tenv.mgu_exp(target) {
           match &*tg_ty {
             &LTy::Env(ref tg_idxs, ref tg_vars, ref _tg_binders) => {
@@ -3040,7 +3100,7 @@ enum TyCon {
   //Cnj(Queue<TyConRef>),
   Eq_(TyexpRef, TyexpRef),
   //IsAApply(TyexpRef, Vec<(usize, LVar, LVarBinder, LVar)>, TyexpRef),
-  IsAApply(TyexpRef, Vec<(usize, LVar, LVarBinder, LVar, LTyvar)>, TyexpRef),
+  IsAApply(TyexpRef, TyexpRef, Vec<(usize, LVar, LVarBinder, LVar, LTyvar)>),
   IsAReturn(TyexpRef, Vec<(usize, LVar)>, TyexpRef),
   IsACons(TyexpRef, TyexpRef, LVar, LVarBinder, TyexpRef, TyexpRef),
   IsAConcat(TyexpRef, TyexpRef, TyexpRef),
@@ -3524,14 +3584,14 @@ impl LBuilder {
           unimplemented!();
         }
       }
-      &LTerm::AApply(ref args, ref target) => {
+      &LTerm::AApply(ref target, ref args) => {
         println!("TRACE: _gen_exp: generating IsAApply constraint");
         self._gen_exp(exp.lookup(target), tctx, tenv, work);
         let args_ = args.iter().map(|&(idx, ref key, ref key_ident, ref key_adj)| {
           let key_adj_ty = tenv.lookup_var(&exp, key_adj);
           (idx, key.clone(), key_ident.clone(), key_adj.clone(), key_adj_ty)
         }).collect();
-        let con = TyCon::IsAApply(ety.into(), args_, tenv.lookup_exp(target).into()).into();
+        let con = TyCon::IsAApply(ety.into(), tenv.lookup_exp(target).into(), args_).into();
         work.cons.push_front(con);
       }
       &LTerm::AReturn(/*ref mask,*/ ref params, ref target) => {
@@ -3831,7 +3891,7 @@ impl LBuilder {
           }
         }
       }
-      &TyCon::IsAApply(ref query, ref args, ref target) => {
+      &TyCon::IsAApply(ref query, ref target, ref args) => {
         match &*tenv.reduce_texp(target.clone()) {
           &Tyexp::Var(_) => {
             work.cons.push_back(con);
@@ -4784,7 +4844,7 @@ impl PrintBox {
         writer.write_all(&buffer.into_inner())?;
         Ok(())
       }
-      &LTerm::AApply(ref args, ref target) => {
+      &LTerm::AApply(ref target, ref args) => {
         write!(&mut buffer, "<A-app>(")?;
         for &(ref idx, ref key, ref ident, ref adj_key) in args.iter() {
           match ident {
