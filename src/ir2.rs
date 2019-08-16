@@ -112,6 +112,13 @@ impl LPat {
     self._vars(&mut vars_set, &mut vars_buf);
     vars_buf
   }
+
+  pub fn vars_set(&self) -> (Vec<LVar>, HashSet<LVar>) {
+    let mut vars_buf = Vec::new();
+    let mut vars_set = HashSet::new();
+    self._vars(&mut vars_set, &mut vars_buf);
+    (vars_buf, vars_set)
+  }
 }
 
 /*#[derive(Clone)]
@@ -227,6 +234,7 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   UnitLit,
   Index(usize),
   Lookup(LVar),
+  LookupIdent(LIdent),
   ProjectVar(E, LVar),
   ProjectIdent(E, LIdent),
   //ProjectIdents(E, Vec<LIdent>),
@@ -313,13 +321,12 @@ pub struct LBuilder {
   mlabel_ctr:   u64,
   ident_ctr:    u64,
   var_ctr:      u64,
+  tyvar_ctr:    u64,
   name_to_id:   HTreapMap<String, LIdent>,
   id_to_name:   HTreapMap<LIdent, String>,
   var_to_bind:  IHTreapMap<LVar, LVarBinder>,
   adj_var:      IHTreapMap<LVar, LVar>,
   reg_adj:      IHTreapMap<LLabel, RegisterAdj>,
-  //ctx:          LCtxRef,
-  //tctx:         LTyctxRef,
 }
 
 impl LBuilder {
@@ -383,6 +390,12 @@ impl LBuilder {
     new_var
   }
 
+  /*pub fn fresh_tvar(&mut self) -> LTyvar {
+    self.tyvar_ctr += 1;
+    assert!(self.tyvar_ctr != 0);
+    LTyvar(self.tyvar_ctr)
+  }*/
+
   pub fn _lookup_var(&self, var: &LVar) -> Option<LVarBinder> {
     match self.var_to_bind.get(var) {
       None => None,
@@ -432,16 +445,20 @@ impl LBuilder {
   pub fn _compile(&mut self, htree: Rc<HExpr>, top_ctx: LCtxRef, top_tctx: LTyctxRef) -> Result<LModule, ()> {
     // TODO
     // FIXME: derive env from base ctx.
+    // FIXME: derive tenv from base tctx.
     let mut env = Env::default();
     let mut tenv = TyEnv::default();
     let tree = LTreeCell::empty(self);
     let tree = self._lower2(tree, top_ctx.clone(), htree, &mut env);
     let tree = self._include_top_level(tree);
+    println!("DEBUG: _compile: original, printing tree...");
+    self._print(tree.clone());
+    self._ctx(tree.clone(), top_ctx.clone(), &mut env, &mut tenv);
+    let tree = self._resolve_ctx(tree, &mut env);
     let tree = self._normalize(tree);
     self._ctx(tree.clone(), top_ctx.clone(), &mut env, &mut tenv);
-    println!("DEBUG: _compile: printing tree...");
+    println!("DEBUG: _compile: normalized, printing tree...");
     self._print(tree.clone());
-    // FIXME: derive tenv from base tctx.
     let mut t_work = TyWork::default();
     self.gen(&tree, &mut tenv, &mut t_work);
     self.solve(tree.root(), &mut tenv, &mut t_work);
@@ -453,7 +470,7 @@ impl LBuilder {
     if t_work.defer_adj() {
       let mut term = false;
       loop {
-        match self._resolve_adj(tree.clone(), &mut tenv, &mut t_work) {
+        match self._resolve_adj(tree.clone(), &mut env, &mut tenv, &mut t_work) {
           ResolveAdjResult::Primal(_) => unreachable!(),
           ResolveAdjResult::Bridge(new_tree, incomplete) => {
             if incomplete {
@@ -485,12 +502,6 @@ impl LBuilder {
     if t_work.unsat() {
       return Err(());
     }
-    /*let new_root = _posthoc_include_top_level(tree.root(), self);
-    new_root.unsafe_set_self_root();
-    let tree = LTreeCell{
-      view: new_root.view.into(),
-      data: new_root.tree.data.clone(),
-    };*/
     self._print(tree.clone());
     let end_ctx = None;
     let end_tctx = None;
@@ -579,7 +590,7 @@ impl LBuilder {
       &HExpr::Ident(ref name) => {
         let ident = self.lookup_or_fresh_name(name);
         let var = self.fresh_ident_var(ident.clone());
-        ctx.bind_mut(ident, var.clone());
+        ctx.bind_ident_mut(ident, var.clone());
         Ok(LPat::Var(var).into())
       }
       _ => Err(())
@@ -655,7 +666,7 @@ impl LBuilder {
           };
           let p_ident = self.lookup_or_fresh_name(p_name);
           let p_var = self.fresh_ident_var(p_ident.clone());
-          body_ctx.bind_mut(p_ident, p_var.clone());
+          body_ctx.bind_ident_mut(p_ident, p_var.clone());
           param_vars.push(p_var);
         }
         let body = self._lower2_exp(root.clone(), body_ctx, body.clone(), env);
@@ -673,7 +684,7 @@ impl LBuilder {
           &HExpr::Ident(ref name) => {
             let name_ident = self.lookup_or_fresh_name(name);
             let name_var = self.fresh_ident_var(name_ident.clone());
-            rest_ctx.bind_mut(name_ident, name_var.clone());
+            rest_ctx.bind_ident_mut(name_ident, name_var.clone());
             let body = self._lower2_exp(root.clone(), body_ctx, body.clone(), env);
             let rest = self._lower2_exp(root.clone(), rest_ctx, rest.clone(), env);
             root.append(self, &mut |_| LTerm::Let(
@@ -731,7 +742,7 @@ impl LBuilder {
       }
       &HExpr::Ident(ref name) => {
         let name_ident = self.lookup_or_fresh_name(name);
-        let name_var = match ctx._lookup_ident(name_ident) {
+        /*let name_var = match ctx._lookup_ident(name_ident) {
           Some(v) => v,
           None => {
             // FIXME: propagate errors.
@@ -739,7 +750,8 @@ impl LBuilder {
             self.fresh_anon_var()
           }
         };
-        root.append(self, &mut |_| LTerm::Lookup(name_var.clone()))
+        root.append(self, &mut |_| LTerm::Lookup(name_var.clone()))*/
+        root.append(self, &mut |_| LTerm::LookupIdent(name_ident.clone()))
       }
       &HExpr::PathIndex(..) => {
         // TODO
@@ -1055,13 +1067,13 @@ impl LBuilder {
         self._ctx_exp(exp.lookup(target), ctx, env, tenv);
         if let Some((_, _, ty)) = tenv.mgu_exp(target) {
           match &*ty {
-            &LTy::Env(_, ref var_keys, ref var_idents) => {
+            &LTy::Env(_, ref var_keys, ref var_ctx) => {
               assert!(var_keys.contains_key(var));
               let mut rest_ctx = LCtxRef::empty();
               match self._lookup_var(var) {
-                Some(LVarBinder::Ident(id)) => match var_idents.get(&id) {
-                  Some(id_var) => if var == id_var {
-                    rest_ctx.bind_mut(id, var.clone());
+                Some(LVarBinder::Ident(id)) => match var_ctx._lookup_ident(&id) {
+                  Some(ref id_var) => if var == id_var {
+                    rest_ctx.bind_ident_mut(id, var.clone());
                   },
                   None => {}
                 },
@@ -1079,15 +1091,15 @@ impl LBuilder {
         self._ctx_exp(exp.lookup(target), ctx, env, tenv);
         if let Some((_, _, ty)) = tenv.mgu_exp(target) {
           match &*ty {
-            &LTy::Env(_, ref var_keys, ref var_idents) => {
+            &LTy::Env(_, ref var_keys, ref var_ctx) => {
               let rest_var_keys = var_keys.set_intersection(vars);
               assert_eq!(rest_var_keys.len(), vars.len());
               let mut rest_ctx = LCtxRef::empty();
               for var in vars.iter() {
                 match self._lookup_var(var) {
-                  Some(LVarBinder::Ident(id)) => match var_idents.get(&id) {
-                    Some(id_var) => if var == id_var {
-                      rest_ctx.bind_mut(id, var.clone());
+                  Some(LVarBinder::Ident(id)) => match var_ctx._lookup_ident(&id) {
+                    Some(ref id_var) => if var == id_var {
+                      rest_ctx.bind_ident_mut(id, var.clone());
                     },
                     None => {}
                   },
@@ -1140,18 +1152,18 @@ impl LBuilder {
         for p in params.iter() {
           match self.lookup_var(p) {
             LVarBinder::Ident(id) => {
-              body_ctx.bind_mut(id, p.clone());
+              body_ctx.bind_ident_mut(id, p.clone());
             }
             _ => {}
           }
         }
         self._ctx_exp(exp.lookup(body), body_ctx, env, tenv);
       }
-      &LTerm::Let(ref name, ref body, ref rest) => {
+      &LTerm::Let(ref var, ref body, ref rest) => {
         let mut rest_ctx = ctx.clone();
-        match self.lookup_var(name) {
+        match self.lookup_var(var) {
           LVarBinder::Ident(id) => {
-            rest_ctx.bind_mut(id, name.clone());
+            rest_ctx.bind_ident_mut(id, var.clone());
           }
           _ => {}
         }
@@ -1162,7 +1174,7 @@ impl LBuilder {
         let mut fixctx = ctx.clone();
         match self.lookup_var(fixname) {
           LVarBinder::Ident(id) => {
-            fixctx.bind_mut(id, fixname.clone());
+            fixctx.bind_ident_mut(id, fixname.clone());
           }
           _ => {}
         }
@@ -1173,7 +1185,7 @@ impl LBuilder {
         for fixname in fixnames.iter() {
           match self.lookup_var(fixname) {
             LVarBinder::Ident(id) => {
-              fixctx.bind_mut(id, fixname.clone());
+              fixctx.bind_ident_mut(id, fixname.clone());
             }
             _ => {}
           }
@@ -1187,7 +1199,7 @@ impl LBuilder {
           for pv in pat.vars().iter() {
             match self.lookup_var(pv) {
               LVarBinder::Ident(id) => {
-                arm_ctx.bind_mut(id, pv.clone());
+                arm_ctx.bind_ident_mut(id, pv.clone());
               }
               _ => {}
             }
@@ -1202,7 +1214,7 @@ impl LBuilder {
           for pv in pat.vars().iter() {
             match self.lookup_var(pv) {
               LVarBinder::Ident(id) => {
-                arm_ctx.bind_mut(id, pv.clone());
+                arm_ctx.bind_ident_mut(id, pv.clone());
               }
               _ => {}
             }
@@ -1212,7 +1224,7 @@ impl LBuilder {
       }
       /*&LTerm::Alt(ref name, ref alt_name, ref body, ref rest) => {
         let mut rest_ctx = ctx.clone();
-        rest_ctx.bind_mut(self.lookup_var(alt_name), alt_name.clone());
+        rest_ctx.bind_ident_mut(self.lookup_var(alt_name), alt_name.clone());
         self._ctx_exp(exp.lookup(body), ctx, env, tenv);
         self._ctx_exp(exp.lookup(rest), rest_ctx, env, tenv);
       }*/
@@ -1225,6 +1237,7 @@ impl LBuilder {
       &LTerm::IntLit(_) => {}
       &LTerm::FlpLit(_) => {}
       &LTerm::Lookup(_) => {}
+      &LTerm::LookupIdent(_) => {}
       &LTerm::ProjectVar(ref target, _) => {
         self._ctx_exp(exp.lookup(target), ctx, env, tenv);
       }
@@ -1370,6 +1383,142 @@ impl LBuilder {
 }
 
 impl LBuilder {
+  fn _resolve_ctx(&mut self, tree: LTreeCell, env: &mut Env) -> LTreeCell {
+    let new_root = self._resolve_ctx_exp(tree.root(), env);
+    new_root.unsafe_set_self_root();
+    LTreeCell{
+      view: new_root.view.into(),
+      data: new_root.tree.data.clone(),
+    }
+  }
+
+  fn _resolve_ctx_exp(&mut self, exp: LExprCell, env: &mut Env) -> LExprCell {
+    match &exp.term() {
+      &LTerm::Top => {
+        exp
+      }
+      &LTerm::Break(ref inner) => {
+        let inner = self._resolve_ctx_exp(exp.lookup(inner), env);
+        exp.append(self, &mut |_| LTerm::Break(inner.loc()))
+      }
+      &LTerm::Return(ref inner) => {
+        let inner = self._resolve_ctx_exp(exp.lookup(inner), env);
+        exp.append(self, &mut |_| LTerm::Return(inner.loc()))
+      }
+      &LTerm::EnvIdxs(_) |
+      &LTerm::EnvVars(_) |
+      &LTerm::EImportVar(..) |
+      &LTerm::EImportVars(..) |
+      &LTerm::AApply(..) |
+      &LTerm::AReturn(..) |
+      &LTerm::ACons(..) => {
+        // TODO
+        exp
+      }
+      &LTerm::PtlD(ref target) => {
+        let target = self._resolve_ctx_exp(exp.lookup(target), env);
+        exp.append(self, &mut |_| LTerm::PtlD(target.loc()))
+      }
+      &LTerm::Apply(ref head, ref args) => {
+        let head = self._resolve_ctx_exp(exp.lookup(head), env);
+        let mut args_ = Vec::with_capacity(args.len());
+        for arg in args.iter() {
+          let arg = self._resolve_ctx_exp(exp.lookup(arg), env);
+          args_.push(arg.loc());
+        }
+        exp.append(self, &mut |_| LTerm::Apply(
+            head.loc(),
+            args_.clone()
+        ))
+      }
+      &LTerm::Lambda(ref params, ref body) => {
+        let body = self._resolve_ctx_exp(exp.lookup(body), env);
+        exp.append(self, &mut |_| LTerm::Lambda(
+            params.clone(),
+            body.loc()
+        ))
+      }
+      &LTerm::FixLambda(..) => {
+        unimplemented!();
+      }
+      &LTerm::Let(ref var, ref body, ref rest) => {
+        let body = self._resolve_ctx_exp(exp.lookup(body), env);
+        let rest = self._resolve_ctx_exp(exp.lookup(rest), env);
+        exp.append(self, &mut |_| LTerm::Let(
+            var.clone(),
+            body.loc(),
+            rest.loc()
+        ))
+      }
+      &LTerm::Match(ref query, ref pat_arms) => {
+        let query = self._resolve_ctx_exp(exp.lookup(query), env);
+        let mut pat_arms_ = Vec::with_capacity(pat_arms.len());
+        for (ref pat, ref arm) in pat_arms.iter() {
+          let arm = self._resolve_ctx_exp(exp.lookup(arm), env);
+          pat_arms_.push((pat.clone(), arm.loc()));
+        }
+        exp.append(self, &mut |_| LTerm::Match(
+            query.loc(),
+            pat_arms_.clone()
+        ))
+      }
+      &LTerm::Mismatch(ref query, ref pat_arms) => {
+        unimplemented!();
+      }
+      &LTerm::STuple(ref elems) => {
+        let mut elems_ = Vec::with_capacity(elems.len());
+        for elem in elems.iter() {
+          let elem = self._resolve_ctx_exp(exp.lookup(elem), env);
+          elems_.push(elem.loc());
+        }
+        exp.append(self, &mut |_| LTerm::STuple(elems_.clone()))
+      }
+      &LTerm::UnitLit |
+      &LTerm::BitLit(_) |
+      &LTerm::IntLit(_) |
+      &LTerm::FlpLit(_) |
+      &LTerm::Lookup(_) => {
+        exp
+      }
+      &LTerm::ProjectVar(ref target, ref var) => {
+        let target = self._resolve_ctx_exp(exp.lookup(target), env);
+        exp.append(self, &mut |_| LTerm::ProjectVar(
+            target.loc(),
+            var.clone()
+        ))
+      }
+      &LTerm::ProjectIdent(ref target, ref ident) => {
+        let target = self._resolve_ctx_exp(exp.lookup(target), env);
+        exp.append(self, &mut |_| LTerm::ProjectIdent(
+            target.loc(),
+            ident.clone()
+        ))
+      }
+      &LTerm::MX(_) => {
+        exp
+      }
+      &LTerm::LookupIdent(ref ident) => {
+        match env._ctx(&exp) {
+          None => {
+            exp
+          }
+          Some(ctx) => match ctx._lookup_ident(ident) {
+            None => panic!(),
+            Some(var) => {
+              exp.append(self, &mut |_| LTerm::Lookup(var.clone()))
+            }
+          }
+        }
+      }
+      //_ => unimplemented!(),
+      t => {
+        panic!("TRACE: _resolve_ctx_exp: unhandled term: {:?}", t);
+      }
+    }
+  }
+}
+
+impl LBuilder {
   fn _gc(&mut self, tree: LTreeCell) -> LTreeCell {
     unimplemented!();
   }
@@ -1410,9 +1559,9 @@ struct AdjWork {
 }
 
 impl LBuilder {
-  fn _resolve_adj(&mut self, tree: LTreeCell, tenv: &mut TyEnv, t_work: &mut TyWork) -> ResolveAdjResult<LTreeCell> {
+  fn _resolve_adj(&mut self, tree: LTreeCell, env: &mut Env, tenv: &mut TyEnv, t_work: &mut TyWork) -> ResolveAdjResult<LTreeCell> {
     let mut work = AdjWork::default();
-    match self._resolve_adj_exp(tree.root(), tenv, t_work, &mut work) {
+    match self._resolve_adj_exp(tree.root(), env, tenv, t_work, &mut work) {
       ResolveAdj::Primal(_) => ResolveAdjResult::Primal(tree),
       ResolveAdj::Bridge(new_root, incomplete) => {
         new_root.unsafe_set_self_root();
@@ -1472,7 +1621,7 @@ impl LBuilder {
     adj
   }
 
-  fn _resolve_adj_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
+  fn _resolve_adj_exp(&mut self, exp: LExprCell, env: &mut Env, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
     /* NB: An example where `resolve_` does not return a primal or bridge
        expr:
 
@@ -1499,7 +1648,7 @@ impl LBuilder {
           match &*ty {
             &LTy::Flp => {
               let target_e = exp.lookup(target);
-              let adj_target_e = match self._force_adj_dual_exp(target_e, tenv, t_work, work) {
+              let adj_target_e = match self._force_adj_dual_exp(target_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(..) |
                 ResolveAdj::Pair(..) => unreachable!(),
@@ -1543,13 +1692,13 @@ impl LBuilder {
       &LTerm::Apply(ref head, ref args) => {
         let mut incomplete = false;
         let head_e = exp.lookup(head);
-        match self._resolve_adj_exp(head_e, tenv, t_work, work) {
+        match self._resolve_adj_exp(head_e, env, tenv, t_work, work) {
           ResolveAdj::Primal(head_e) => {
             let mut any_bridge = false;
             let mut new_args = Vec::with_capacity(args.len());
             for arg in args.iter() {
               let arg_e = exp.lookup(arg);
-              match self._resolve_adj_exp(arg_e, tenv, t_work, work) {
+              match self._resolve_adj_exp(arg_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(arg_e) => {
                   new_args.push(arg_e);
                 }
@@ -1580,7 +1729,7 @@ impl LBuilder {
             let mut new_args = Vec::with_capacity(args.len());
             for arg in args.iter() {
               let arg_e = exp.lookup(arg);
-              match self._resolve_adj_exp(arg_e, tenv, t_work, work) {
+              match self._resolve_adj_exp(arg_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(arg_e) => {
                   new_args.push(arg_e);
                 }
@@ -1608,7 +1757,7 @@ impl LBuilder {
       }
       &LTerm::Lambda(ref params, ref body) => {
         let body_e = exp.lookup(body);
-        match self._resolve_adj_exp(body_e, tenv, t_work, work) {
+        match self._resolve_adj_exp(body_e, env, tenv, t_work, work) {
           ResolveAdj::Primal(_) => {
             self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
           }
@@ -1646,13 +1795,17 @@ impl LBuilder {
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
+      &LTerm::FixLambda(ref fixname, ref params, ref body) => {
+        // TODO
+        unimplemented!();
+      }
       &LTerm::Let(ref name, ref body, ref rest) => {
         let mut incomplete = false;
         let body_e = exp.lookup(body);
         let rest_e = exp.lookup(rest);
-        match self._resolve_adj_exp(rest_e, tenv, t_work, work) {
+        match self._resolve_adj_exp(rest_e, env, tenv, t_work, work) {
           ResolveAdj::Primal(rest_e) => {
-            match self._resolve_adj_exp(body_e, tenv, t_work, work) {
+            match self._resolve_adj_exp(body_e, env, tenv, t_work, work) {
               ResolveAdj::Primal(_) => {
                 self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
               }
@@ -1674,7 +1827,7 @@ impl LBuilder {
           ResolveAdj::Bridge(new_rest_e, rest_defer) => {
             incomplete |= rest_defer;
             match self._lookup_adj_var(name) {
-              None => match self._resolve_adj_exp(body_e, tenv, t_work, work) {
+              None => match self._resolve_adj_exp(body_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(body_e) => {
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
                       name.clone(),
@@ -1697,7 +1850,7 @@ impl LBuilder {
                 //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               },
-              Some(adj_name) => match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
+              Some(adj_name) => match self._force_adj_pair_exp(body_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(..) |
                 ResolveAdj::Dual(..) => unreachable!(),
@@ -1726,7 +1879,7 @@ impl LBuilder {
       &LTerm::Fix(ref fixname, ref fixbody) => {
         let fixbody_e = exp.lookup(fixbody);
         let redo_fixbody_e = fixbody_e.clone();
-        match self._resolve_adj_exp(fixbody_e, tenv, t_work, work) {
+        match self._resolve_adj_exp(fixbody_e, env, tenv, t_work, work) {
           ResolveAdj::Primal(_) => {
             self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
           }
@@ -1739,7 +1892,7 @@ impl LBuilder {
                 ));
                 self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, fixbody_defer))
               }
-              Some(adj_fixname) => match self._force_adj_pair_exp(redo_fixbody_e, tenv, t_work, work) {
+              Some(adj_fixname) => match self._force_adj_pair_exp(redo_fixbody_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(..) |
                 ResolveAdj::Dual(..) => unreachable!(),
@@ -1775,35 +1928,61 @@ impl LBuilder {
         // TODO
         let mut incomplete = false;
         let mut any_bridge = false;
-        let query_e = exp.lookup(query);
-        let mut pats = Vec::with_capacity(pat_arms.len());
-        let mut arms = Vec::with_capacity(pat_arms.len());
+        //let mut pats = Vec::with_capacity(pat_arms.len());
+        //let mut arms = Vec::with_capacity(pat_arms.len());
+        let mut pat_arms_ = Vec::with_capacity(pat_arms.len());
         for &(ref pat, ref arm) in pat_arms.iter() {
           let arm_e = exp.lookup(arm);
-          match self._resolve_adj_exp(arm_e, tenv, t_work, work) {
+          match self._resolve_adj_exp(arm_e, env, tenv, t_work, work) {
             ResolveAdj::Primal(arm_e) => {
               // TODO
               //unimplemented!();
-              pats.push(pat.clone());
-              arms.push(arm_e);
+              //pats.push(pat.clone());
+              pat_arms_.push((pat.clone(), arm_e.loc()));
             }
             ResolveAdj::Bridge(new_arm_e, arm_defer) => {
               // TODO
               incomplete |= arm_defer;
               any_bridge = true;
-              unimplemented!();
+              //unimplemented!();
+              let (pat_vars, pat_vars_set) = pat.vars_set();
+              for pv in pat_vars.iter() {
+                match self._lookup_adj_var(pv) {
+                  None => {}
+                  Some(adj_pv) => if !pat_vars_set.contains(&adj_pv) {
+                    panic!("unimplemented case: non-adj-closed pattern");
+                  }
+                }
+              }
+              //pats.push(pat.clone());
+              pat_arms_.push((pat.clone(), new_arm_e.loc()));
             }
             ResolveAdj::Dual(..) |
             ResolveAdj::Pair(..) => unreachable!(),
             ResolveAdj::Error => return ResolveAdj::Error,
           }
         }
+        let query_e = match self._resolve_adj_exp(exp.lookup(query), env, tenv, t_work, work) {
+          ResolveAdj::Primal(query_e) => {
+            query_e
+          }
+          ResolveAdj::Bridge(new_query_e, query_defer) => {
+            incomplete |= query_defer;
+            any_bridge = true;
+            new_query_e
+          }
+          ResolveAdj::Dual(..) |
+          ResolveAdj::Pair(..) => unreachable!(),
+          ResolveAdj::Error => return ResolveAdj::Error,
+        };
         if any_bridge {
           // TODO
-          /*let new_exp = exp.append(self, &mut |_| LTerm::Match(
+          //unimplemented!();
+          let new_exp = exp.append(self, &mut |_| LTerm::Match(
+              query_e.loc(),
+              pat_arms_.clone()
           ));
-          self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, incomplete))*/
-          unimplemented!();
+          self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, incomplete))
         } else {
           assert!(!incomplete);
           self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
@@ -1826,15 +2005,15 @@ impl LBuilder {
       &LTerm::ProjectIdent(ref target, ref ident) => {
         if let Some((_, _, ty)) = tenv.mgu_exp(target) {
           match &*ty {
-            &LTy::Env(ref _idxs, ref keys, ref idents) => {
-              match idents.get(ident) {
+            &LTy::Env(ref _idxs, ref keys, ref ctx) => {
+              match ctx._lookup_ident(ident) {
                 Some(key) => {
-                  match keys.get(key) {
+                  match keys.get(&key) {
                     Some(_) => {}
                     None => unreachable!(),
                   }
                   let target_e = exp.lookup(target);
-                  match self._resolve_adj_exp(target_e, tenv, t_work, work) {
+                  match self._resolve_adj_exp(target_e, env, tenv, t_work, work) {
                     ResolveAdj::Primal(target_e) => {
                       /*let lookup_e = exp.append(self, &mut |_| LTerm::Lookup(key.clone()));
                       let new_exp = exp.append(self, &mut |_| LTerm::Import(
@@ -1891,7 +2070,7 @@ impl LBuilder {
     }
   }
 
-  fn _force_adj_dual_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
+  fn _force_adj_dual_exp(&mut self, exp: LExprCell, env: &mut Env, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
     match self.reg_adj.get(exp.borrow()) {
       None |
       Some(&RegisterAdj::Primal) |
@@ -1921,6 +2100,10 @@ impl LBuilder {
               let tmp_sink = self.fresh_anon_var();
               tenv.annotate(&tmp_sink, tenv.lookup_var(&exp, var).into());
               let adj_var = self.lookup_or_fresh_adj_var(var);
+              /*
+              let mut adj_ctx = LFreeAdjCtxRef::default();
+              let adj_var = adj_ctx.lookup_or_bind_fresh_mut(var, || self.fresh_anon_var());
+              */
               let adj_var_e = exp.append(self, &mut |_| LTerm::Lookup(adj_var.clone()));
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
               let adj_app_e = exp.append(self, &mut |_| LTerm::Apply(
@@ -1960,7 +2143,7 @@ impl LBuilder {
     }
   }
 
-  fn _force_adj_pair_exp(&mut self, exp: LExprCell, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
+  fn _force_adj_pair_exp(&mut self, exp: LExprCell, env: &mut Env, tenv: &mut TyEnv, t_work: &mut TyWork, work: &mut AdjWork) -> ResolveAdj<LExprCell> {
     match self.reg_adj.get(exp.borrow()) {
       None |
       Some(&RegisterAdj::Primal) |
@@ -1976,7 +2159,7 @@ impl LBuilder {
       &LTerm::Apply(ref head, ref args) => {
         let mut incomplete = false;
         let head_e = exp.lookup(head);
-        match self._force_adj_dual_exp(head_e, tenv, t_work, work) {
+        match self._force_adj_dual_exp(head_e, env, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
           ResolveAdj::Bridge(..) |
           ResolveAdj::Pair(..) => unreachable!(),
@@ -2054,7 +2237,7 @@ impl LBuilder {
       &LTerm::Lambda(ref params, ref body) => {
         let mut incomplete = false;
         let body_e = exp.lookup(body);
-        match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
+        match self._force_adj_pair_exp(body_e, env, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
           ResolveAdj::Bridge(..) |
           ResolveAdj::Dual(..) => unreachable!(),
@@ -2199,7 +2382,7 @@ impl LBuilder {
       }
       &LTerm::FixLambda(ref fixname, ref params, ref body) => {
         let body_e = exp.lookup(body);
-        match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
+        match self._force_adj_pair_exp(body_e, env, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
           ResolveAdj::Bridge(..) |
           ResolveAdj::Dual(..) => unreachable!(),
@@ -2215,14 +2398,14 @@ impl LBuilder {
         let mut incomplete = false;
         let body_e = exp.lookup(body);
         let rest_e = exp.lookup(rest);
-        match self._force_adj_pair_exp(rest_e, tenv, t_work, work) {
+        match self._force_adj_pair_exp(rest_e, env, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
           ResolveAdj::Bridge(..) |
           ResolveAdj::Dual(..) => unreachable!(),
           ResolveAdj::Pair(adj_rest_e, rest_defer) => {
             incomplete |= rest_defer;
             match self._lookup_adj_var(name) {
-              None => match self._resolve_adj_exp(body_e, tenv, t_work, work) {
+              None => match self._resolve_adj_exp(body_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(body_e) => {
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
                       name.clone(),
@@ -2245,7 +2428,7 @@ impl LBuilder {
                 //ResolveAdj::Defer => ResolveAdj::Defer,
                 ResolveAdj::Error => ResolveAdj::Error,
               },
-              Some(adj_name) => match self._force_adj_pair_exp(body_e, tenv, t_work, work) {
+              Some(adj_name) => match self._force_adj_pair_exp(body_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(..) |
                 ResolveAdj::Dual(..) => unreachable!(),
@@ -2271,7 +2454,7 @@ impl LBuilder {
       }
       &LTerm::Fix(ref fixname, ref fixbody) => {
         let fixbody_e = exp.lookup(fixbody);
-        match self._force_adj_pair_exp(fixbody_e, tenv, t_work, work) {
+        match self._force_adj_pair_exp(fixbody_e, env, tenv, t_work, work) {
           ResolveAdj::Primal(_) |
           ResolveAdj::Bridge(..) |
           ResolveAdj::Dual(..) => unreachable!(),
@@ -2291,12 +2474,12 @@ impl LBuilder {
         // TODO
         let mut incomplete = false;
         let query_e = exp.lookup(query);
-        match self._resolve_adj_exp(query_e, tenv, t_work, work) {
+        match self._resolve_adj_exp(query_e, env, tenv, t_work, work) {
           ResolveAdj::Primal(query_e) => {
             let mut adj_pat_arms = Vec::with_capacity(pat_arms.len());
             for &(ref pat, ref arm) in pat_arms.iter() {
               let arm_e = exp.lookup(arm);
-              match self._force_adj_pair_exp(arm_e, tenv, t_work, work) {
+              match self._force_adj_pair_exp(arm_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(_) |
                 ResolveAdj::Bridge(_, _) |
                 ResolveAdj::Dual(_, _) => unreachable!(),
@@ -2378,6 +2561,10 @@ impl LBuilder {
               let tmp_sink = self.fresh_anon_var();
               tenv.annotate(&tmp_sink, tenv.lookup_var(&exp, var).into());
               let adj_var = self.lookup_or_fresh_adj_var(var);
+              /*
+              let mut adj_ctx = LFreeAdjCtxRef::default();
+              let adj_var = adj_ctx.lookup_or_bind_fresh_mut(var, || self.fresh_anon_var());
+              */
               let adj_var_e = exp.append(self, &mut |_| LTerm::Lookup(adj_var.clone()));
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::Lookup(tmp_sink.clone()));
               let adj_app_e = exp.append(self, &mut |_| LTerm::Apply(
@@ -2404,6 +2591,10 @@ impl LBuilder {
             &LTy::Fun(..) => {
               // FIXME: scalar/smooth.
               let adj_var = self.lookup_or_fresh_adj_var(var);
+              /*
+              let mut adj_ctx = LFreeAdjCtxRef::default();
+              let adj_var = adj_ctx.lookup_or_bind_fresh_mut(var, || self.fresh_anon_var());
+              */
               let adj_e = exp.append(self, &mut |_| LTerm::Lookup(adj_var.clone()));
               let new_exp = exp.append(self, &mut |_| LTerm::STuple(
                   vec![exp.loc(), adj_e.loc()]
@@ -2762,8 +2953,9 @@ enum Tyexp {
   Fun(Vec<TyexpRef>, TyexpRef),
   //Env(RBTreeMap<usize, LTyvar>, RBTreeMap<LVar, LTyvar>, RBTreeMap<LIdent, LVar>),
   //Env(RBTreeMap<usize, TyexpRef>, RBTreeMap<LVar, TyexpRef>, RBTreeMap<LIdent, LVar>),
-  Env(IHTreapMap<usize, TyexpRef>, IHTreapMap<LVar, TyexpRef>, IHTreapMap<LIdent, LVar>),
   //Env(RBTreeSet<usize>, RBTreeMap<usize, TyexpRef>, RBTreeSet<LVar>, RBTreeMap<LVar, TyexpRef>, RBTreeMap<LIdent, LVar>),
+  //Env(IHTreapMap<usize, TyexpRef>, IHTreapMap<LVar, TyexpRef>, IHTreapMap<LIdent, LVar>),
+  Env(IHTreapMap<usize, TyexpRef>, IHTreapMap<LVar, TyexpRef>, LCtxRef),
   STup(Vec<TyexpRef>),
   HTup,
   Bit,
@@ -2803,8 +2995,8 @@ pub enum LTy {
   Fun(Vec<LTyRef>, LTyRef),
   //Env(RBTreeMap<usize, LTyRef>, RBTreeMap<LVar, LTyRef>, RBTreeMap<LIdent, LVar>),
   //Env(DebugRBTreeMap<usize, LTyRef>, DebugRBTreeMap<LVar, LTyRef>, DebugRBTreeMap<LIdent, LVar>),
-  Env(IHTreapMap<usize, LTyRef>, IHTreapMap<LVar, LTyRef>, IHTreapMap<LIdent, LVar>),
   //Env(DebugRBTreeSet<usize>, DebugRBTreeMap<usize, LTyRef>, DebugRBTreeSet<LVar>, DebugRBTreeMap<LVar, LTyRef>, DebugRBTreeMap<LIdent, LVar>),
+  Env(IHTreapMap<usize, LTyRef>, IHTreapMap<LVar, LTyRef>, LCtxRef),
   STup(Vec<LTyRef>),
   HTup,
   Bit,
@@ -2924,29 +3116,22 @@ impl TyWork {
   }
 }
 
-/*#[derive(Clone, Default, Debug)]
-pub struct LTyctxRef {
-  // TODO
-  //tvar_ctr:     u64,
-  //var_to_ty:    HTrieMap<LVar, (LTyvar, LTyvar, LTyRef)>,
-}
-
-impl LTyctxRef {
-  /*pub fn lookup_var(&self, var: &LVar) -> Option<LTy> {
-    match self.var_to_tyvar.get(var) {
-      None => None,
-      Some(tv) => Some(tv.clone()),
-    }
-  }*/
-}*/
-
 #[derive(Clone, Default, Debug)]
 pub struct LTyctxRef {
+  //idx:  IHTreapMap<usize, LTyvar>,
+  //idxi: IHTreapMap<LTyvar, usize>,
   var:  IHTreapMap<LVar, LTyvar>,
   vari: IHTreapMap<LTyvar, LVar>,
 }
 
 impl LTyctxRef {
+  pub fn lookup_var(&self, var: &LVar) -> LTyvar {
+    match self.var.get(var) {
+      None => panic!(),
+      Some(v) => v.clone(),
+    }
+  }
+
   fn bind_var(&self, var: &LVar, tenv: &mut TyEnv) -> LTyctxRef {
     let v = tenv.fresh_tvar();
     match tenv.anno.get(var) {
@@ -2973,20 +3158,6 @@ impl LTyctxRef {
     self.vari.insert_mut(v.clone(), var.clone());
     v
   }
-
-  /*fn _lookup_var(&self, var: &LVar) -> Option<LTyvar> {
-    match self.var.get(var) {
-      None => None,
-      Some(v) => Some(v.clone()),
-    }
-  }*/
-
-  fn lookup_var(&self, var: &LVar) -> LTyvar {
-    match self.var.get(var) {
-      None => panic!(),
-      Some(v) => v.clone(),
-    }
-  }
 }
 
 #[derive(Debug)]
@@ -2995,7 +3166,7 @@ enum TyReduce {
   Var(LTyvar),
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 struct TyEnv {
   // TODO
   vctr: u64,
@@ -3144,16 +3315,16 @@ impl TyEnv {
         let ret_ = self.reduce_texp(ret.clone());
         Tyexp::Fun(dom_, ret_).into()
       }
-      &Tyexp::Env(ref idxs, ref keys, ref idents) => {
+      &Tyexp::Env(ref idxs, ref vars, ref ctx) => {
         let mut idxs_ = IHTreapMap::default();
-        let mut keys_ = IHTreapMap::default();
+        let mut vars_ = IHTreapMap::default();
         for (&idx, t) in idxs.iter() {
           idxs_.insert_mut(idx, self.reduce_texp(t.clone()));
         }
-        for (key, t) in keys.iter() {
-          keys_.insert_mut(key.clone(), self.reduce_texp(t.clone()));
+        for (var, t) in vars.iter() {
+          vars_.insert_mut(var.clone(), self.reduce_texp(t.clone()));
         }
-        Tyexp::Env(idxs_, keys_, idents.clone()).into()
+        Tyexp::Env(idxs_, vars_, ctx.clone()).into()
       }
       &Tyexp::STup(ref elems) => {
         let mut elems_ = Vec::with_capacity(elems.len());
@@ -3220,16 +3391,16 @@ impl TyEnv {
         let ret_ = self._mgu_reduced(ret.clone())?;
         Ok(LTy::Fun(dom_, ret_).into())
       }
-      &Tyexp::Env(ref idxs, ref keys, ref idents) => {
+      &Tyexp::Env(ref idxs, ref vars, ref ctx) => {
         let mut idxs_ = IHTreapMap::default();
-        let mut keys_ = IHTreapMap::default();
+        let mut vars_ = IHTreapMap::default();
         for (&idx, t) in idxs.iter() {
           idxs_.insert_mut(idx, self._mgu_reduced(t.clone())?);
         }
-        for (key, t) in keys.iter() {
-          keys_.insert_mut(key.clone(), self._mgu_reduced(t.clone())?);
+        for (var, t) in vars.iter() {
+          vars_.insert_mut(var.clone(), self._mgu_reduced(t.clone())?);
         }
-        Ok(LTy::Env(idxs_.into(), keys_.into(), idents.clone().into()).into())
+        Ok(LTy::Env(idxs_.into(), vars_.into(), ctx.clone().into()).into())
       }
       &Tyexp::STup(ref elems) => {
         let mut elems_ = Vec::with_capacity(elems.len());
@@ -3596,8 +3767,8 @@ impl LBuilder {
             work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ret.clone(), r_ret.clone())));
             self.solve(root, tenv, work)
           }
-          (&Tyexp::Env(ref l_idxs, ref l_keys, ref l_idents), &Tyexp::Env(ref r_idxs, ref r_keys, ref r_idents)) => {
-            if l_idxs.len() != r_idxs.len() || l_keys.len() != r_keys.len() {
+          (&Tyexp::Env(ref l_idxs, ref l_vars, ref l_ctx), &Tyexp::Env(ref r_idxs, ref r_vars, ref r_ctx)) => {
+            if l_idxs.len() != r_idxs.len() || l_vars.len() != r_vars.len() {
               println!("WARNING: solve: Eq_: env arity mismatch");
               work.unsat.push_back((con.clone(), TyUnsat::EnvArity));
               work.cons.push_back(TyCon::Bot.into());
@@ -3612,19 +3783,19 @@ impl LBuilder {
               }
               work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ty.clone(), r_ty.clone())));
             }
-            for ((l_key, l_ty), (r_key, r_ty)) in l_keys.iter().zip(r_keys.iter()) {
-              if l_key != r_key {
+            for ((l_var, l_ty), (r_var, r_ty)) in l_vars.iter().zip(r_vars.iter()) {
+              if l_var != r_var {
                 println!("WARNING: solve: Eq_: env var key mismatch");
                 work.unsat.push_back((con.clone(), TyUnsat::EnvKey));
                 work.cons.push_back(TyCon::Bot.into());
                 return self.solve(root, tenv, work);
               }
               work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ty.clone(), r_ty.clone())));
-              /*work.cons.push_back(TyConRef::new(TyCon::Eq_(tenv.lookup_var(l_key).into(), l_ty.clone())));
-              work.cons.push_back(TyConRef::new(TyCon::Eq_(tenv.lookup_var(l_key).into(), r_ty.clone())));*/
+              /*work.cons.push_back(TyConRef::new(TyCon::Eq_(tenv.lookup_var(l_var).into(), l_ty.clone())));
+              work.cons.push_back(TyConRef::new(TyCon::Eq_(tenv.lookup_var(l_var).into(), r_ty.clone())));*/
             }
-            for ((l_id, l_key), (r_id, r_key)) in l_idents.iter().zip(r_idents.iter()) {
-              if l_id != r_id || l_key != r_key {
+            for ((l_id, l_var), (r_id, r_var)) in l_ctx.id_to_var.iter().zip(r_ctx.id_to_var.iter()) {
+              if l_id != r_id || l_var != r_var {
                 println!("WARNING: solve: Eq_: env var binding mismatch");
                 work.unsat.push_back((con.clone(), TyUnsat::EnvBinder));
                 work.cons.push_back(TyCon::Bot.into());
@@ -3666,7 +3837,7 @@ impl LBuilder {
             work.cons.push_back(con);
             self.solve(root, tenv, work)
           }
-          &Tyexp::Env(ref tg_idxs, ref tg_keys, ref tg_idents) => {
+          &Tyexp::Env(ref tg_idxs, ref tg_keys, ref tg_ctx) => {
             println!("TRACE: solve: IsAApply: instantiating a new env tyexp");
             let mut adj_doms = Vec::with_capacity(args.len());
             let mut adj_rets = Vec::with_capacity(args.len());
@@ -3711,7 +3882,7 @@ impl LBuilder {
             // TODO: fixup idents.
             let mut app_idxs = tg_idxs.clone();
             let mut app_keys = tg_keys.clone();
-            let mut app_idents = tg_idents.clone();
+            let mut app_ctx = tg_ctx.clone();
             for (adj_idx, &(idx, _, ref ident, _, _)) in args.iter().enumerate().rev() {
               match app_idxs.get(&idx) {
                 //None => unreachable!(),
@@ -3764,12 +3935,12 @@ impl LBuilder {
                     }
                   }
                   if let &LVarBinder::Ident(ref ident) = ident {
-                    app_idents.insert_mut(ident.clone(), key.clone());
+                    app_ctx.bind_ident_mut(ident.clone(), key.clone());
                   }
                 }
               }
             }
-            let new_con = TyConRef::new(TyCon::Eq_(query.clone(), Tyexp::Env(app_idxs, app_keys, app_idents).into()));
+            let new_con = TyConRef::new(TyCon::Eq_(query.clone(), Tyexp::Env(app_idxs, app_keys, app_ctx).into()));
             work.cons.push_back(new_con);
             self.solve(root, tenv, work)
           }
@@ -3787,7 +3958,7 @@ impl LBuilder {
             work.cons.push_back(con);
             self.solve(root, tenv, work)
           }
-          &Tyexp::Env(ref tg_idxs, ref tg_keys, ref tg_idents) => {
+          &Tyexp::Env(ref tg_idxs, ref tg_vars, ref tg_ctx) => {
             println!("TRACE: solve: IsAReturn: instantiating a new env tyexp");
             if !tg_idxs.is_empty() {
               println!("WARNING: solve: IsAReturn: nonempty target index set");
@@ -3797,32 +3968,32 @@ impl LBuilder {
             }
             // TODO: fixup idents.
             let mut ret_idxs = IHTreapMap::default();
-            let mut ret_keys = tg_keys.clone();
-            let mut ret_idents = tg_idents.clone();
-            for &(idx, ref key) in params.iter() {
-              match ret_keys.get(key) {
+            let mut ret_vars = tg_vars.clone();
+            let mut ret_ctx = tg_ctx.clone();
+            for &(idx, ref var) in params.iter() {
+              match ret_vars.get(var) {
                 None => {}
                 Some(val_ty) => {
                   let val_ty = val_ty.clone();
-                  match self.lookup_var(key) {
-                    LVarBinder::Ident(key_ident) => {
-                      match ret_idents.get(&key_ident) {
+                  match self.lookup_var(var) {
+                    LVarBinder::Ident(var_ident) => {
+                      match ret_ctx._lookup_ident(&var_ident) {
                         None => {}
-                        Some(key2) => {
-                          if key == key2 {
-                            ret_idents.remove_mut(&key_ident);
+                        Some(ref var2) => {
+                          if var == var2 {
+                            ret_ctx.unbind_ident_mut(&var_ident);
                           }
                         }
                       }
                     }
                     _ => {}
                   }
-                  ret_keys.remove_mut(key);
+                  ret_vars.remove_mut(var);
                   ret_idxs.insert_mut(idx, val_ty);
                 }
               }
             }
-            let new_con = TyConRef::new(TyCon::Eq_(query.clone(), Tyexp::Env(ret_idxs, ret_keys, ret_idents).into()));
+            let new_con = TyConRef::new(TyCon::Eq_(query.clone(), Tyexp::Env(ret_idxs, ret_vars, ret_ctx).into()));
             work.cons.push_back(new_con);
             self.solve(root, tenv, work)
           }
@@ -3840,15 +4011,15 @@ impl LBuilder {
             work.cons.push_back(con);
             self.solve(root, tenv, work)
           }
-          &Tyexp::Env(ref tg_idxs, ref tg_keys, ref tg_idents) => {
+          &Tyexp::Env(ref tg_idxs, ref tg_keys, ref tg_ctx) => {
             println!("TRACE: solve: IsACons: instantiating a new env tyexp");
             // TODO
             let cons_keys = tg_keys.insert(key_var.clone(), value.clone().into());
-            let cons_idents = match key_ident {
-              LVarBinder::Ident(key_ident) => tg_idents.insert(key_ident.clone(), key_var.clone()),
-              LVarBinder::Anon => tg_idents.clone(),
+            let cons_ctx = match key_ident {
+              LVarBinder::Ident(key_ident) => tg_ctx.bind_ident(key_ident.clone(), key_var.clone()),
+              LVarBinder::Anon => tg_ctx.clone(),
             };
-            let new_con = TyConRef::new(TyCon::Eq_(query.clone(), Tyexp::Env(tg_idxs.clone(), cons_keys, cons_idents).into()));
+            let new_con = TyConRef::new(TyCon::Eq_(query.clone(), Tyexp::Env(tg_idxs.clone(), cons_keys, cons_ctx).into()));
             work.cons.push_back(new_con);
             self.solve(root, tenv, work)
           }
@@ -3875,7 +4046,7 @@ impl LBuilder {
 #[derive(Clone, Debug)]
 pub struct LCtxRef {
   // TODO
-  version:      usize,
+  //version:      usize,
   //tree_version: usize,
   id_to_var:    IHTreapMap<LIdent, LVar>,
   //var_to_depth: IHTreapMap<LVar, usize>,
@@ -3895,7 +4066,7 @@ impl LCtxRef {
 
   pub fn empty() -> LCtxRef {
     LCtxRef{
-      version:      0,
+      //version:      0,
       id_to_var:    Default::default(),
       //var_to_depth: Default::default(),
       //var_stack:    Stack::default(),
@@ -3916,10 +4087,20 @@ impl LCtxRef {
     }
   }
 
-  pub fn bind_mut<Id: Into<LIdent>>(&mut self, ident: Id, var: LVar) {
-    self.id_to_var.insert_mut(ident.into(), var.clone());
+  pub fn bind_ident<Id: Into<LIdent>>(&self, ident: Id, var: LVar) -> LCtxRef {
+    LCtxRef{
+      id_to_var:    self.id_to_var.insert(ident.into(), var),
+    }
+  }
+
+  pub fn bind_ident_mut<Id: Into<LIdent>>(&mut self, ident: Id, var: LVar) {
+    self.id_to_var.insert_mut(ident.into(), var);
     //self.var_to_depth.insert_mut(var.clone(), self.var_stack.size());
     //self.var_stack.push_mut(var);
+  }
+
+  pub fn unbind_ident_mut<Id: Borrow<LIdent>>(&mut self, ident: Id) {
+    self.id_to_var.remove_mut(ident.borrow());
   }
 }
 
@@ -3943,39 +4124,52 @@ impl LFreectxRef {
 }
 
 #[derive(Clone, Default, Debug)]
+pub struct LFreeAdjCtxRef {
+  adj_var:  IHTreapMap<LVar, LVar>,
+}
+
+#[derive(Clone, Default, Debug)]
 struct Env {
   top_ctx:  Option<LCtxRef>,
-  ctxs:     IHTreapMap<LLabel, LCtxRef>,
-  freectxs: IHTreapMap<LLabel, LFreectxRef>,
+  ctx:      IHTreapMap<LLabel, LCtxRef>,
+  free_ctx: IHTreapMap<LLabel, LFreectxRef>,
+  //free_adj: IHTreapMap<LLabel, LFreeAdjCtxRef>,
 }
 
 impl Env {
   fn unsafe_set_ctx<L: Borrow<LLabel>>(&mut self, loc: L, new_ctx: LCtxRef) {
     let label = loc.borrow();
-    self.ctxs.insert_mut(label.clone(), new_ctx);
+    self.ctx.insert_mut(label.clone(), new_ctx);
   }
 
   fn unsafe_set_freectx<L: Borrow<LLabel>>(&mut self, loc: L, new_ctx: LFreectxRef) {
     let label = loc.borrow();
-    self.freectxs.insert_mut(label.clone(), new_ctx);
+    self.free_ctx.insert_mut(label.clone(), new_ctx);
+  }
+
+  pub fn _ctx<L: Borrow<LLabel>>(&self, loc: L) -> Option<LCtxRef> {
+    match self.ctx.get(loc.borrow()) {
+      None => None,
+      Some(ctx) => Some(ctx.clone())
+    }
   }
 
   pub fn ctx<L: Borrow<LLabel>>(&self, loc: L) -> LCtxRef {
-    match self.ctxs.get(loc.borrow()) {
+    match self.ctx.get(loc.borrow()) {
       None => panic!("bug"),
       Some(ctx) => ctx.clone()
     }
   }
 
   pub fn _freectx<L: Borrow<LLabel>>(&self, loc: L) -> Option<LFreectxRef> {
-    match self.freectxs.get(loc.borrow()) {
+    match self.free_ctx.get(loc.borrow()) {
       None => None,
       Some(ctx) => Some(ctx.clone())
     }
   }
 
   pub fn freectx<L: Borrow<LLabel>>(&self, loc: L) -> LFreectxRef {
-    match self.freectxs.get(loc.borrow()) {
+    match self.free_ctx.get(loc.borrow()) {
       None => panic!("bug"),
       Some(ctx) => ctx.clone()
     }
@@ -4007,8 +4201,6 @@ pub struct LTree {
   //history:  Vec<(usize, LDelta)>,
   mindex:   HashMap<LMLabel, usize>,
   index:    HashMap<LLabel, usize>,
-  //ctxs:     HashMap<LLabel, LCtxRef>,
-  //freectxs: HashMap<LLabel, LFreectxRef>,
   //index:    LTreeIndex,
 }
 
@@ -4992,6 +5184,12 @@ impl PrintBox {
             write!(&mut buffer, "${}", var.0)?;
           }
         }
+        writer.write_all(&buffer.into_inner())?;
+        Ok(())
+      }
+      &LTerm::LookupIdent(ref ident) => {
+        let ident_s = builder.lookup_ident(&ident);
+        write!(&mut buffer, "#{}({})", ident.0, ident_s)?;
         writer.write_all(&buffer.into_inner())?;
         Ok(())
       }

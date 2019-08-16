@@ -222,7 +222,7 @@ fn test_lang_let_fun() {
 
 #[test]
 fn test_lang_let_lam() {
-  let lexer = HLexer::new("let f = \\. asdf; 0");
+  let lexer = HLexer::new(r"let f = \ -> asdf; 0");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);
@@ -334,7 +334,7 @@ fn test_lang_let_for_if() {
 
 #[test]
 fn test_lang_match() {
-  let lexer = HLexer::new("match x | 1 => a | tee => b[1,a] | () => \\c. 2*c | _ => \\y, z. match y | 1 => 2 | _ => 1");
+  let lexer = HLexer::new(r"match x | 1 => a | tee => b[1,a] | () => \c -> 2*c | _ => \y, z -> match y | 1 => 2 | _ => 1");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);

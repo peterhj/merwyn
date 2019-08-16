@@ -990,7 +990,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       HLToken::Backslash => {
         let mut params = vec![];
         match self.current_token() {
-          HLToken::Dot => {
+          HLToken::RArrow => {
             self.advance();
           }
           HLToken::PlacePat | HLToken::Ident(_) => {
@@ -1008,7 +1008,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
                     HLToken::Comma => {
                       self.advance();
                     }
-                    HLToken::Dot => {
+                    HLToken::RArrow => {
                       self.advance();
                       break;
                     }
