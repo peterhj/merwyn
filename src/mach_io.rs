@@ -216,12 +216,12 @@ impl<'r> NondetIOFileStream<'r> {
     let mut fd_path_buf = Vec::new();
     {
       let mut fd_path_writer = Cursor::new(&mut fd_path_buf);
-      write!(&mut fd_path_writer, b"/proc/self/fd/{}\0", fd).unwrap();
+      write!(&mut fd_path_writer, "/proc/self/fd/{}\0", fd).unwrap();
     }
     let fd_path_cstr = CStr::from_bytes_with_nul(&fd_path_buf).unwrap();
     let path = {
       let mut path_buf: Vec<u8> = vec![0; 1024];
-      let ret: isize = readlink(fd_path_cstr.as_ptr(), path_buf.as_mut_ptr(), path_buf.len());
+      let ret: isize = readlink(fd_path_cstr.as_ptr(), path_buf.as_mut_ptr() as *mut _, path_buf.len());
       match ret {
         -1 => None,
         n => {
@@ -238,7 +238,7 @@ impl<'r> NondetIOFileStream<'r> {
     let f = unsafe { File::from_raw_fd(fd) };
     let file_len = match f.metadata() {
       Err(_) => None,
-      Ok(meta) => meta.len(),
+      Ok(meta) => Some(meta.len()),
     };
     let fd = f.into_raw_fd();
     state.replay.actions.push_back(IOReplayAction::NondetFromFd(fd, path.clone(), file_len));
