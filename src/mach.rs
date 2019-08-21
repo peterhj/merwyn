@@ -159,15 +159,17 @@ pub enum MKont<E=LExprCell> {
   //EImp(LEnvMask, E, MKontRef),
   //EApp(Vec<(usize, LVar)>, E, MKontRef),
   //ERet(LEnvMask, Vec<(usize, LVar)>, MEnvRef, MKontRef),
+  EImpI1(usize, E, MEnvRef, MKontRef),
   EImpV1(LVar, E, MEnvRef, MKontRef),
   EImpV(IHTreapSet<LVar>, E, MEnvRef, MKontRef),
   EConsIL(usize, E, MEnvRef, MKontRef),
   EConsVL(LVar, E, MEnvRef, MKontRef),
   EPConsIL(usize, LVar, E, MEnvRef, MKontRef),
-  EPopI(usize, LVar, MEnvRef, MKontRef),
+  EPopI1(usize, LVar, MEnvRef, MKontRef),
+  EPopI(Vec<usize>, Vec<(usize, LVar)>, MEnvRef, MKontRef),
   EPopV(Vec<(LVar, usize)>, MEnvRef, MKontRef),
-  ESymmV0(E, MEnvRef, MKontRef),
-  ESymmV1(MEnvRef, MEnvRef, MKontRef),
+  ESymmVl(E, MEnvRef, MKontRef),
+  ESymmVr(MEnvRef, MEnvRef, MKontRef),
   App(Option<MClosure>, Vec<MValRef>, VecDeque<E>, MEnvRef, MKontRef),
   Mch(VecDeque<(LPatRef, E)>, MEnvRef, MKontRef),
   STup(Vec<MValRef>, VecDeque<E>, MEnvRef, MKontRef),
@@ -209,6 +211,10 @@ pub struct MNamedEnvRef {
 }
 
 impl MNamedEnvRef {
+  pub fn lookup_idx(&self, idx: usize) -> Option<MAddr> {
+    self.idxs.get(&idx).map(|thk_a| thk_a.clone())
+  }
+
   pub fn lookup_var(&self, var: &LVar) -> Option<MAddr> {
     self.vars.get(var).map(|thk_a| thk_a.clone())
   }
@@ -444,6 +450,26 @@ impl MachineState {
               kont: prev_kont,
             }
           }
+          MKont::EImpI1(sel_idx, rest, prev_env, prev_kont) => {
+            let val = match Rc::try_unwrap(val) {
+              Ok(val) => val,
+              Err(v) => (*v).clone()
+            };
+            match val {
+              MVal::Env(target) => {
+                let next_env = match target.lookup_idx(sel_idx) {
+                  None => env,
+                  Some(value) => env.bind_idx(sel_idx, value)
+                };
+                MachineTuple{
+                  ctrl: MReg::Term(rest),
+                  kont: MKont::Ret(prev_env, prev_kont).into(),
+                  env:  next_env,
+                }
+              }
+              _ => panic!("machine: bug"),
+            }
+          }
           MKont::EImpV1(sel_var, rest, prev_env, prev_kont) => {
             let val = match Rc::try_unwrap(val) {
               Ok(val) => val,
@@ -546,7 +572,7 @@ impl MachineState {
               _ => panic!("machine: bug"),
             }
           }
-          MKont::EPopI(idx, var, prev_env, prev_kont) => {
+          MKont::EPopI1(idx, var, prev_env, prev_kont) => {
             let val = match Rc::try_unwrap(val) {
               Ok(val) => val,
               Err(v) => (*v).clone()
@@ -557,6 +583,34 @@ impl MachineState {
                   None => {}
                   Some(thk_a) => {
                     target.vars.insert_mut(var, thk_a);
+                  }
+                }
+                let val = MVal::Env(target).into();
+                MachineTuple{
+                  ctrl: MReg::Val(val),
+                  env:  prev_env,
+                  kont: prev_kont,
+                }
+              }
+              _ => panic!("machine: bug"),
+            }
+          }
+          MKont::EPopI(rem_idxs, pop_idxs, prev_env, prev_kont) => {
+            let val = match Rc::try_unwrap(val) {
+              Ok(val) => val,
+              Err(v) => (*v).clone()
+            };
+            match val {
+              MVal::Env(mut target) => {
+                for idx in rem_idxs.into_iter() {
+                  target.idxs.remove_mut(&idx);
+                }
+                for (idx, var) in pop_idxs.into_iter() {
+                  match target.idxs.remove_pop_mut(&idx) {
+                    None => {}
+                    Some(thk_a) => {
+                      target.vars.insert_mut(var, thk_a);
+                    }
                   }
                 }
                 let val = MVal::Env(target).into();
@@ -594,7 +648,7 @@ impl MachineState {
               _ => panic!("machine: bug"),
             }
           }
-          MKont::ESymmV0(rhs, prev_env, prev_kont) => {
+          MKont::ESymmVl(rhs, prev_env, prev_kont) => {
             let val = match Rc::try_unwrap(val) {
               Ok(val) => val,
               Err(v) => (*v).clone()
@@ -603,14 +657,14 @@ impl MachineState {
               MVal::Env(lhs) => {
                 MachineTuple{
                   ctrl: MReg::Term(rhs),
-                  kont: MKont::ESymmV1(lhs, prev_env, prev_kont).into(),
+                  kont: MKont::ESymmVr(lhs, prev_env, prev_kont).into(),
                   env,
                 }
               }
               _ => panic!("machine: bug"),
             }
           }
-          MKont::ESymmV1(mut lhs, prev_env, prev_kont) => {
+          MKont::ESymmVr(mut lhs, prev_env, prev_kont) => {
             let val = match Rc::try_unwrap(val) {
               Ok(val) => val,
               Err(v) => (*v).clone()
@@ -847,6 +901,13 @@ impl MachineState {
               kont,
             }
           }
+          LTerm::EImportIdx(sel_idx, target, rest) => {
+            MachineTuple{
+              ctrl: MReg::Term(exp.jump(target)),
+              kont: MKont::EImpI1(sel_idx, exp.jump(rest), env.clone(), kont.into()).into(),
+              env,
+            }
+          }
           LTerm::EImportVar(sel_var, target, rest) => {
             MachineTuple{
               ctrl: MReg::Term(exp.jump(target)),
@@ -885,7 +946,14 @@ impl MachineState {
           LTerm::EPopIdx(var, idx, target) => {
             MachineTuple{
               ctrl: MReg::Term(exp.jump(target)),
-              kont: MKont::EPopI(var, idx, env.clone(), kont.into()).into(),
+              kont: MKont::EPopI1(var, idx, env.clone(), kont.into()).into(),
+              env,
+            }
+          }
+          LTerm::EPopIdxs(rem_idxs, pop_idxs, target) => {
+            MachineTuple{
+              ctrl: MReg::Term(exp.jump(target)),
+              kont: MKont::EPopI(rem_idxs, pop_idxs, env.clone(), kont.into()).into(),
               env,
             }
           }
@@ -899,7 +967,7 @@ impl MachineState {
           LTerm::ESymmVars(lhs, rhs) => {
             MachineTuple{
               ctrl: MReg::Term(exp.jump(lhs)),
-              kont: MKont::ESymmV0(exp.jump(rhs), env.clone(), kont.into()).into(),
+              kont: MKont::ESymmVl(exp.jump(rhs), env.clone(), kont.into()).into(),
               env,
             }
           }
@@ -1063,6 +1131,48 @@ impl MachineState {
               kont,
             }
           }
+          LTerm::Index(idx) => {
+            let thk_a = match env.lookup_idx(idx) {
+              None => panic!("machine: bug"),
+              Some(a) => a,
+            };
+            let thk = self.store.lookup(&thk_a);
+            match thk.state() {
+              MThunkState::Val => {
+                let val = match &*thk.data.borrow() {
+                  &MThunkData::Val(ref val) => val.clone(),
+                  _ => panic!("machine: bug"),
+                };
+                MachineTuple{
+                  ctrl: MReg::Val(val),
+                  env,
+                  kont,
+                }
+              }
+              MThunkState::Emp => {
+                let (next_env, next_ctrl) = match (thk.env.clone(), thk.code.clone()) {
+                  (Some(thk_env), Some(MCode::Term(term))) => {
+                    (thk_env, MReg::Term(term))
+                  }
+                  (Some(thk_env), Some(MCode::MTerm(mterm))) => {
+                    (thk_env, MReg::MTerm(mterm))
+                  }
+                  _ => panic!("machine: bug"),
+                };
+                MachineTuple{
+                  ctrl: next_ctrl,
+                  env:  next_env,
+                  kont: MKont::Thk(thk_a, env, kont).into(),
+                }
+              }
+              MThunkState::Lck => {
+                panic!("machine: bug");
+              }
+              MThunkState::Dst => {
+                panic!("machine: bug");
+              }
+            }
+          }
           LTerm::Lookup(var) => {
             let thk_a = match env.lookup_var(&var) {
               None => panic!("machine: bug"),
@@ -1112,7 +1222,8 @@ impl MachineState {
               kont,
             }
           }
-          _ => unimplemented!(),
+          //_ => unimplemented!(),
+          t => panic!("machine: unimplemented term: {:?}", t),
         }
       }
       MReg::MTerm(mexp) => {

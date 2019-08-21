@@ -27,7 +27,7 @@ fn test_ty2_example_1() {
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. x2; let df = d[f]; let dy = df[x1]; dy.x1");
-  let lexer = HLexer::new(r"let x1 = 1.0; let x2 = x1; let x3 = 3.0; let f = \t -> x2; let y = f[x1]; let dy = d[y]; dy");
+  let lexer = HLexer::new(r"let x1 = 1.0; let x2 = x1; let x3 = 3.0; let f = \t -> x2; let y = f[x1]; let dy = d[y]; dy.x1");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   let mut builder = LBuilder::default();
@@ -37,6 +37,10 @@ fn test_ty2_example_1() {
   };
   // TODO
   //builder._print(module.tree);
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }
 
 #[test]
@@ -45,7 +49,7 @@ fn test_ty2_example_2() {
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. x2; let df = d[f]; let dy = df[x1]; dy.x1");
-  let lexer = HLexer::new(r"let x1 = 1.0; let x2 = x1; let x3 = 3.0; let f = \t -> t; let y = f[x2]; let dy = d[y]; dy");
+  let lexer = HLexer::new(r"let x1 = 1.0; let x2 = x1; let x3 = 3.0; let f = \t -> t; let y = f[x2]; let dy = d[y]; dy.x2");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   let mut builder = LBuilder::default();
@@ -55,6 +59,10 @@ fn test_ty2_example_2() {
   };
   // TODO
   //builder._print(module.tree);
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }
 
 #[test]
