@@ -243,6 +243,26 @@ impl<K: Ord, V: Clone> HashTreapMap<K, V> {
   }
 }
 
+impl<K: Clone + Ord, V> InlineHashTreapMap<K, V> {
+  pub fn map_values<F: FnMut(&V) -> W, W>(&self, f: &mut F) -> InlineHashTreapMap<K, W> {
+    let new_root = HTNode::map(self.root.clone(), &mut |_, v| f(v));
+    InlineHashTreapMap{
+      root: new_root,
+      _pd:  PhantomData,
+    }
+  }
+}
+
+impl<K: Clone + Ord, V> HashTreapMap<K, V> {
+  pub fn map_values<F: FnMut(&V) -> W, W>(&self, f: &mut F) -> HashTreapMap<K, W> {
+    let new_root = HTNode::map_ref(self.root.clone(), &mut |_, v| f(v));
+    HashTreapMap{
+      root: new_root,
+      _pd:  PhantomData,
+    }
+  }
+}
+
 impl<K: Clone + Ord, V: Clone> InlineHashTreapMap<K, V> {
   pub fn keys(&self) -> InlineHashTreapSet<K> {
     let new_root = HTNode::map(self.root.clone(), &mut |_, _| ());
