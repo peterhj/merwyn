@@ -465,8 +465,8 @@ impl LBuilder {
     if t_work.unsat() {
       return Err(());
     }
-    /*let tree = self._resolve_ctx(tree, &mut env, &mut tenv);*/
-    let tree = self._resolve_tctx(tree, &mut env, &mut tenv);
+    let tree = self._resolve_ctx(tree, &mut env, &mut tenv);
+    /*let tree = self._resolve_tctx(tree, &mut env, &mut tenv);*/
     self._ctx(&tree, top_ctx.clone(), &mut env, &mut tenv);
     self.gen(&tree, &mut env, &mut tenv, &mut t_work);
     self.solve(&tree, /*&mut env,*/ &mut tenv, &mut t_work);
@@ -1490,7 +1490,7 @@ impl LBuilder {
 }
 
 impl LBuilder {
-  /*fn _resolve_ctx(&mut self, tree: LTreeCell, env: &mut Env, tenv: &mut TyEnv) -> LTreeCell {
+  fn _resolve_ctx(&mut self, tree: LTreeCell, env: &mut Env, tenv: &mut TyEnv) -> LTreeCell {
     let new_root = self._resolve_ctx_exp(tree.root(), env, tenv);
     new_root.unsafe_set_self_root();
     LTreeCell{
@@ -1640,7 +1640,7 @@ impl LBuilder {
         panic!("TRACE: _resolve_ctx_exp: unhandled term: {:?}", t);
       }
     }
-  }*/
+  }
 }
 
 impl LBuilder {
@@ -1659,11 +1659,11 @@ impl LBuilder {
         exp
       }
       &LTerm::Break(ref inner) => {
-        let inner = self._resolve_ctx_exp(exp.lookup(inner), env, tenv);
+        let inner = self._resolve_tctx_exp(exp.lookup(inner), env, tenv);
         exp.append(self, &mut |_| LTerm::Break(inner.loc()))
       }
       &LTerm::Return(ref inner) => {
-        let inner = self._resolve_ctx_exp(exp.lookup(inner), env, tenv);
+        let inner = self._resolve_tctx_exp(exp.lookup(inner), env, tenv);
         exp.append(self, &mut |_| LTerm::Return(inner.loc()))
       }
       &LTerm::EnvIdxs(_) |
@@ -1677,14 +1677,14 @@ impl LBuilder {
         exp
       }
       &LTerm::PtlD(ref target) => {
-        let target = self._resolve_ctx_exp(exp.lookup(target), env, tenv);
+        let target = self._resolve_tctx_exp(exp.lookup(target), env, tenv);
         exp.append(self, &mut |_| LTerm::PtlD(target.loc()))
       }
       &LTerm::Apply(ref head, ref args) => {
-        let head = self._resolve_ctx_exp(exp.lookup(head), env, tenv);
+        let head = self._resolve_tctx_exp(exp.lookup(head), env, tenv);
         let mut args_ = Vec::with_capacity(args.len());
         for arg in args.iter() {
-          let arg = self._resolve_ctx_exp(exp.lookup(arg), env, tenv);
+          let arg = self._resolve_tctx_exp(exp.lookup(arg), env, tenv);
           args_.push(arg.loc());
         }
         exp.append(self, &mut |_| LTerm::Apply(
@@ -1693,7 +1693,7 @@ impl LBuilder {
         ))
       }
       &LTerm::Lambda(ref params, ref body) => {
-        let body = self._resolve_ctx_exp(exp.lookup(body), env, tenv);
+        let body = self._resolve_tctx_exp(exp.lookup(body), env, tenv);
         exp.append(self, &mut |_| LTerm::Lambda(
             params.clone(),
             body.loc()
@@ -1703,8 +1703,8 @@ impl LBuilder {
         unimplemented!();
       }
       /*&LTerm::Alt(ref ident, ref var, ref ty, ref body, ref rest) => {
-        let body = self._resolve_ctx_exp(exp.lookup(body), env, tenv);
-        let rest = self._resolve_ctx_exp(exp.lookup(rest), env, tenv);
+        let body = self._resolve_tctx_exp(exp.lookup(body), env, tenv);
+        let rest = self._resolve_tctx_exp(exp.lookup(rest), env, tenv);
         exp.append(self, &mut |_| LTerm::Alt(
             ident.clone(),
             var.clone(),
@@ -1728,8 +1728,8 @@ impl LBuilder {
         }*/
       }
       &LTerm::Let(ref var, ref body, ref rest) => {
-        let body = self._resolve_ctx_exp(exp.lookup(body), env, tenv);
-        let rest = self._resolve_ctx_exp(exp.lookup(rest), env, tenv);
+        let body = self._resolve_tctx_exp(exp.lookup(body), env, tenv);
+        let rest = self._resolve_tctx_exp(exp.lookup(rest), env, tenv);
         exp.append(self, &mut |_| LTerm::Let(
             var.clone(),
             body.loc(),
@@ -1737,10 +1737,10 @@ impl LBuilder {
         ))
       }
       &LTerm::Match(ref query, ref pat_arms) => {
-        let query = self._resolve_ctx_exp(exp.lookup(query), env, tenv);
+        let query = self._resolve_tctx_exp(exp.lookup(query), env, tenv);
         let mut pat_arms_ = Vec::with_capacity(pat_arms.len());
         for (ref pat, ref arm) in pat_arms.iter() {
-          let arm = self._resolve_ctx_exp(exp.lookup(arm), env, tenv);
+          let arm = self._resolve_tctx_exp(exp.lookup(arm), env, tenv);
           pat_arms_.push((pat.clone(), arm.loc()));
         }
         exp.append(self, &mut |_| LTerm::Match(
@@ -1754,7 +1754,7 @@ impl LBuilder {
       &LTerm::STuple(ref elems) => {
         let mut elems_ = Vec::with_capacity(elems.len());
         for elem in elems.iter() {
-          let elem = self._resolve_ctx_exp(exp.lookup(elem), env, tenv);
+          let elem = self._resolve_tctx_exp(exp.lookup(elem), env, tenv);
           elems_.push(elem.loc());
         }
         exp.append(self, &mut |_| LTerm::STuple(elems_.clone()))
@@ -1791,21 +1791,21 @@ impl LBuilder {
         }
       }
       &LTerm::ProjectIdx(ref target, idx) => {
-        let target = self._resolve_ctx_exp(exp.lookup(target), env, tenv);
+        let target = self._resolve_tctx_exp(exp.lookup(target), env, tenv);
         exp.append(self, &mut |_| LTerm::ProjectIdx(
             target.loc(),
             idx
         ))
       }
       &LTerm::ProjectVar(ref target, ref var) => {
-        let target = self._resolve_ctx_exp(exp.lookup(target), env, tenv);
+        let target = self._resolve_tctx_exp(exp.lookup(target), env, tenv);
         exp.append(self, &mut |_| LTerm::ProjectVar(
             target.loc(),
             var.clone()
         ))
       }
       &LTerm::ProjectIdent(ref target, ref ident) => {
-        let target = self._resolve_ctx_exp(exp.lookup(target), env, tenv);
+        let target = self._resolve_tctx_exp(exp.lookup(target), env, tenv);
         exp.append(self, &mut |_| LTerm::ProjectIdent(
             target.loc(),
             ident.clone()
@@ -1816,7 +1816,7 @@ impl LBuilder {
       }
       //_ => unimplemented!(),
       t => {
-        panic!("TRACE: _resolve_ctx_exp: unhandled term: {:?}", t);
+        panic!("TRACE: _resolve_tctx_exp: unhandled term: {:?}", t);
       }
       _ => unimplemented!(),
     }
@@ -4915,14 +4915,14 @@ impl LTreeCell {
     for var in ctx.var_stack.iter() {
       let v = match tenv._lookup_var(var) {
         None => {
-          //println!("DEBUG: resolve_ctx: no tvar");
+          //println!("DEBUG: resolve_tctx: no tvar");
           return None;
         }
         Some(v) => v,
       };
       match tenv.mgu_tvar(v.clone()) {
         None => {
-          //println!("DEBUG: resolve_ctx: no mgu");
+          //println!("DEBUG: resolve_tctx: no mgu");
           return None;
         }
         Some((w, ty)) => {
