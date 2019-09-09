@@ -29,7 +29,7 @@ lexer! {
   r#"adj"#          => HLToken::Adj,
   r#"tng"#          => HLToken::Tng,
   r#"alt"#          => HLToken::Alt,
-  r#"alternate"#    => HLToken::Alternate,
+  //r#"alternate"#    => HLToken::Alt,
   r#"const"#        => HLToken::Const,
   r#"export"#       => HLToken::Export,
   r#"def"#          => HLToken::Def,
@@ -88,6 +88,7 @@ lexer! {
   r#"\+\."#         => HLToken::PlusDot,
   r#"\+"#           => HLToken::Plus,
   //r#"-:"#           => HLToken::Then,
+  r#"-o"#           => HLToken::ROArrow,
   r#"->"#           => HLToken::RArrow,
   r#"-:"#           => HLToken::DashColon,
   r#"-\."#          => HLToken::DashDot,
@@ -110,18 +111,19 @@ lexer! {
   r#"\}"#           => HLToken::RCurly,
 
   r#"_"#            => HLToken::PlacePat,
-  r#"unit"#         => HLToken::UnitLit,
-  r#"tee"#          => HLToken::TeeLit,
-  r#"bot"#          => HLToken::BotLit,
 
   r#"'_"#           => HLToken::PlaceTy,
   r#"'\?"#          => HLToken::TopTy,
-  r#"Bit"#          => HLToken::BitTylit,
-  r#"Int"#          => HLToken::IntTylit,
-  r#"Flp"#          => HLToken::FlpTylit,
-  //r#"Flp16"#        => HLToken::Flp16Tylit,
-  //r#"Flp32"#        => HLToken::Flp32Tylit,
-  //r#"Fmp"#          => HLToken::FmpTylit,
+  r#"Bit"#          => HLToken::BitTy,
+  r#"Int"#          => HLToken::IntTy,
+  r#"Flp"#          => HLToken::FlpTy,
+  //r#"Flp16"#        => HLToken::Flp16Ty,
+  //r#"Flp32"#        => HLToken::Flp32Ty,
+  //r#"Fmp"#          => HLToken::FmpTy,
+
+  r#"unit"#         => HLToken::UnitLit,
+  r#"tee"#          => HLToken::TeeLit,
+  r#"bot"#          => HLToken::BotLit,
 
   //r#"[0-9]+\.[0-9]*[fp16]"# => HLToken::Flp16Lit(text[ .. text.len() - 1].parse().unwrap()),
   //r#"[0-9]+\.[0-9]*[fp32]"# => HLToken::Flp32Lit(text[ .. text.len() - 1].parse().unwrap()),
@@ -134,6 +136,8 @@ lexer! {
 
   r#"[a-zA-Z_][a-zA-Z0-9_]*[']*"#   => HLToken::Ident(text.to_owned()),
   r#"`[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::InfixIdent(text.to_owned()),
+  r#"\?[a-zA-Z_][a-zA-Z0-9_]*[']*"# => HLToken::ImplicitIdent(text.to_owned()),
+  r#"\?[0-9]+"#                     => HLToken::ImplicitIndex(text.parse().unwrap()),
   r#"'[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::TyvarIdent(text.to_owned()),
   r#"\~[A-Za-z0-9/\+]+[=]*"#        => HLToken::CrypticIdent(text.to_owned()),
   r#"@[a-z0-9\-\.]+[:][a-z0-9\-]+"# => HLToken::UseIdent(text.to_owned()),
@@ -171,7 +175,6 @@ pub enum HLToken {
   Def,
   Let,
   Alt,
-  Alternate,
   Generic,
   Const,
   Rec,
@@ -220,6 +223,7 @@ pub enum HLToken {
   RArrow,
   RDArrow,
   RDDArrow,
+  ROArrow,
   RPipe,
   Star,
   StarDot,
@@ -239,6 +243,12 @@ pub enum HLToken {
   LCurly,
   RCurly,
   PlacePat,
+  PlaceTy,
+  TopTy,
+  BitTy,
+  IntTy,
+  FlpTy,
+  TyvarIdent(String),
   UnitLit,
   NilSTupLit,
   NilTupLit,
@@ -248,14 +258,10 @@ pub enum HLToken {
   FlpLit(f64),
   Ident(String),
   InfixIdent(String),
+  ImplicitIdent(String),
+  ImplicitIndex(i64),
   CrypticIdent(String),
   UseIdent(String),
-  PlaceTy,
-  TopTy,
-  BitTylit,
-  IntTylit,
-  FlpTylit,
-  TyvarIdent(String),
   _Eof,
   _Err,
 }
@@ -334,9 +340,13 @@ pub struct HLetDecorators {
 pub enum HTypat {
   TopTy,
   PlaceTy,
-  Ident(String),
   Tyvar(String),
-  Tyfun(Vec<Rc<HTypat>>, Rc<HTypat>),
+  FunTy(Vec<Rc<HTypat>>, Rc<HTypat>),
+  BitTy,
+  IntTy,
+  FlpTy,
+  UnitTy,
+  Ident(String),
 }
 
 #[derive(Clone, Debug)]
@@ -360,6 +370,7 @@ pub enum HExpr {
   Tng(Rc<HExpr>),
   AdjDyn(Rc<HExpr>),
   Const(Rc<HExpr>),
+  Alt(Option<HLetDecorators>, Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   Let(Option<HLetDecorators>, Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   //LetFun(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
   //LetMatch(Rc<HExpr>, Rc<HExpr>, Rc<HExpr>),
@@ -391,6 +402,12 @@ pub enum HExpr {
   Cons(Rc<HExpr>, Rc<HExpr>),
   Concat(Rc<HExpr>, Rc<HExpr>),
   PlacePat,
+  /*BitTy,
+  IntTy,
+  FlpTy,
+  Tyvar(String),
+  FunTy(Vec<Rc<HTypat>>, Rc<HTypat>),*/
+  Typat(Rc<HTypat>),
   UnitLit,
   NilSTupLit,
   NilTupLit,
@@ -405,8 +422,7 @@ pub enum HExpr {
   PathLookup(Rc<HExpr>, String),
   PathELookup(Rc<HExpr>, Rc<HExpr>),
   //KeyLookup(Rc<HExpr>, String),
-  Tyvar(String),
-  Tyfun(Rc<HExpr>, Rc<HExpr>),
+  //Arrow(Rc<HExpr>, Rc<HExpr>),
 }
 
 pub struct HParser<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)>> {
@@ -721,7 +737,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
         let e = self.expression(0)?;
         Ok(HExpr::Const(Rc::new(e)))
       }
-      HLToken::Pub => {
+      /*HLToken::Pub => {
         match self.current_token() {
           HLToken::Let => {}
           _ => panic!(),
@@ -734,6 +750,46 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           }
           _ => panic!(),
         })
+      }*/
+      HLToken::Alt => {
+        let mut maybe_decos: Option<HLetDecorators> = None;
+        loop {
+          match self.current_token() {
+            HLToken::Rec => {
+              let mut decos = maybe_decos.unwrap_or_default();
+              decos.rec = true;
+              maybe_decos = Some(decos);
+              self.advance();
+            }
+            _ => break,
+          }
+        }
+        let e1_lhs = self.expression(0)?;
+        match self.current_token() {
+          HLToken::Colon => {
+            self.advance();
+          }
+          _ => panic!(),
+        }
+        let ty_e = self.expression(0)?;
+        let mut decos = maybe_decos.unwrap_or_default();
+        decos.ty = Some(Rc::new(ty_e));
+        maybe_decos = Some(decos);
+        match self.current_token() {
+          HLToken::Equals => {
+            self.advance();
+          }
+          _ => panic!(),
+        }
+        let e1_rhs = self.expression(0)?;
+        match self.current_token() {
+          HLToken::In | HLToken::Semi => {
+            self.advance();
+          }
+          _ => panic!(),
+        }
+        let e2 = self.expression(0)?;
+        Ok(HExpr::Alt(maybe_decos, Rc::new(e1_lhs), Rc::new(e1_rhs), Rc::new(e2)))
       }
       HLToken::Let => {
         let mut maybe_decos: Option<HLetDecorators> = None;
@@ -1029,7 +1085,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
         Ok(HExpr::Neg(Rc::new(right)))
       }
       // FIXME: combine tylam case w/ new s-tuple case.
-      /*HLToken::LBrack => {
+      HLToken::LBrack => {
         let mut arg_typats = Vec::new();
         loop {
           match self.current_token() {
@@ -1037,9 +1093,39 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
               self.advance();
               break;
             }
-            HLToken::TopTy => {
+            HLToken::BitTy => {
               self.advance();
-              arg_typats.push(Rc::new(HTypat::TopLit));
+              arg_typats.push(Rc::new(HTypat::BitTy));
+              match self.current_token() {
+                HLToken::Comma => {
+                  self.advance();
+                  continue;
+                }
+                HLToken::RBrack => {
+                  self.advance();
+                  break;
+                }
+                _ => panic!(),
+              }
+            }
+            HLToken::IntTy => {
+              self.advance();
+              arg_typats.push(Rc::new(HTypat::IntTy));
+              match self.current_token() {
+                HLToken::Comma => {
+                  self.advance();
+                  continue;
+                }
+                HLToken::RBrack => {
+                  self.advance();
+                  break;
+                }
+                _ => panic!(),
+              }
+            }
+            HLToken::FlpTy => {
+              self.advance();
+              arg_typats.push(Rc::new(HTypat::FlpTy));
               match self.current_token() {
                 HLToken::Comma => {
                   self.advance();
@@ -1068,7 +1154,9 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
               }
             }
             HLToken::TyvarIdent(name) => {
-              self.advance();
+              // TODO
+              unimplemented!();
+              /*self.advance();
               arg_typats.push(Rc::new(HTypat::Tyvar(name)));
               match self.current_token() {
                 HLToken::Comma => {
@@ -1080,7 +1168,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
                   break;
                 }
                 _ => panic!(),
-              }
+              }*/
             }
             tok => panic!("TRACE: unhandled token: {:?}", tok),
           }
@@ -1092,6 +1180,18 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           _ => panic!(),
         }
         let ret_typat = match self.current_token() {
+          HLToken::BitTy => {
+            self.advance();
+            Rc::new(HTypat::BitTy)
+          }
+          HLToken::IntTy => {
+            self.advance();
+            Rc::new(HTypat::IntTy)
+          }
+          HLToken::FlpTy => {
+            self.advance();
+            Rc::new(HTypat::FlpTy)
+          }
           HLToken::Ident(name) => {
             self.advance();
             Rc::new(HTypat::Ident(name))
@@ -1102,8 +1202,8 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
           }
           _ => panic!(),
         };
-        Ok(HExpr::Tyfun(arg_typats, ret_typat))
-      }*/
+        Ok(HExpr::Typat(HTypat::FunTy(arg_typats, ret_typat).into()))
+      }
       HLToken::LParenBar => {
         self.advance();
         let mut elems = Vec::new();
@@ -1170,6 +1270,15 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
       HLToken::PlacePat => {
         Ok(HExpr::PlacePat)
       }
+      HLToken::BitTy => {
+        Ok(HExpr::Typat(HTypat::BitTy.into()))
+      }
+      HLToken::IntTy => {
+        Ok(HExpr::Typat(HTypat::IntTy.into()))
+      }
+      HLToken::FlpTy => {
+        Ok(HExpr::Typat(HTypat::FlpTy.into()))
+      }
       HLToken::UnitLit => {
         Ok(HExpr::UnitLit)
       }
@@ -1203,7 +1312,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
         Ok(HExpr::UseIdent(name))
       }
       HLToken::TyvarIdent(name) => {
-        Ok(HExpr::Tyvar(name))
+        Ok(HExpr::Typat(HTypat::Tyvar(name).into()))
       }
       _ => {
         Err(())
@@ -1239,10 +1348,10 @@ impl<'src, Toks: Iterator<Item=(HLToken, Option<&'src str>)> + Clone> HParser<'s
         let right = self.expression(self.lbp(&tok))?;
         Ok(HExpr::Alias(Rc::new(left), Rc::new(right)))
       }
-      HLToken::RArrow => {
+      /*HLToken::RArrow => {
         let right = self.expression(self.lbp(&tok))?;
-        Ok(HExpr::Tyfun(Rc::new(left), Rc::new(right)))
-      }
+        Ok(HExpr::Arrow(Rc::new(left), Rc::new(right)))
+      }*/
       HLToken::PlusPlus => {
         let right = self.expression(self.lbp(&tok) - 1)?;
         Ok(HExpr::Concat(Rc::new(left), Rc::new(right)))

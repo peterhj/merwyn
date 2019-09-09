@@ -128,6 +128,28 @@ impl ReplInterpreter {
     }
   }
 
+  fn write_usage(&mut self) {
+  }
+
+  fn write_help(&mut self) {
+    writeln!(&mut self.info_fd, "(** ").unwrap();
+    //writeln!(&mut self.info_fd, "").unwrap();
+    writeln!(&mut self.info_fd, "Usage: `merwyni [-v|-verbose] [<src.merwyn>]`").unwrap();
+    writeln!(&mut self.info_fd, "").unwrap();
+    writeln!(&mut self.info_fd, "\t-v -verbose\t").unwrap();
+    writeln!(&mut self.info_fd, "\t<src.merwyn>\tPath to the source of the").unwrap();
+    writeln!(&mut self.info_fd, "\t\t\tinitial user module").unwrap();
+    writeln!(&mut self.info_fd, "").unwrap();
+    writeln!(&mut self.info_fd, "General Commands").unwrap();
+    writeln!(&mut self.info_fd, "\t:? :h :help \tShow this help message").unwrap();
+    writeln!(&mut self.info_fd, "\t:q :quit    \tQuit repl").unwrap();
+    //writeln!(&mut self.info_fd, "\t:               repeat the previous command").unwrap();
+    writeln!(&mut self.info_fd, "").unwrap();
+    writeln!(&mut self.info_fd, "Programming").unwrap();
+    writeln!(&mut self.info_fd, "\t<expr>      \tEvaluate the expression <expr>").unwrap();
+    writeln!(&mut self.info_fd, "*)").unwrap();
+  }
+
   pub fn runloop(mut self) {
     writeln!(&mut self.info_fd,
         "(** Merwyn | git:{}..{} | {}{} | :? for help *)",
@@ -155,23 +177,7 @@ impl ReplInterpreter {
         Ok(ReplLine::Command(cmd_buf)) => {
           match &cmd_buf as &str {
             "?" | "h" | "help" => {
-              writeln!(&mut self.info_fd, "(** ").unwrap();
-              //writeln!(&mut self.info_fd, "").unwrap();
-              writeln!(&mut self.info_fd, "Usage: `merwyni [-no-toplevel] [<src.merwyn>]`").unwrap();
-              writeln!(&mut self.info_fd, "").unwrap();
-              writeln!(&mut self.info_fd, "\t-no-toplevel\tDo not include the default").unwrap();
-              writeln!(&mut self.info_fd, "\t\t\ttoplevel module").unwrap();
-              writeln!(&mut self.info_fd, "\t<src.merwyn>\tPath to the source of the").unwrap();
-              writeln!(&mut self.info_fd, "\t\t\tinitial user module").unwrap();
-              writeln!(&mut self.info_fd, "").unwrap();
-              writeln!(&mut self.info_fd, "General Commands").unwrap();
-              writeln!(&mut self.info_fd, "\t:? :h :help \tShow this help message").unwrap();
-              writeln!(&mut self.info_fd, "\t:q :quit    \tQuit repl").unwrap();
-              //writeln!(&mut self.info_fd, "\t:               repeat the previous command").unwrap();
-              writeln!(&mut self.info_fd, "").unwrap();
-              writeln!(&mut self.info_fd, "Programming").unwrap();
-              writeln!(&mut self.info_fd, "\t<expr>      \tEvaluate the expression <expr>").unwrap();
-              writeln!(&mut self.info_fd, "*)").unwrap();
+              self.write_help();
               self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
             }
             "q" | "quit" => {

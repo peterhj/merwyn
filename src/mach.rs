@@ -126,6 +126,7 @@ pub struct MUnsafeCLamTerm {
 
 #[derive(Clone)]
 pub enum MReg {
+  Addr(MAddr),
   Val(MValRef),
   Term(LExprCell),
   MTerm(LMExprCell),
@@ -420,6 +421,44 @@ impl MachineState {
   fn _step(&mut self, tuple: MachineTuple) -> MachineTuple {
     let MachineTuple{ctrl, env, kont} = tuple;
     let next_tuple = match ctrl {
+      MReg::Addr(thk_a) => {
+        let thk = self.store.lookup(&thk_a);
+        match thk.state() {
+          MThunkState::Val => {
+            let val = match &*thk.data.borrow() {
+              &MThunkData::Val(ref val) => val.clone(),
+              _ => panic!("machine: bug"),
+            };
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env,
+              kont,
+            }
+          }
+          MThunkState::Emp => {
+            let (next_env, next_ctrl) = match (thk.env.clone(), thk.code.clone()) {
+              (Some(thk_env), Some(MCode::Term(term))) => {
+                (thk_env, MReg::Term(term))
+              }
+              (Some(thk_env), Some(MCode::MTerm(mterm))) => {
+                (thk_env, MReg::MTerm(mterm))
+              }
+              _ => panic!("machine: bug"),
+            };
+            MachineTuple{
+              ctrl: next_ctrl,
+              env:  next_env,
+              kont: MKont::Thk(thk_a, env, kont).into(),
+            }
+          }
+          MThunkState::Lck => {
+            panic!("machine: bug");
+          }
+          MThunkState::Dst => {
+            panic!("machine: bug");
+          }
+        }
+      }
       MReg::Val(val) => {
         let kont = match Rc::try_unwrap(kont) {
           Ok(kont) => kont,
@@ -1136,83 +1175,21 @@ impl MachineState {
               None => panic!("machine: bug"),
               Some(a) => a,
             };
-            let thk = self.store.lookup(&thk_a);
-            match thk.state() {
-              MThunkState::Val => {
-                let val = match &*thk.data.borrow() {
-                  &MThunkData::Val(ref val) => val.clone(),
-                  _ => panic!("machine: bug"),
-                };
-                MachineTuple{
-                  ctrl: MReg::Val(val),
-                  env,
-                  kont,
-                }
-              }
-              MThunkState::Emp => {
-                let (next_env, next_ctrl) = match (thk.env.clone(), thk.code.clone()) {
-                  (Some(thk_env), Some(MCode::Term(term))) => {
-                    (thk_env, MReg::Term(term))
-                  }
-                  (Some(thk_env), Some(MCode::MTerm(mterm))) => {
-                    (thk_env, MReg::MTerm(mterm))
-                  }
-                  _ => panic!("machine: bug"),
-                };
-                MachineTuple{
-                  ctrl: next_ctrl,
-                  env:  next_env,
-                  kont: MKont::Thk(thk_a, env, kont).into(),
-                }
-              }
-              MThunkState::Lck => {
-                panic!("machine: bug");
-              }
-              MThunkState::Dst => {
-                panic!("machine: bug");
-              }
+            MachineTuple{
+              ctrl: MReg::Addr(thk_a),
+              env,
+              kont,
             }
           }
-          LTerm::Lookup(var) => {
+          LTerm::LookupVar(var) => {
             let thk_a = match env.lookup_var(&var) {
               None => panic!("machine: bug"),
               Some(a) => a,
             };
-            let thk = self.store.lookup(&thk_a);
-            match thk.state() {
-              MThunkState::Val => {
-                let val = match &*thk.data.borrow() {
-                  &MThunkData::Val(ref val) => val.clone(),
-                  _ => panic!("machine: bug"),
-                };
-                MachineTuple{
-                  ctrl: MReg::Val(val),
-                  env,
-                  kont,
-                }
-              }
-              MThunkState::Emp => {
-                let (next_env, next_ctrl) = match (thk.env.clone(), thk.code.clone()) {
-                  (Some(thk_env), Some(MCode::Term(term))) => {
-                    (thk_env, MReg::Term(term))
-                  }
-                  (Some(thk_env), Some(MCode::MTerm(mterm))) => {
-                    (thk_env, MReg::MTerm(mterm))
-                  }
-                  _ => panic!("machine: bug"),
-                };
-                MachineTuple{
-                  ctrl: next_ctrl,
-                  env:  next_env,
-                  kont: MKont::Thk(thk_a, env, kont).into(),
-                }
-              }
-              MThunkState::Lck => {
-                panic!("machine: bug");
-              }
-              MThunkState::Dst => {
-                panic!("machine: bug");
-              }
+            MachineTuple{
+              ctrl: MReg::Addr(thk_a),
+              env,
+              kont,
             }
           }
           LTerm::MX(mterm) => {

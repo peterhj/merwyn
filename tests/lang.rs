@@ -44,6 +44,14 @@ fn test_lang_alias() {
 }
 
 #[test]
+fn test_lang_alt() {
+  let lexer = HLexer::new(r"alt f: [Flp, Int] -> Flp = \x, k -> x in f[y]");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  println!("{:?}", htree);
+}
+
+#[test]
 fn test_lang_concat() {
   let lexer = HLexer::new("x ++ y");
   let parser = HParser::new(lexer);
@@ -244,13 +252,13 @@ fn test_lang_let_tup() {
   println!("{:?}", htree);
 }
 
-#[test]
+/*#[test]
 fn test_lang_let_pub() {
   let lexer = HLexer::new("pub let asdf[x] = 1; 0");
   let parser = HParser::new(lexer);
   let htree = parser.parse();
   println!("{:?}", htree);
-}
+}*/
 
 #[test]
 fn test_lang_let_rec() {

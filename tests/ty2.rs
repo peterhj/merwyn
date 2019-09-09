@@ -5,7 +5,39 @@ use merwyn::lang::{HLexer, HParser};
 use merwyn::mach::{Machine, MValUnpack};
 
 #[test]
-fn test_ty2_example_0() {
+fn test_ty2_anno_0() {
+  println!();
+  let lexer = HLexer::new(r"let x: Flp = 1.0; x");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  let mut builder = LBuilder::default();
+  let module = match builder._compile(htree, LCtxRef::default(), LTyctxRef::default()) {
+    Err(_) => panic!(),
+    Ok(module) => module,
+  };
+  // TODO
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
+}
+
+#[should_panic]
+#[test]
+fn test_ty2_anno_0_fails() {
+  println!();
+  let lexer = HLexer::new(r"let x: Int = 1.0; x");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse();
+  let mut builder = LBuilder::default();
+  let module = match builder._compile(htree, LCtxRef::default(), LTyctxRef::default()) {
+    Err(_) => panic!(),
+    Ok(module) => module,
+  };
+}
+
+#[test]
+fn test_ty2_deriv_0() {
   println!();
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
@@ -22,7 +54,7 @@ fn test_ty2_example_0() {
 }
 
 #[test]
-fn test_ty2_example_1() {
+fn test_ty2_deriv_1() {
   println!();
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
@@ -44,7 +76,7 @@ fn test_ty2_example_1() {
 }
 
 #[test]
-fn test_ty2_example_2() {
+fn test_ty2_deriv_2() {
   println!();
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
@@ -66,7 +98,7 @@ fn test_ty2_example_2() {
 }
 
 #[test]
-fn test_ty2_example_3() {
+fn test_ty2_deriv_3() {
   println!();
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
@@ -91,7 +123,7 @@ fn test_ty2_example_3() {
 
 #[should_panic]
 #[test]
-fn test_ty2_example_3_fails() {
+fn test_ty2_deriv_3_fails() {
   println!();
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
@@ -115,7 +147,7 @@ fn test_ty2_example_3_fails() {
 }
 
 #[test]
-fn test_ty2_example_4() {
+fn test_ty2_deriv_4() {
   println!();
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
@@ -139,7 +171,7 @@ fn test_ty2_example_4() {
 }
 
 #[test]
-fn test_ty2_example_5() {
+fn test_ty2_deriv_5() {
   println!();
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = (adj y)[1.0]; dy.x1");
   //let lexer = HLexer::new("let x1 = 1.0; let x2 = 2.0; let x3 = 3.0; let f = \\t. t + x2; let y = x1 + f[x1]; let dy = d[y]; dy.x1");
@@ -163,7 +195,7 @@ fn test_ty2_example_5() {
 }
 
 #[test]
-fn test_ty2_example_6() {
+fn test_ty2_deriv_6() {
   println!();
   let lexer = HLexer::new(r"let x = 3.0; let n = 5; let f = \t, k -> match k | 0 => t | _ => t; let y = f[x, n]; let dy = d[y]; dy.x");
   let parser = HParser::new(lexer);
@@ -183,7 +215,7 @@ fn test_ty2_example_6() {
 
 /*// TODO
 #[test]
-fn test_ty2_example_7() {
+fn test_ty2_deriv_7() {
   println!();
   let lexer = HLexer::new(r"let x1 = 1.0; let x2 = 2.0; let n = 5; let f = \t, k -> match k | 0 => t | _ => x2; let y = f[x1, n]; let dy = d[y]; dy.x2");
   let parser = HParser::new(lexer);
