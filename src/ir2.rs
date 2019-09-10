@@ -729,7 +729,7 @@ impl LBuilder {
             let name_ident = self.lookup_or_fresh_name(name);
             let name_var = self.fresh_ident_var(name_ident.clone());
             /*tenv.annotate_var(&name_var, ty.to_texp());*/
-            rest_ctx.bind_ident_mut(name_ident.clone(), name_var.clone());
+            rest_ctx.bind_ident_alt_mut(name_ident.clone(), name_var.clone());
             let body = self._lower2_exp(root.clone(), body_ctx, body.clone(), env, tenv);
             let rest = self._lower2_exp(root.clone(), rest_ctx, rest.clone(), env, tenv);
             root.append(self, &mut |_| LTerm::Alt(
@@ -4170,6 +4170,10 @@ impl LBuilder {
       &LTerm::TngD(ref _target) => {
         unimplemented!();
       }
+      &LTerm::Alt(..) => {
+        // TODO
+        unimplemented!();
+      }
       &LTerm::Let(ref name, ref body, ref rest) => {
         let mut rest_tctx = tctx.clone();
         let name_v = rest_tctx.bind_var_mut(name, tenv);
@@ -4661,11 +4665,18 @@ impl LBuilder {
 }
 
 #[derive(Clone, Debug)]
+pub enum LVarAlts {
+  Var(LVar),
+  Any(IHTreapSet<LVar>),
+}
+
+#[derive(Clone, Debug)]
 pub struct LCtxRef {
   // TODO
   //version:      usize,
   //tree_version: usize,
   id_to_var:    IHTreapMap<LIdent, LVar>,
+  id_to_alts:   IHTreapMap<LIdent, LVarAlts>,
   //var_to_depth: IHTreapMap<LVar, usize>,
   //var_stack:    Stack<LVar>,
 }
@@ -4685,6 +4696,7 @@ impl LCtxRef {
     LCtxRef{
       //version:      0,
       id_to_var:    Default::default(),
+      id_to_alts:   Default::default(),
       //var_to_depth: Default::default(),
       //var_stack:    Stack::default(),
     }
@@ -4704,9 +4716,45 @@ impl LCtxRef {
     }
   }
 
+  pub fn _lookup_ident_alts<Id: Borrow<LIdent>>(&self, ident: Id) -> Option<LVarAlts> {
+    match self.id_to_alts.get(ident.borrow()) {
+      None => None,
+      Some(alts) => Some(alts.clone()),
+    }
+  }
+
+  pub fn lookup_ident_alts<Id: Borrow<LIdent>>(&self, ident: Id) -> LVarAlts {
+    match self.id_to_alts.get(ident.borrow()) {
+      None => panic!(),
+      Some(alts) => alts.clone(),
+    }
+  }
+
   pub fn bind_ident<Id: Into<LIdent>>(&self, ident: Id, var: LVar) -> LCtxRef {
     LCtxRef{
       id_to_var:    self.id_to_var.insert(ident.into(), var),
+      id_to_alts:   self.id_to_alts.clone(),
+    }
+  }
+
+  pub fn bind_ident_alt<Id: Into<LIdent>>(&self, ident: Id, var: LVar) -> LCtxRef {
+    // TODO
+    let ident = ident.into();
+    let id_to_alts = match self.id_to_alts.get(&ident) {
+      None |
+      Some(LVarAlts::Var(_)) => {
+        let mut vars = IHTreapSet::default();
+        vars.insert_mut(var);
+        self.id_to_alts.insert(ident, LVarAlts::Any(vars))
+      }
+      Some(LVarAlts::Any(vars)) => {
+        let vars = vars.insert(var);
+        self.id_to_alts.insert(ident, LVarAlts::Any(vars))
+      }
+    };
+    LCtxRef{
+      id_to_var:    self.id_to_var.clone(),
+      id_to_alts,
     }
   }
 
@@ -4714,6 +4762,23 @@ impl LCtxRef {
     self.id_to_var.insert_mut(ident.into(), var);
     //self.var_to_depth.insert_mut(var.clone(), self.var_stack.size());
     //self.var_stack.push_mut(var);
+  }
+
+  pub fn bind_ident_alt_mut<Id: Into<LIdent>>(&mut self, ident: Id, var: LVar) {
+    // TODO
+    let ident = ident.into();
+    match self.id_to_alts.get(&ident) {
+      None |
+      Some(LVarAlts::Var(_)) => {
+        let mut vars = IHTreapSet::default();
+        vars.insert_mut(var);
+        self.id_to_alts.insert_mut(ident, LVarAlts::Any(vars));
+      }
+      Some(LVarAlts::Any(vars)) => {
+        let vars = vars.insert(var);
+        self.id_to_alts.insert_mut(ident, LVarAlts::Any(vars));
+      }
+    }
   }
 
   pub fn unbind_ident_mut<Id: Borrow<LIdent>>(&mut self, ident: Id) {
