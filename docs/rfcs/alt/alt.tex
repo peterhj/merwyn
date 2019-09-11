@@ -96,7 +96,7 @@ Expressions:
 \begin{align*}
   e ::=
    ~& c & \text{(literal constant)} \\
-  |~& x & \text{(variable)} \\
+  |~& x & \text{(definition)} \\
   |~& \lambda x .~e & \text{(function abstraction)} \\
   |~& e[e'] & \text{(function application)} \\
   |~& \texttt{let x = $e$ in $e'$} & \text{(let-binding)} \\
@@ -158,7 +158,7 @@ and particularly with respect to our design of alternatives.
 
 A corollary to the monomorphic limitation of alternatives is that
 lexical, monomorphic alternatives can hinder \emph{compositionality}.%
-\footnote{Thanks to Jamie Brandon pointing this out.}
+\footnote{Thanks to Jamie Brandon for pointing this out.}
 The current design of alternatives does not have a satisfactory answer to
 the question of compositionality, other than to say that an eventual design
 for generics will need to address this.
