@@ -13,6 +13,6 @@ cleantmp:
 
 alt.pdf: alt.tex alt.bib
 	$(LATEX) $<
-	$(BIBTEX) alt
+	$(BIBTEX) $(basename $<)
 	$(LATEX) $<
 	$(LATEX) $<

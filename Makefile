@@ -12,7 +12,7 @@ CARGO_FLAGS ?=
 CARGO := cargo +nightly
 RUSTC := rustc +nightly
 
-.PHONY: all clean docs pre versions debuglib lib debugtools tools test test-lang test-ir2 test-mach test-rngs test-ty2
+.PHONY: all clean docs rfcs pre versions debuglib lib debugtools tools test test-lang test-ir2 test-mach test-rngs test-ty2
 
 all: lib
 
@@ -21,6 +21,9 @@ clean:
 
 docs:
 	@make -C docs
+
+rfcs:
+	@make -C docs/rfcs
 
 pre: versions
 

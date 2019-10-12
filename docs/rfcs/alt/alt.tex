@@ -22,7 +22,7 @@
 \begin{abstract}
 This note describes a proposed implementation of \emph{alternatives},
 via the \texttt{alt} syntax, to provide static, lexically scoped, monomorphic
-multimethods in Merwyn.
+overloading in Merwyn.
 \end{abstract}
 
 \section{Example}
@@ -34,7 +34,6 @@ multimethods in Merwyn.
 \begin{verbatim}
 alt zero in
 alt add' in
-(* ... *)
 let alt zero: Int = 0n in
 let alt zero: Flp = 0.0f in
 let alt add': [Int, Int] -> Int = \x, y -> x + y
@@ -49,11 +48,12 @@ let alt add': [Flp, Flp] -> Flp = \x, y -> x + y
 
 \section{Introduction}
 
-In a typical ML-like implementation of $\lambda$-calculus with
+In a typical functional language based on $\lambda$-calculus with
 \texttt{let}-binding,
 variable identifiers (such as \texttt{x} or \texttt{foo})
 can be uniquely rewritten based on their lexical binding order,
-so that the rewritten identifiers correspond one-to-one with bound definitions.
+so that the rewritten identifiers correspond one-to-one with bound definitions,
+analogously to $\alpha$-renaming in the formal $\lambda$-calculus.
 One desirable language extension is some form of overloading or multimethods,
 where
 identifiers may be allowed to refer to one and only one of several differently
@@ -67,12 +67,12 @@ Thus, some identifiers may require type inference in order to resolve to a
 particular implementation with a principal type.
 
 In our proposed implementation, identifiers are not directly typed
-via the \emph{type context} $\Gamma$.
+via the \emph{type environment} $\Gamma$.
 Rather, only definitions, which correspond to a unique binding of an expression
 to an identifier, are directly typed.
 The indirection between identifiers and definitions is represented by a
 \emph{binding context}, which we denote with $\text{B}$,
-mirroring the more familiar type context.
+mirroring the more familiar type environment.
 In our proposed implementation, the typing context strictly maps only
 definitions to types;
 the binding context maps identifiers to either definitions or
@@ -80,7 +80,10 @@ a set of \emph{alternative} definitions.
 
 \section{Static Semantics}
 
-\subsection{Syntax}
+In this section we provide a semantics for our design of alternatives
+by extending a simply-typed $\lambda$-calculus.
+
+\subsection{Language}
 
 Notation:
 \begin{align*}
@@ -89,15 +92,16 @@ Notation:
   a &\in 2^{\texttt{Def}} & \text{(alternative definitions)} \\
   e &\in \texttt{Exp} & \text{(expressions)} \\
   \tau &\in \texttt{Ty} & \text{(types)} \\
-  \Gamma &: \texttt{Def} \to \texttt{Ty} & \text{(type context)} \\
+  \Gamma &: \texttt{Def} \to \texttt{Ty} & \text{(type environment)} \\
   \text{B} &: \texttt{Id} \to \texttt{Def} + 2^{\texttt{Def}} & \text{(binding context)}
 \end{align*}
 Expressions:
 \begin{align*}
   e ::=
    ~& c & \text{(literal constant)} \\
+  |~& \texttt{x} & \text{(identifier)} \\
   |~& x & \text{(definition)} \\
-  |~& \lambda x .~e & \text{(function abstraction)} \\
+  |~& \lambda \texttt{x} .~e & \text{(function abstraction)} \\
   |~& e[e'] & \text{(function application)} \\
   |~& \texttt{let x = $e$ in $e'$} & \text{(let-binding)} \\
   |~& \texttt{alt x in $e$} & \text{(alt-declaration)} \\
@@ -111,24 +115,22 @@ Types:
   |~& \tau \to \tau & \text{(function type)}
 \end{align*}
 
-\subsection{Static Semantics}
-
-\subsubsection{Typing rules}
+\subsection{Typing rules}
 
 \begin{align*}
   \trfrac[~({\sc Lit})]{}{\Gamma ; \text{B} \vdash c : \beta}
 \end{align*}
 \begin{align*}
-  \trfrac[~({\sc Abs})]{\Gamma , x : \tau ; \text{B} , \texttt{x} \= x \vdash e : \tau'}{\Gamma ; \text{B} \vdash \lambda x .~e : \tau \to \tau'}
+  \trfrac[~({\sc Abs})]{\Gamma , x : \tau ; \text{B} , \texttt{x} \= x \vdash e : \tau'~\text{where}~x~\text{fresh in}~\Gamma}{\Gamma ; \text{B} \vdash \lambda \texttt{x} .~e : \tau \to \tau'}
 \end{align*}
 \begin{align*}
   \trfrac[~({\sc App})]{\Gamma ; \text{B} \vdash e : \tau' \to \tau , e' : \tau'}{\Gamma ; \text{B} \vdash e[e'] : \tau}
 \end{align*}
 \begin{align*}
-  \trfrac[~({\sc Ident})]{}{\Gamma , x : \tau ; \text{B} , \texttt{x} \= x \vdash \texttt{x} : \tau}
+  \trfrac[~({\sc Id})]{}{\Gamma , x : \tau ; \text{B} , \texttt{x} \= x \vdash \texttt{x} : \tau}
 \end{align*}
 \begin{align*}
-  \trfrac[~({\sc Ident-Alt})]{\Gamma ; \text{B} , \texttt{x} \= a \vdash \texttt{x} : \tau~\text{where}~x \in a \wedge \tau = \Gamma[x]}{\Gamma - (a \backslash x) ; \text{B} , \texttt{x} \= a \vdash \texttt{x} : \tau}
+  \trfrac[~({\sc Id-Alt})]{\Gamma ; \text{B} , \texttt{x} \= a \vdash \texttt{x} : \tau~\text{where}~x \in a \wedge \tau = \Gamma[x]}{\Gamma - (a \backslash x) ; \text{B} , \texttt{x} \= a \vdash \texttt{x} : \tau}
 \end{align*}
 \begin{align*}
   \trfrac[~({\sc Let})]{\Gamma ; \text{B} \vdash e : \tau \qquad \Gamma , x : \tau ; \text{B} , \texttt{x} \= x \vdash e' : \tau'~\text{where}~x~\text{fresh in}~\Gamma}{\Gamma ; \text{B} \vdash \texttt{let x = $e$ in $e'$} : \tau'}
@@ -139,6 +141,60 @@ Types:
 \begin{align*}
   \trfrac[~({\sc Let-Alt})]{\Gamma ; \text{B} , \texttt{x} \= a \backslash x \vdash e : \tau \qquad \begin{tralign}&\Gamma , x : \tau ; \text{B} , \texttt{x} \= a \vdash e' : \tau' \\ &\begin{tralign}\text{where}&~x \in a~\text{fresh in}~\Gamma \\ \wedge&~\forall x_a \in a \backslash x .~\tau \neq \Gamma[x_a]\end{tralign}\end{tralign}}{\Gamma ; \text{B} , \texttt{x} \= a \backslash x \vdash \texttt{let alt x: $\tau$ = $e$ in $e'$} : \tau'}
 \end{align*}
+
+The rules {\sc Lit}, {\sc Abs}, {\sc App}, {\sc Id}, and {\sc Let}
+are analogous to the usual typing rules in
+e.g.~a simply typed $\lambda$-calculus.
+Our versions of these rules are somewhat elaborate as they involve some
+indirection between identifiers and definitions via the binding context,
+but our rules are otherwise as expected.
+
+The rule {\sc Id-Alt} may appear superfluous as both the premise and
+conclusion yield the typing $\textbf{x} : \tau$,
+but its purpose is quite necessary:
+{\sc Id-Alt} enables the resolution of an identifier bound to a set of
+alternatives into a single definition within the set.
+In other words,
+{\sc Id-Alt} allows the rewriting of identifiers into definitions;
+this latter interpretation based on rewriting is what the compiler
+implements.
+
+The rule {\sc Alt} seeds an alternative-bound identifier with the
+empty set of definitions $\emptyset$.
+
+The rule {\sc Let-Alt} extends an identifier already bound to a set of
+alternatives with a new definition of type $\tau$,
+so long as no existing definition in the alternatives set also has type $\tau$.
+Both rules {\sc Let} and {\sc Let-Alt} assume a facility for allocating fresh
+definitions.
+Additionally, the three binding rules {\sc Let}, {\sc Alt}, and {\sc Let-Alt}
+are all scoped.
+
+\section{Related Work}
+
+Some earlier approaches to overloading via type inference involve computing
+least common generalizers or anti-unification
+\cite{smith94,camarao99}.
+This complication arises because the interaction between identifier overloading
+and parametric polymorphism, specifically type schemes,
+yields (quantified) constrained types.
+Consequently, resolving the overloaded identifier necessitates resolvable
+solutions to type constraints, which is nontrivial.
+In our design,
+anti-unification of monomorphic alternative types is essentially trivial.
+
+Our design of alternatives involves first declaring the overloadable
+identifier before extending it with alternative definitions,
+which bears perhaps a more than passing resemblance to type classes
+\cite{wadler89}.
+However, although instances of type classes are not restricted,
+the definition of the type class must be global,
+i.e.~defined at the top-level \cite{loh06}.
+Other earlier approaches to overloading also limit the overloadable bindings
+to the program top-level
+\cite{odersky95}.
+Our design admits lexically scoped overloading that is not limited to
+top-level bindings.
 
 \section{Limitations}
 
@@ -157,32 +213,16 @@ an acceptable tradeoff, at least for the moment,
 and particularly with respect to our design of alternatives.
 
 A corollary to the monomorphic limitation of alternatives is that
-lexical, monomorphic alternatives can hinder \emph{compositionality}.%
-\footnote{Thanks to Jamie Brandon for pointing this out.}
+lexical, monomorphic alternatives can hinder \emph{compositionality}.
 The current design of alternatives does not have a satisfactory answer to
 the question of compositionality, other than to say that an eventual design
 for generics will need to address this.
 
-\section{Related Work}
+\section*{Acknowledgments}
 
-Some earlier approaches to overloading via type inference involve computing
-least common generalizers or anti-unification
-\cite{smith94,camarao99}.
-This complication arises because the interaction between identifier overloading
-and parametric polymorphism, specifically type schemes,
-yields (quantified) constrained types.
-Consequently, resolving the overloaded identifier necessitates resolvable
-solutions to type constraints, which is nontrivial.
-In our implementation,
-anti-unification of monomorphic alternative types is essentially trivial.
+We thank to Jamie Brandon for an interesting discussion.
 
-Our design of alternatives involves first declaring the overloadable
-identifier before defining alterntive definitions,
-which bears perhaps a more than passing resemblance to type classes
-\cite{wadler89}.
-However we have not further explored the connection between the two.
-
-%\section{References}
+%\section*{References}
 \bibliographystyle{unsrtnat}
 \bibliography{alt}
 
