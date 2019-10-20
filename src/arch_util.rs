@@ -6,7 +6,6 @@
 use crate::os_util::{MTLCreateSystemDefaultDevice, MTLDevice};
 
 use std::fmt::{Write};
-use std::io::{Error as IoError};
 
 thread_local! {
   static TL_CPU_INFO: CpuInfo = CpuInfo::query();
@@ -19,6 +18,7 @@ pub struct CpuInfo {
   pub sse2:     bool,
   pub avx:      bool,
   pub avx2:     bool,
+  pub avx512f:  bool,
   pub rdseed:   bool,
 }
 
@@ -35,6 +35,7 @@ impl CpuInfo {
       sse2:     is_x86_feature_detected!("sse2"),
       avx:      is_x86_feature_detected!("avx"),
       avx2:     is_x86_feature_detected!("avx2"),
+      avx512f:  is_x86_feature_detected!("avx512f"),
       rdseed:   is_x86_feature_detected!("rdseed"),
     }
   }
@@ -42,34 +43,47 @@ impl CpuInfo {
   pub fn digest(&self) -> String {
     let mut any_feat = false;
     let mut buf: String = "x64".to_owned();
+    if self.avx512f {
+      if any_feat {
+        write!(&mut buf, "+").unwrap();
+      } else {
+        write!(&mut buf, ":").unwrap();
+      }
+      write!(&mut buf, "avx512f").unwrap();
+      any_feat = true;
+    }
     if self.avx2 {
       if any_feat {
-        write!(&mut buf, "+avx2").unwrap();
+        write!(&mut buf, "+").unwrap();
       } else {
-        write!(&mut buf, ":avx2").unwrap();
+        write!(&mut buf, ":").unwrap();
       }
+      write!(&mut buf, "avx2").unwrap();
       any_feat = true;
     } else if self.avx {
       if any_feat {
-        write!(&mut buf, "+avx").unwrap();
+        write!(&mut buf, "+").unwrap();
       } else {
-        write!(&mut buf, ":avx").unwrap();
+        write!(&mut buf, ":").unwrap();
       }
+      write!(&mut buf, "avx").unwrap();
       any_feat = true;
     } else if self.sse2 {
       if any_feat {
-        write!(&mut buf, "+sse2").unwrap();
+        write!(&mut buf, "+").unwrap();
       } else {
-        write!(&mut buf, ":sse2").unwrap();
+        write!(&mut buf, ":").unwrap();
       }
+      write!(&mut buf, "sse2").unwrap();
       any_feat = true;
     }
     if self.rdseed {
       if any_feat {
-        write!(&mut buf, "+rdseed").unwrap();
+        write!(&mut buf, "+").unwrap();
       } else {
-        write!(&mut buf, ":rdseed").unwrap();
+        write!(&mut buf, ":").unwrap();
       }
+      write!(&mut buf, "rdseed").unwrap();
       any_feat = true;
     }
     buf

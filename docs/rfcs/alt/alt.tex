@@ -46,7 +46,7 @@ let alt add': [Flp, Flp] -> Flp = \x, y -> x + y
 \end{varwidth}
 \end{figure}
 
-\section{Introduction}
+\section{Motivation}
 
 In a typical functional language based on $\lambda$-calculus with
 \texttt{let}-binding,
@@ -172,17 +172,6 @@ are all scoped.
 
 \section{Related Work}
 
-Some earlier approaches to overloading via type inference involve computing
-least common generalizers or anti-unification
-\cite{smith94,camarao99}.
-This complication arises because the interaction between identifier overloading
-and parametric polymorphism, specifically type schemes,
-yields (quantified) constrained types.
-Consequently, resolving the overloaded identifier necessitates resolvable
-solutions to type constraints, which is nontrivial.
-In our design,
-anti-unification of monomorphic alternative types is essentially trivial.
-
 Our design of alternatives involves first declaring the overloadable
 identifier before extending it with alternative definitions,
 which bears perhaps a more than passing resemblance to type classes
@@ -195,6 +184,17 @@ to the program top-level
 \cite{odersky95}.
 Our design admits lexically scoped overloading that is not limited to
 top-level bindings.
+
+Some earlier approaches to overloading via type inference involve computing
+least common generalizers or anti-unification
+\cite{smith94,camarao99}.
+This complication arises because the interaction between identifier overloading
+and parametric polymorphism, specifically type schemes,
+yields (quantified) constrained types.
+Consequently, resolving the overloaded identifier necessitates resolvable
+solutions to type constraints, which is nontrivial.
+In our design,
+anti-unification of monomorphic alternative types is essentially trivial.
 
 \section{Limitations}
 

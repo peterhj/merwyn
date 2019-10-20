@@ -5,7 +5,7 @@
 //use crate::cffi::{MCValRef};
 //use crate::coll::{HTreapMap};
 use crate::coll::{IHTreapMap, IHTreapSet};
-use crate::ir2::{LCodeRef, LEnvMask, LExprCell, LMExprCell, LPat, LPatRef, LTerm, LTermRef, LMTerm, LMTermRef, LVar};
+use crate::ir2::{LCodeRef, LDef, LEnvMask, LExprCell, LMExprCell, LPat, LPatRef, LTerm, LTermRef, LMTerm, LMTermRef};
 use crate::num_util::{Checked, checked};
 
 use std::cell::{RefCell};
@@ -92,9 +92,9 @@ pub enum MCode {
 
 #[derive(Clone)]
 pub enum MLamCode {
-  Term(Vec<LVar>, LExprCell),
+  Term(Vec<LDef>, LExprCell),
   MTerm(usize, MLamTerm),
-  //Term(Vec<LVar>, LTermRef),
+  //Term(Vec<LDef>, LTermRef),
   //MTerm(usize, LMTermRef),
   //UnsafeCTerm(...),
 }
@@ -158,17 +158,17 @@ pub enum MKont<E=LExprCell> {
   Knt(E, MEnvRef, MKontRef),
   Thk(MAddr, MEnvRef, MKontRef),
   //EImp(LEnvMask, E, MKontRef),
-  //EApp(Vec<(usize, LVar)>, E, MKontRef),
-  //ERet(LEnvMask, Vec<(usize, LVar)>, MEnvRef, MKontRef),
+  //EApp(Vec<(usize, LDef)>, E, MKontRef),
+  //ERet(LEnvMask, Vec<(usize, LDef)>, MEnvRef, MKontRef),
   EImpI1(usize, E, MEnvRef, MKontRef),
-  EImpV1(LVar, E, MEnvRef, MKontRef),
-  EImpV(IHTreapSet<LVar>, E, MEnvRef, MKontRef),
+  EImpV1(LDef, E, MEnvRef, MKontRef),
+  EImpV(IHTreapSet<LDef>, E, MEnvRef, MKontRef),
   EConsIL(usize, E, MEnvRef, MKontRef),
-  EConsVL(LVar, E, MEnvRef, MKontRef),
-  EPConsIL(usize, LVar, E, MEnvRef, MKontRef),
-  EPopI1(usize, LVar, MEnvRef, MKontRef),
-  EPopI(Vec<usize>, Vec<(usize, LVar)>, MEnvRef, MKontRef),
-  EPopV(Vec<(LVar, usize)>, MEnvRef, MKontRef),
+  EConsVL(LDef, E, MEnvRef, MKontRef),
+  EPConsIL(usize, LDef, E, MEnvRef, MKontRef),
+  EPopI1(usize, LDef, MEnvRef, MKontRef),
+  EPopI(Vec<usize>, Vec<(usize, LDef)>, MEnvRef, MKontRef),
+  EPopV(Vec<(LDef, usize)>, MEnvRef, MKontRef),
   ESymmVl(E, MEnvRef, MKontRef),
   ESymmVr(MEnvRef, MEnvRef, MKontRef),
   App(Option<MClosure>, Vec<MValRef>, VecDeque<E>, MEnvRef, MKontRef),
@@ -208,7 +208,7 @@ pub struct MDenseEnvRef {
 #[derive(Clone, Default)]
 pub struct MNamedEnvRef {
   idxs: IHTreapMap<usize, MAddr>,
-  vars: IHTreapMap<LVar, MAddr>,
+  vars: IHTreapMap<LDef, MAddr>,
 }
 
 impl MNamedEnvRef {
@@ -216,7 +216,7 @@ impl MNamedEnvRef {
     self.idxs.get(&idx).map(|thk_a| thk_a.clone())
   }
 
-  pub fn lookup_var(&self, var: &LVar) -> Option<MAddr> {
+  pub fn lookup_var(&self, var: &LDef) -> Option<MAddr> {
     self.vars.get(var).map(|thk_a| thk_a.clone())
   }
 
@@ -231,18 +231,18 @@ impl MNamedEnvRef {
     self.idxs.insert_mut(idx, addr);
   }
 
-  pub fn bind_var(&self, var: LVar, addr: MAddr) -> MNamedEnvRef {
+  pub fn bind_var(&self, var: LDef, addr: MAddr) -> MNamedEnvRef {
     MNamedEnvRef{
       idxs: self.idxs.clone(),
       vars: self.vars.insert(var, addr),
     }
   }
 
-  pub fn bind_var_mut(&mut self, var: LVar, addr: MAddr) {
+  pub fn bind_var_mut(&mut self, var: LDef, addr: MAddr) {
     self.vars.insert_mut(var, addr);
   }
 
-  pub fn unbind_var(&self, var: LVar) -> MNamedEnvRef {
+  pub fn unbind_var(&self, var: LDef) -> MNamedEnvRef {
     MNamedEnvRef{
       idxs: self.idxs.clone(),
       vars: self.vars.remove(&var),
