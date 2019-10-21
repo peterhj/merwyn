@@ -13,6 +13,28 @@ fn test_lang_empty() {
 
 #[should_panic]
 #[test]
+fn test_lang_empty_2() {
+  let lexer = HLexer::new(" ");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[should_panic]
+#[test]
+fn test_lang_empty_3() {
+  let lexer = HLexer::new(
+"(*
+
+*)"
+  );
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[should_panic]
+#[test]
 fn test_lang_error() {
   let lexer = HLexer::new("let x = 1 = 2");
   let parser = HParser::new(lexer);
@@ -21,7 +43,7 @@ fn test_lang_error() {
 }
 
 #[test]
-fn test_lang() {
+fn test_lang_examples() {
   let lexer = HLexer::new("1+2*3");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
@@ -63,7 +85,15 @@ fn test_lang_alias() {
 
 #[test]
 fn test_lang_alt() {
-  let lexer = HLexer::new(r"alt f in let alt f: [Flp, Int] -> Flp = \x, k -> x in f[y]");
+  let lexer = HLexer::new(r"alt f in let alt f: [Flp, Int] -> Flp = \x, k -> x in f[_]");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_alt_2() {
+  let lexer = HLexer::new(r"alt f in let alt f: [Int] -> Int = \x -> x in let alt f: [Flp] -> Flp = \x -> x in f[_]");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);

@@ -4,7 +4,6 @@
 
 use plex::{lexer};
 
-use std::iter::{FusedIterator};
 use std::rc::{Rc};
 
 lexer! {
@@ -152,7 +151,7 @@ lexer! {
   r#"@[a-z0-9\-\.]+[:][a-z0-9\-]+"# => HLToken::UseIdent(text.to_owned()),
   r#"@[a-z0-9\-]+"#                 => HLToken::UseIdent(text.to_owned()),
 
-  r#"."#            => HLToken::_Err,
+  r#"."#            => HLToken::_Eof,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -279,7 +278,6 @@ pub enum HLToken {
   CrypticIdent(String),
   UseIdent(String),
   _Eof,
-  _Err,
 }
 
 #[derive(Clone, Debug)]
@@ -313,9 +311,6 @@ impl<'src> HLexer<'src> {
   }
 }
 
-impl<'src> FusedIterator for HLexer<'src> {
-}
-
 impl<'src> Iterator for HLexer<'src> {
   //type Item = HLToken;
   //type Item = (HLToken, Option<&'src str>);
@@ -326,7 +321,12 @@ impl<'src> Iterator for HLexer<'src> {
   fn next(&mut self) -> Option<(HLToken, HLTokenInfo<'src>)> {
     loop {
       if self.eof {
-        return None;
+        let tok_info = HLTokenInfo{
+          line_nr:    self.line_nr,
+          line_pos:   self.line_pos,
+          text:       None,
+        };
+        return Some((HLToken::_Eof, tok_info));
       }
       let (tok, tok_text) = if let Some((tok, next_remnant)) = next_token(self.remnant) {
         let tok_off = unsafe { next_remnant.as_ptr().offset_from(self.remnant.as_ptr()) };
@@ -341,6 +341,7 @@ impl<'src> Iterator for HLexer<'src> {
         self.next_pos += tok_len;
         (tok, tok_text)
       } else {
+        self.line_pos = self.next_pos;
         self.eof = true;
         (HLToken::_Eof, None)
       };
@@ -368,10 +369,10 @@ impl<'src> Iterator for HLexer<'src> {
           self.next_pos = line_off;
           continue;
         }
-        (HLToken::_Err, Some(_)) => {
+        /*(HLToken::_Err, Some(_)) => {
           // TODO
           panic!();
-        }
+        }*/
         /*(HLToken::_Eof, None) => {
           return Some((HLToken::_Eof, None));
         }*/
@@ -415,6 +416,8 @@ pub enum HTypat {
 
 #[derive(Clone, Debug)]
 pub enum HError {
+  Eof,
+  Unknown,
   Unexpected(HLToken),
   Expected(Vec<HLToken>, HLToken),
   MissingMatchArms,
@@ -649,7 +652,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, HLTokenInfo<'src>)> + Clone> HParser<'s
       &HLToken::Ident(_) |
       &HLToken::TyvarIdent(_) => 0,
       &HLToken::_Eof => 0,
-      &HLToken::_Err => 0,
+      //&HLToken::_Err => 0,
       _ => unimplemented!(),
     }
   }
@@ -657,6 +660,12 @@ impl<'src, Toks: Iterator<Item=(HLToken, HLTokenInfo<'src>)> + Clone> HParser<'s
   fn nud(&mut self, tok: HLToken) -> Result<HExpr, HError> {
     // TODO
     match tok {
+      HLToken::_Eof => {
+        Err(HError::Eof)
+      }
+      /*HLToken::_Err => {
+        Err(HError::Other)
+      }*/
       HLToken::End => {
         Ok(HExpr::End)
       }
@@ -1483,7 +1492,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, HLTokenInfo<'src>)> + Clone> HParser<'s
         Ok(HExpr::Typat(HTypat::Tyvar(name).into()))
       }
       _ => {
-        Err(HError::Other)
+        Err(HError::Unknown)
       }
     }
   }
@@ -1491,6 +1500,12 @@ impl<'src, Toks: Iterator<Item=(HLToken, HLTokenInfo<'src>)> + Clone> HParser<'s
   fn led(&mut self, tok: HLToken, left: HExpr) -> Result<HExpr, HError> {
     // TODO
     match tok {
+      HLToken::_Eof => {
+        Err(HError::Eof)
+      }
+      /*HLToken::_Err => {
+        Err(HError::Other)
+      }*/
       HLToken::Dot => {
         match self.current_token() {
           // TODO: finalize the set of terms allowed on RHS.
@@ -1630,7 +1645,7 @@ impl<'src, Toks: Iterator<Item=(HLToken, HLTokenInfo<'src>)> + Clone> HParser<'s
         }
       }
       _ => {
-        Err(HError::Other)
+        Err(HError::Unknown)
       }
     }
   }
@@ -1652,14 +1667,14 @@ impl<'src, Toks: Iterator<Item=(HLToken, HLTokenInfo<'src>)> + Clone> HParser<'s
     self.advance();
     match self.expression(0) {
       Ok(expr) => Ok(Rc::new(expr)),
-      Err(_) => match self.current_token_info() {
+      Err(err) => match self.current_token_info() {
         None => {
-          println!("TRACE: empty str, no parse");
-          Err(HError::Other)
+          println!("TRACE: parse error: {:?}", err);
+          Err(err)
         }
         Some(info) => {
-          println!("TRACE: parse error at {}:{}", info.line_nr + 1, info.line_pos + 1);
-          Err(HError::Other)
+          println!("TRACE: parse error at {}:{}: {:?}", info.line_nr + 1, info.line_pos + 1, err);
+          Err(err)
         }
       }
     }

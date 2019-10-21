@@ -2,7 +2,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#![feature(avx512_target_feature)]
 #![feature(non_ascii_idents)]
 #![feature(proc_macro_hygiene)]
 #![feature(ptr_offset_from)]
