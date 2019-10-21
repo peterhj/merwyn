@@ -39,7 +39,20 @@ fn test_ty2_anno_0_fails() {
 #[test]
 fn test_ty2_anno_1() {
   println!();
-  let lexer = HLexer::new(r"alt x; let alt x: Int = 3; let alt x: Flo = 3.14; 0");
+  let lexer = HLexer::new(r"alt x; let alt x: Int = 3; let alt x: Flp = 3.14; 0");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  let mut builder = LBuilder::default();
+  let module = match builder._compile(htree, LCtxRef::default(), LTyctxRef::default()) {
+    Err(_) => panic!(),
+    Ok(module) => module,
+  };
+}
+
+#[test]
+fn test_ty2_anno_2() {
+  println!();
+  let lexer = HLexer::new(r"alt x; let alt x: Int = 3; let alt x: Flp = 3.14; let f: [Int] -> Int = \z -> z in f[x]");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   let mut builder = LBuilder::default();

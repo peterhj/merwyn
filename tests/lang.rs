@@ -133,8 +133,16 @@ fn test_lang_cons_2() {
 }*/
 
 #[test]
-fn test_lang_differential() {
-  let lexer = HLexer::new("D[x]");
+fn test_lang_derivative_adjoint() {
+  let lexer = HLexer::new("D[y]");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_derivative_tangent() {
+  let lexer = HLexer::new("D'[y]");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -207,6 +215,23 @@ fn test_lang_ident_use() {
 #[test]
 fn test_lang_ident_use_2() {
   let lexer = HLexer::new("@example.net:asdf");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_jacobian() {
+  let lexer = HLexer::new("J[y]");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+//#[should_panic]
+#[test]
+fn test_lang_jacobian_t() {
+  let lexer = HLexer::new("J'[y]");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -411,6 +436,15 @@ fn test_lang_let_for_if() {
 #[test]
 fn test_lang_match() {
   let lexer = HLexer::new(r"match x | 1 => a | tee => b[1,a] | () => \c -> 2*c | _ => \y, z -> match y | 1 => 2 | _ => 1");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[should_panic]
+#[test]
+fn test_lang_partial_derivative_prime() {
+  let lexer = HLexer::new("d'[y].x");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);

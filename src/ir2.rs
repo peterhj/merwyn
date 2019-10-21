@@ -20,6 +20,13 @@ use std::iter::{FromIterator};
 use std::ops::{Deref};
 use std::rc::{Rc};
 
+#[derive(Clone, Debug)]
+pub enum LError {
+  Unknown,
+  Unstable(String),
+  Other,
+}
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LLabel(u64);
 
@@ -41,6 +48,7 @@ pub enum LPat {
   Concat(LPatRef, LPatRef),
   HTuple(Vec<LPatRef>),
   STuple(Vec<LPatRef>),
+  ETuple(Vec<LIdent>),
   BitLit(bool),
   IntLit(i64),
   Var(LDef),
@@ -90,6 +98,10 @@ impl LPat {
         for e in elems.iter() {
           e._vars(vars_set, vars_buf);
         }
+      }
+      &LPat::ETuple(_) => {
+        // TODO
+        unimplemented!();
       }
       &LPat::Var(ref v) => {
         assert!(!vars_set.contains(v));
@@ -221,8 +233,8 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   Lambda(Vec<LDef>, E),
   FixLambda(LDef, Vec<LDef>, E),
   Let(LDef, E, E),
-  Alt_(LIdent, E),
-  Alt(LIdent, LDef, LTyRef, E, E),
+  Alt(LIdent, E),
+  LetAlt(LIdent, LDef, LTyRef, E, E),
   Fix(LDef, E),
   SFix(Vec<LDef>, E),
   Match(E, Vec<(LPatRef, E)>),
@@ -564,15 +576,6 @@ struct LowerWork {
 }
 
 impl LBuilder {
-  fn _lower_typat(&mut self, hexp: Rc<HExpr>) -> Result<LTyRef, ()> {
-    match &*hexp {
-      &HExpr::Typat(ref hty) => {
-        self._lower_typat_rec(hty.clone())
-      }
-      _ => panic!("bug: not a type pattern"),
-    }
-  }
-
   fn _lower_typat_rec(&mut self, hty: Rc<HTypat>) -> Result<LTyRef, ()> {
     match &*hty {
       &HTypat::FunTy(ref params, ref ret) => {
@@ -591,8 +594,25 @@ impl LBuilder {
     }
   }
 
+  fn _lower_typat(&mut self, hexp: Rc<HExpr>) -> Result<LTyRef, ()> {
+    match &*hexp {
+      &HExpr::Typat(ref hty) => {
+        self._lower_typat_rec(hty.clone())
+      }
+      _ => panic!("bug: not a type pattern"),
+    }
+  }
+
   fn _lower_pat_rec(&mut self, hexp: Rc<HExpr>, ctx: &mut LCtxRef) -> Result<LPatRef, ()> {
     match &*hexp {
+      &HExpr::HTuple(ref elems) => {
+        let mut elems_ = Vec::with_capacity(elems.len());
+        for elem in elems.iter() {
+          let elem_ = self._lower_pat_rec(elem.clone(), ctx)?;
+          elems_.push(elem_);
+        }
+        Ok(LPat::HTuple(elems_).into())
+      }
       &HExpr::STuple(ref elems) => {
         let mut elems_ = Vec::with_capacity(elems.len());
         for elem in elems.iter() {
@@ -601,13 +621,9 @@ impl LBuilder {
         }
         Ok(LPat::STuple(elems_).into())
       }
-      &HExpr::Tuple(ref elems) => {
-        let mut elems_ = Vec::with_capacity(elems.len());
-        for elem in elems.iter() {
-          let elem_ = self._lower_pat_rec(elem.clone(), ctx)?;
-          elems_.push(elem_);
-        }
-        Ok(LPat::HTuple(elems_).into())
+      &HExpr::ETuple(_) => {
+        // TODO
+        unimplemented!();
       }
       &HExpr::TeeLit => {
         Ok(LPat::BitLit(true).into())
@@ -619,9 +635,8 @@ impl LBuilder {
         Ok(LPat::IntLit(x).into())
       }
       &HExpr::PlacePat => {
-        let place = self.fresh_anon_var();
-        /*ctx.bind_anon_mut(place.clone());*/
-        Ok(LPat::Var(place).into())
+        let var = self.fresh_anon_var();
+        Ok(LPat::Var(var).into())
       }
       &HExpr::Ident(ref name) => {
         let ident = self.lookup_or_fresh_name(name);
@@ -696,13 +711,18 @@ impl LBuilder {
         let mut param_vars = Vec::with_capacity(params.len());
         let mut body_ctx = ctx.clone();
         for p in params.iter() {
-          let p_name = match &**p {
-            &HExpr::Ident(ref p_name) => p_name,
+          let p_var = match &**p {
+            &HExpr::PlacePat => {
+              self.fresh_anon_var()
+            }
+            &HExpr::Ident(ref p_name) => {
+              let p_ident = self.lookup_or_fresh_name(p_name);
+              let p_var = self.fresh_ident_var(p_ident.clone());
+              body_ctx.bind_ident_mut(p_ident, p_var.clone());
+              p_var
+            }
             _ => panic!(),
           };
-          let p_ident = self.lookup_or_fresh_name(p_name);
-          let p_var = self.fresh_ident_var(p_ident.clone());
-          body_ctx.bind_ident_mut(p_ident, p_var.clone());
           param_vars.push(p_var);
         }
         let body = self._lower2_exp(root.clone(), body_ctx, body.clone(), env, tenv);
@@ -711,13 +731,34 @@ impl LBuilder {
             body.loc()
         ))
       }
-      &HExpr::Alt(ref decos, ref lhs, ref body, ref rest) => {
+      &HExpr::Alt(ref lhs, ref rest) => {
+        let mut rest_ctx = ctx.clone();
+        match &**lhs {
+          &HExpr::Ident(ref name) => {
+            let name_ident = self.lookup_or_fresh_name(name);
+            rest_ctx.bind_ident_init_alt_mut(name_ident.clone());
+            let rest = self._lower2_exp(root.clone(), rest_ctx, rest.clone(), env, tenv);
+            root.append(self, &mut |_| LTerm::Alt(
+                name_ident.clone(),
+                rest.loc()
+            ))
+          }
+          _ => {
+            // TODO
+            panic!();
+          }
+        }
+      }
+      &HExpr::LetAlt(ref decos, ref lhs, ref body, ref rest) => {
         // TODO: decorators.
         let body_ctx = ctx.clone();
         let mut rest_ctx = ctx.clone();
         let decos = decos.clone().unwrap_or_default();
         match &**lhs {
           &HExpr::Ident(ref name) => {
+            if decos.rec {
+              panic!();
+            }
             let ty = match decos.ty {
               None => panic!(),
               Some(hty) => {
@@ -729,11 +770,12 @@ impl LBuilder {
             };
             let name_ident = self.lookup_or_fresh_name(name);
             let name_var = self.fresh_ident_var(name_ident.clone());
+            // TODO: tyinf should take care of annotation.
             /*tenv.annotate_var(&name_var, ty.to_texp());*/
             rest_ctx.bind_ident_alt_mut(name_ident.clone(), name_var.clone());
             let body = self._lower2_exp(root.clone(), body_ctx, body.clone(), env, tenv);
             let rest = self._lower2_exp(root.clone(), rest_ctx, rest.clone(), env, tenv);
-            root.append(self, &mut |_| LTerm::Alt(
+            root.append(self, &mut |_| LTerm::LetAlt(
                 name_ident.clone(),
                 name_var.clone(),
                 ty.clone(),
@@ -743,6 +785,9 @@ impl LBuilder {
           }
           &HExpr::Apply(ref name, ref params) => {
             // TODO
+            if decos.rec {
+              // TODO
+            }
             unimplemented!();
           }
           _ => {
@@ -757,7 +802,34 @@ impl LBuilder {
         let mut rest_ctx = ctx.clone();
         let decos = decos.clone().unwrap_or_default();
         match &**lhs {
+          &HExpr::PlacePat => {
+            if decos.rec {
+              panic!();
+            }
+            let var = self.fresh_anon_var();
+            let body = self._lower2_exp(root.clone(), body_ctx, body.clone(), env, tenv);
+            let rest = self._lower2_exp(root.clone(), rest_ctx, rest.clone(), env, tenv);
+            let exp = root.append(self, &mut |_| LTerm::Let(
+                var.clone(),
+                body.loc(),
+                rest.loc()
+            ));
+            match anno_ty {
+              &None => {}
+              &Some(ref hty) => {
+                let ty = match self._lower_typat(hty.clone()) {
+                  Err(_) => panic!(),
+                  Ok(ty) => ty,
+                };
+                tenv.annotate_var(&var, ty.to_texp());
+              }
+            }
+            exp
+          }
           &HExpr::Ident(ref name) => {
+            if decos.rec {
+              panic!();
+            }
             let name_ident = self.lookup_or_fresh_name(name);
             let name_var = self.fresh_ident_var(name_ident.clone());
             rest_ctx.bind_ident_mut(name_ident, name_var.clone());
@@ -782,9 +854,15 @@ impl LBuilder {
           }
           &HExpr::Apply(ref name, ref params) => {
             // TODO
+            if decos.rec {
+              // TODO
+            }
             unimplemented!();
           }
           _ => {
+            if decos.rec {
+              panic!();
+            }
             let pat = match self._lower_pat_rec(lhs.clone(), &mut rest_ctx) {
               Err(_) => panic!(),
               Ok(pat) => pat,
@@ -1002,17 +1080,26 @@ impl LBuilder {
           ))
         })
       }
-      &LTerm::Fix(ref fixname, ref fixbody) => {
-        let fixbody = self._normalize_term(exp.lookup(fixbody));
-        let new_exp = exp.append(self, &mut |_| LTerm::Fix(
-            fixname.clone(),
-            fixbody.loc(),
-        ));
-        kont(self, new_exp)
+      &LTerm::Alt(ref name, ref rest) => {
+        let rest = self._normalize_kont(exp.lookup(rest), kont);
+        exp.append(self, &mut |_| LTerm::Alt(
+            name.clone(),
+            rest.loc(),
+        ))
       }
-      &LTerm::SFix(ref fixnames, ref fixbody) => {
-        // TODO
-        unimplemented!();
+      &LTerm::LetAlt(ref name_ident, ref name_var, ref ty, ref body, ref rest) => {
+        let body = exp.lookup(body);
+        let rest = exp.lookup(rest);
+        self._normalize_kont(body, &mut |this, body| {
+          let rest = this._normalize_kont(rest.clone(), kont);
+          exp.append(this, &mut |_| LTerm::LetAlt(
+              name_ident.clone(),
+              name_var.clone(),
+              ty.clone(),
+              body.loc(),
+              rest.loc(),
+          ))
+        })
       }
       /*&LTerm::Alt(ref name, ref alt_name, ref body, ref rest) => {
         let body = exp.lookup(body);
@@ -1027,6 +1114,18 @@ impl LBuilder {
           ))
         })
       }*/
+      &LTerm::Fix(ref fixname, ref fixbody) => {
+        let fixbody = self._normalize_term(exp.lookup(fixbody));
+        let new_exp = exp.append(self, &mut |_| LTerm::Fix(
+            fixname.clone(),
+            fixbody.loc(),
+        ));
+        kont(self, new_exp)
+      }
+      &LTerm::SFix(ref fixnames, ref fixbody) => {
+        // TODO
+        unimplemented!();
+      }
       &LTerm::Match(ref query, ref pat_arms) => {
         let query = exp.lookup(query);
         self._normalize_name(query, &mut |this, query| {
@@ -1269,6 +1368,17 @@ impl LBuilder {
           }
           _ => {}
         }
+        self._ctx_exp(exp.lookup(body), ctx, env, tenv);
+        self._ctx_exp(exp.lookup(rest), rest_ctx, env, tenv);
+      }
+      &LTerm::Alt(ref name_ident, ref rest) => {
+        let mut rest_ctx = ctx.clone();
+        rest_ctx.bind_ident_init_alt_mut(name_ident.clone());
+        self._ctx_exp(exp.lookup(rest), rest_ctx, env, tenv);
+      }
+      &LTerm::LetAlt(ref name_ident, ref name_var, ref ty, ref body, ref rest) => {
+        let mut rest_ctx = ctx.clone();
+        rest_ctx.bind_ident_alt_mut(name_ident.clone(), name_var.clone());
         self._ctx_exp(exp.lookup(body), ctx, env, tenv);
         self._ctx_exp(exp.lookup(rest), rest_ctx, env, tenv);
       }
@@ -1549,22 +1659,29 @@ impl LBuilder {
       &LTerm::FixLambda(..) => {
         unimplemented!();
       }
-      &LTerm::Alt(ref ident, ref var, ref ty, ref body, ref rest) => {
-        let body = self._resolve_ctx_exp(exp.lookup(body), env, tenv);
-        let rest = self._resolve_ctx_exp(exp.lookup(rest), env, tenv);
-        exp.append(self, &mut |_| LTerm::Alt(
-            ident.clone(),
-            var.clone(),
-            ty.clone(),
-            body.loc(),
-            rest.loc()
-        ))
-      }
       &LTerm::Let(ref var, ref body, ref rest) => {
         let body = self._resolve_ctx_exp(exp.lookup(body), env, tenv);
         let rest = self._resolve_ctx_exp(exp.lookup(rest), env, tenv);
         exp.append(self, &mut |_| LTerm::Let(
             var.clone(),
+            body.loc(),
+            rest.loc()
+        ))
+      }
+      &LTerm::Alt(ref ident, ref rest) => {
+        let rest = self._resolve_ctx_exp(exp.lookup(rest), env, tenv);
+        exp.append(self, &mut |_| LTerm::Alt(
+            ident.clone(),
+            rest.loc()
+        ))
+      }
+      &LTerm::LetAlt(ref ident, ref var, ref ty, ref body, ref rest) => {
+        let body = self._resolve_ctx_exp(exp.lookup(body), env, tenv);
+        let rest = self._resolve_ctx_exp(exp.lookup(rest), env, tenv);
+        exp.append(self, &mut |_| LTerm::LetAlt(
+            ident.clone(),
+            var.clone(),
+            ty.clone(),
             body.loc(),
             rest.loc()
         ))
@@ -1714,7 +1831,10 @@ impl LBuilder {
             rest.loc()
         ))
       }*/
-      &LTerm::Alt(ref ident, ref var, ref ty, ref body, ref ret) => {
+      &LTerm::Alt(..) => {
+        unimplemented!();
+      }
+      &LTerm::LetAlt(ref ident, ref var, ref ty, ref body, ref ret) => {
         // TODO
         unimplemented!();
         /*match env._ctx(&exp) {
@@ -4171,10 +4291,6 @@ impl LBuilder {
       &LTerm::TngD(ref _target) => {
         unimplemented!();
       }
-      &LTerm::Alt(..) => {
-        // TODO
-        unimplemented!();
-      }
       &LTerm::Let(ref name, ref body, ref rest) => {
         let mut rest_tctx = tctx.clone();
         let name_v = rest_tctx.bind_var_mut(name, tenv);
@@ -4184,6 +4300,21 @@ impl LBuilder {
         let let_con2 = TyCon::Eq_(ety.into(), tenv.lookup_exp(rest).into()).into();
         work.cons.push_front(let_con2);
         work.cons.push_front(let_con1);
+      }
+      &LTerm::Alt(.., ref rest) => {
+        // TODO
+        //unimplemented!();
+        let mut rest_tctx = tctx.clone();
+        //let name_v = rest_tctx.bind_var_mut(name, tenv);
+        self._gen_exp(exp.lookup(rest), env, rest_tctx, tenv, work);
+      }
+      &LTerm::LetAlt(.., ref rest) => {
+        // TODO
+        //unimplemented!();
+        let mut rest_tctx = tctx.clone();
+        //let name_v = rest_tctx.bind_var_mut(name, tenv);
+        //self._gen_exp(exp.lookup(body), env, tctx, tenv, work);
+        self._gen_exp(exp.lookup(rest), env, rest_tctx, tenv, work);
       }
       &LTerm::Fix(ref fixname, ref fixbody) => {
         let mut fixbody_tctx = tctx;
@@ -4763,6 +4894,13 @@ impl LCtxRef {
     self.id_to_var.insert_mut(ident.into(), var);
     //self.var_to_depth.insert_mut(var.clone(), self.var_stack.size());
     //self.var_stack.push_mut(var);
+  }
+
+  pub fn bind_ident_init_alt_mut<Id: Into<LIdent>>(&mut self, ident: Id) {
+    // TODO
+    let ident = ident.into();
+    let vars = IHTreapSet::default();
+    self.id_to_alts.insert_mut(ident, LBound::Alts(vars));
   }
 
   pub fn bind_ident_alt_mut<Id: Into<LIdent>>(&mut self, ident: Id, var: LDef) {
@@ -5740,6 +5878,34 @@ impl PrintBox {
             write!(&mut buffer, "let ${} = ", name.0)?;
           }
         }
+        let mut body_box = PrintBox{
+          left_indent:  self.left_indent + buffer.position() as usize,
+          line_nr:      1,
+        };
+        body_box._print_exp(builder, exp.lookup(body), &mut buffer)?;
+        if body_box.line_nr > 1 {
+          writer.write_all(&buffer.into_inner())?;
+          self.line_nr += body_box.line_nr - 1;
+          self._newline(writer)?;
+          write!(writer, " in")?;
+          self._newline(writer)?;
+        } else {
+          write!(&mut buffer, " in")?;
+          writer.write_all(&buffer.into_inner())?;
+          self._newline(writer)?;
+        }
+        self._print_exp(builder, exp.lookup(rest), writer)
+      }
+      &LTerm::Alt(ref name_ident, ref rest) => {
+        let ident_s = builder.lookup_ident(name_ident);
+        write!(&mut buffer, "alt ${}({}) in", name_ident.0, ident_s)?;
+        writer.write_all(&buffer.into_inner())?;
+        self._newline(writer)?;
+        self._print_exp(builder, exp.lookup(rest), writer)
+      }
+      &LTerm::LetAlt(ref name_ident, ref name_var, ref ty, ref body, ref rest) => {
+        let ident_s = builder.lookup_ident(name_ident);
+        write!(&mut buffer, "let alt ${}({}) = ", name_ident.0, ident_s)?;
         let mut body_box = PrintBox{
           left_indent:  self.left_indent + buffer.position() as usize,
           line_nr:      1,
