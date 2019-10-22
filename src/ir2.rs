@@ -466,11 +466,8 @@ impl LBuilder {
     let tree = LTreeCell::empty(self);
     let tree = self._lower2(tree, top_ctx.clone(), htree, &mut env, &mut tenv);
     let tree = self._include_top_level(tree);
-    println!("DEBUG: _compile: original, printing tree...");
-    self._print(tree.clone());
-    let tree = self._normalize(tree);
     self._ctx(&tree, top_ctx.clone(), &mut env, &mut tenv);
-    println!("DEBUG: _compile: normalized, printing tree...");
+    println!("DEBUG: _compile: original, printing tree...");
     self._print(tree.clone());
     let mut t_work = TyWork::default();
     self.gen(&tree, &mut env, &mut tenv, &mut t_work);
@@ -481,6 +478,10 @@ impl LBuilder {
     let tree = self._resolve_ctx(tree, &mut env, &mut tenv);
     /*let tree = self._resolve_tctx(tree, &mut env, &mut tenv);*/
     self._ctx(&tree, top_ctx.clone(), &mut env, &mut tenv);
+    let tree = self._normalize(tree);
+    self._ctx(&tree, top_ctx.clone(), &mut env, &mut tenv);
+    println!("DEBUG: _compile: normalized, printing tree...");
+    self._print(tree.clone());
     self.gen(&tree, &mut env, &mut tenv, &mut t_work);
     self.solve(&tree, /*&mut env,*/ &mut tenv, &mut t_work);
     if t_work.unsat() {
@@ -1071,14 +1072,21 @@ impl LBuilder {
       &LTerm::Let(ref name, ref body, ref rest) => {
         let body = exp.lookup(body);
         let rest = exp.lookup(rest);
-        self._normalize_kont(body, &mut |this, body| {
+        /*self._normalize_kont(body, &mut |this, body| {
           let rest = this._normalize_kont(rest.clone(), kont);
           exp.append(this, &mut |_| LTerm::Let(
               name.clone(),
               body.loc(),
               rest.loc(),
           ))
-        })
+        })*/
+        let body = self._normalize_kont(body.clone(), kont);
+        let rest = self._normalize_kont(rest.clone(), kont);
+        exp.append(self, &mut |_| LTerm::Let(
+            name.clone(),
+            body.loc(),
+            rest.loc(),
+        ))
       }
       &LTerm::Alt(ref name, ref rest) => {
         let rest = self._normalize_kont(exp.lookup(rest), kont);
@@ -1090,7 +1098,7 @@ impl LBuilder {
       &LTerm::LetAlt(ref name_ident, ref name_var, ref ty, ref body, ref rest) => {
         let body = exp.lookup(body);
         let rest = exp.lookup(rest);
-        self._normalize_kont(body, &mut |this, body| {
+        /*self._normalize_kont(body, &mut |this, body| {
           let rest = this._normalize_kont(rest.clone(), kont);
           exp.append(this, &mut |_| LTerm::LetAlt(
               name_ident.clone(),
@@ -1099,7 +1107,16 @@ impl LBuilder {
               body.loc(),
               rest.loc(),
           ))
-        })
+        })*/
+        let body = self._normalize_kont(body.clone(), kont);
+        let rest = self._normalize_kont(rest.clone(), kont);
+        exp.append(self, &mut |_| LTerm::LetAlt(
+            name_ident.clone(),
+            name_var.clone(),
+            ty.clone(),
+            body.loc(),
+            rest.loc(),
+        ))
       }
       /*&LTerm::Alt(ref name, ref alt_name, ref body, ref rest) => {
         let body = exp.lookup(body);
