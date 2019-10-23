@@ -5,7 +5,7 @@
 //use crate::cffi::{MCValRef};
 //use crate::coll::{HTreapMap};
 use crate::coll::{IHTreapMap, IHTreapSet};
-use crate::ir2::{LCodeRef, LDef, LEnvMask, LExprCell, LMExprCell, LPat, LPatRef, LTerm, LTermRef, LMTerm, LMTermRef};
+use crate::ir2::{LCodeRef, LDef, /*LEnvMask,*/ LExprCell, LMExprCell, LPat, LPatRef, LTerm, LTermRef, LMTerm, LMTermRef};
 use crate::num_util::{Checked, checked};
 
 use std::cell::{RefCell};
@@ -1063,6 +1063,26 @@ impl MachineState {
             }
           }
           LTerm::Let(var, body, rest) => {
+            let body = exp.jump(body);
+            let rest = exp.jump(rest);
+            let thk = MThunk::new(env.clone(), MCode::Term(body.clone())).into();
+            let thk_a = self.store.insert(thk);
+            let next_env = env.bind_var(var, thk_a.clone());
+            MachineTuple{
+              ctrl: MReg::Term(body),
+              kont: MKont::Thk(thk_a, env.clone(), MKont::Knt(rest, next_env, kont).into()).into(),
+              env,
+            }
+          }
+          LTerm::Alt(_, rest) => {
+            let rest = exp.jump(rest);
+            MachineTuple{
+              ctrl: MReg::Term(rest),
+              env,
+              kont,
+            }
+          }
+          LTerm::LetAlt(_, var, _, body, rest) => {
             let body = exp.jump(body);
             let rest = exp.jump(rest);
             let thk = MThunk::new(env.clone(), MCode::Term(body.clone())).into();

@@ -34,12 +34,16 @@ fn test_ty2_anno_0_fails() {
     Err(_) => panic!(),
     Ok(module) => module,
   };
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<i64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }
 
 #[test]
 fn test_ty2_anno_1() {
   println!();
-  let lexer = HLexer::new(r"alt x; let alt x: Int = 3; let alt x: Flp = 3.14; 0");
+  let lexer = HLexer::new(r"alt x; let alt x: Int = 3; let alt x: Flp = 3.14; 42");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   let mut builder = LBuilder::default();
@@ -47,6 +51,10 @@ fn test_ty2_anno_1() {
     Err(_) => panic!(),
     Ok(module) => module,
   };
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<i64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }
 
 #[test]
@@ -60,6 +68,10 @@ fn test_ty2_anno_2() {
     Err(_) => panic!(),
     Ok(module) => module,
   };
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<i64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
 }
 
 #[test]

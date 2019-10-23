@@ -1572,7 +1572,7 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
         Ok(HExpr::Arrow(Rc::new(left), Rc::new(right)))
       }*/
       HLToken::PlusPlus => {
-        let right = self.expression(self.lbp(&tok) - 1)?;
+        let right = self.expression(self.lbp(&tok))?;
         Ok(HExpr::Concat(Rc::new(left), Rc::new(right)))
       }
       /*HLToken::ColonColon => {
