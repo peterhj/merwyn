@@ -207,9 +207,9 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   TodoRequire,
   Export,
   Import(/*LEnvMask,*/ E, E),
-  EApply(Vec<(usize, LDef)>, E, E),
-  EnvIdxs(Vec<(usize, E)>),
-  EnvVars(Vec<(LDef, E)>),
+  //EApply(Vec<(usize, LDef)>, E, E),
+  EnvIdxs(/*LEnvId,*/ Vec<(usize, E)>),
+  EnvVars(/*LEnvId,*/ Vec<(LDefBinder, LDef, E)>),
   EnvIdxsLazy(Vec<(usize, E)>),
   EnvVarsLazy(Vec<(LDef, E)>),
   EImportIdx(usize, E, E),
@@ -222,9 +222,9 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   EPopIdxs(Vec<usize>, Vec<(usize, LDef)>, E),
   EPopVars(Vec<(LDef, usize)>, E),
   ESymmVars(E, E),
-  ANApply(E, Vec<(usize, LDef, LDefBinder, LDef)>),
+  ANApply(E, Vec<(usize, LDefBinder, LDef, LDef)>),
   AReturn(/*LEnvMask,*/ Vec<(usize, LDef)>, E),
-  ACons(/*LEnvMask,*/ LDef, LDefBinder, E, E),
+  ACons(LDefBinder, LDef, E, E),
   AConcat(E, E),
   PtlD(E),
   AdjD(E),
@@ -235,9 +235,11 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   Apply(E, Vec<E>),
   Lambda(Vec<LDef>, E),
   FixLambda(LDef, Vec<LDef>, E),
-  Let(LDef, E, E),
+  Let(/*LIdent,*/ LDef, E, E),
   Alt(LIdent, E),
   LetAlt(LIdent, LDef, LTyRef, E, E),
+  Def(LDef, E, E),
+  Undef(LDef, E),
   Fix(LDef, E),
   SFix(Vec<LDef>, E),
   Match(E, Vec<(LPatRef, E)>),
@@ -257,7 +259,6 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   ProjectVar(E, LDef),
   ProjectIdent(E, LIdent),
   //ProjectIdents(E, Vec<LIdent>),
-  Unbind(LDef, E),
   MX(ME),
   Bot,
 }
@@ -345,7 +346,7 @@ pub struct LBuilder {
   name_to_id:   HTreapMap<String, LIdent>,
   id_to_name:   HTreapMap<LIdent, String>,
   var_to_bind:  IHTreapMap<LDef, LDefBinder>,
-  adj_var:      IHTreapMap<LDef, LDef>,
+  adj_map:      IHTreapMap<(LEnvId, LDef), LDef>,
 }
 
 impl Default for LBuilder {
@@ -360,7 +361,7 @@ impl Default for LBuilder {
       name_to_id:   HTreapMap::default(),
       id_to_name:   HTreapMap::default(),
       var_to_bind:  IHTreapMap::default(),
-      adj_var:      IHTreapMap::default(),
+      adj_map:      IHTreapMap::default(),
     }
   }
 }
@@ -426,11 +427,11 @@ impl LBuilder {
     new_var
   }
 
-  pub fn top_level_env_id(&mut self) -> LEnvId {
+  pub fn empty_env_id(&self) -> LEnvId {
     LEnvId(0)
   }
 
-  pub fn empty_env_id(&mut self) -> LEnvId {
+  pub fn top_level_env_id(&self) -> LEnvId {
     LEnvId(1)
   }
 
@@ -461,20 +462,20 @@ impl LBuilder {
   }
 
   pub fn _lookup_adj_var(&self, var: &LDef) -> Option<LDef> {
-    match self.adj_var.get(var) {
+    match self.adj_map.get(&(self.top_level_env_id(), var.clone())) {
       None => None,
-      Some(adj) => Some(adj.clone()),
+      Some(adj_var) => Some(adj_var.clone()),
     }
   }
 
   pub fn lookup_or_fresh_adj_var(&mut self, var: &LDef) -> LDef {
-    match self.adj_var.get(var) {
+    match self.adj_map.get(&(self.top_level_env_id(), var.clone())) {
       None => {
-        let adj = self.fresh_anon_def();
-        self.adj_var.insert_mut(var.clone(), adj.clone());
-        adj
+        let adj_var = self.fresh_anon_def();
+        self.adj_map.insert_mut((self.top_level_env_id(), var.clone()), adj_var.clone());
+        adj_var
       }
-      Some(adj) => adj.clone(),
+      Some(adj_var) => adj_var.clone(),
     }
   }
 
@@ -1761,7 +1762,7 @@ impl LBuilder {
           }
           Some(ctx) => match ctx._lookup_ident_(ident) {
             None => panic!(),
-            Some(LBinding::Var(var)) => {
+            Some(LBinding::Def(var)) => {
               exp.append(self, &mut |_| LTerm::LookupVar(var.clone()))
             }
             Some(LBinding::Alts(_alts)) => {
@@ -1937,7 +1938,7 @@ impl LBuilder {
           }
           Some(ctx) => match ctx._lookup_ident_(ident) {
             None => panic!(),
-            Some(LBinding::Var(var)) => {
+            Some(LBinding::Def(var)) => {
               exp.append(self, &mut |_| LTerm::LookupVar(var.clone()))
             }
             Some(LBinding::Alts(alts)) => match tenv.mgu_exp(&exp) {
@@ -2077,7 +2078,7 @@ impl LBuilder {
         // FIXME
         self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
       }
-      &LTerm::ACons(ref var, ref binder, ref value, ref target) => {
+      &LTerm::ACons(ref binder, ref var, ref value, ref target) => {
         // FIXME
         self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
       }
@@ -2596,8 +2597,8 @@ impl LBuilder {
               let binder = self.lookup_var(var);
               /*let ident = env.lookup_var(&exp, var);*/
               let cons_e = exp.append(self, &mut |_| LTerm::ACons(
-                  var.clone(),
                   binder.clone(),
+                  var.clone(),
                   tmp_sink_e.loc(),
                   adj_app_e.loc()
               ));
@@ -2671,8 +2672,8 @@ impl LBuilder {
                         // TODO: fixup any smooth type.
                         &LTy::Flp => {
                           let arg_binder = self.lookup_var(arg_var);
-                          let arg_adj = self.lookup_or_fresh_adj_var(arg_var);
-                          adj_app_app_fixup_args.push((idx, arg_var.clone(), arg_binder, arg_adj));
+                          let arg_adj_var = self.lookup_or_fresh_adj_var(arg_var);
+                          adj_app_app_fixup_args.push((idx, arg_binder, arg_var.clone(), arg_adj_var));
                         }
                         _ => {}
                       }
@@ -3048,8 +3049,8 @@ impl LBuilder {
               let tmp_sink_e = exp.append(self, &mut |_| LTerm::LookupVar(tmp_sink.clone()));
               let binder = self.lookup_var(var);
               let cons_e = exp.append(self, &mut |_| LTerm::ACons(
-                  var.clone(),
                   binder.clone(),
+                  var.clone(),
                   tmp_sink_e.loc(),
                   adj_app_e.loc()
               ));
@@ -3118,7 +3119,7 @@ impl LBuilder {
       }
       &LTerm::EnvVars(ref vars) => {
         let mut vars_ = Vec::with_capacity(vars.len());
-        for &(ref v, ref value) in vars.iter() {
+        for &(ref _binder, ref v, ref value) in vars.iter() {
           let value = self._resolve_post_adj_exp(exp.lookup(value), env, tenv);
           vars_.push((v.clone(), value.loc()));
         }
@@ -3183,7 +3184,7 @@ impl LBuilder {
               let mut bwd_cons_args = Vec::new();
               let mut bwd_args = Vec::new();
               let mut bwd_args_set = HashSet::new();
-              for &(idx, ref arg_var, _, _) in args.iter() {
+              for &(idx, _, ref arg_var, _) in args.iter() {
                 if tg_idxs_set.contains(&idx) {
                   if arg_var_idxs.contains_key(arg_var) {
                     arg_var_idxs.get_mut(arg_var).unwrap().push(idx);
@@ -3195,7 +3196,7 @@ impl LBuilder {
                   arg_var_idxs.insert(arg_var.clone(), vec![]);
                 }
               }
-              for &(idx, ref arg_var, _, _) in args.iter() {
+              for &(idx, _, ref arg_var, _) in args.iter() {
                 if tg_idxs_set.contains(&idx) {
                   if !tg_vars_set.contains(arg_var) {
                     if arg_var_idxs.get(arg_var).unwrap().len() == 1 {
@@ -3211,7 +3212,7 @@ impl LBuilder {
                   uncons_idxs.push(idx);
                 }
               }
-              for &(_, ref arg_var, _, ref adj_arg_var) in args.iter().rev() {
+              for &(_, _, ref arg_var, ref adj_arg_var) in args.iter().rev() {
                 if !bwd_args_set.contains(arg_var) {
                   if arg_var_idxs.get(arg_var).unwrap().len() > 1 ||
                      ixn_args_set.contains(arg_var)
@@ -3464,7 +3465,7 @@ impl LBuilder {
           unreachable!();
         }
       }
-      &LTerm::ACons(ref var, ref binder, ref value, ref target) => {
+      &LTerm::ACons(ref _binder, ref var, ref value, ref target) => {
         if let Some((_, _, ty)) = tenv.mgu_exp(target) {
           match &*ty {
             &LTy::Env(ref _env_id, ref _idx_keys, ref var_keys, ref binders) => {
@@ -3802,9 +3803,9 @@ enum TyCon {
   //Cnj(Queue<TyConRef>),
   Eq_(TyexpRef, TyexpRef),
   //IsANApply(TyexpRef, Vec<(usize, LDef, LDefBinder, LDef)>, TyexpRef),
-  IsANApply(TyexpRef, TyexpRef, Vec<(usize, LDef, LDefBinder, LDef, LTyvar)>),
+  IsANApply(TyexpRef, TyexpRef, Vec<(usize, LDefBinder, LDef, LDef, LTyvar)>),
   IsAReturn(TyexpRef, Vec<(usize, LDef)>, TyexpRef),
-  IsACons(TyexpRef, TyexpRef, LDef, LDefBinder, TyexpRef, TyexpRef),
+  IsACons(TyexpRef, TyexpRef, LDefBinder, LDef, TyexpRef, TyexpRef),
   IsAConcat(TyexpRef, TyexpRef, TyexpRef),
   Bot,
 }
@@ -4156,14 +4157,6 @@ impl TyEnv {
     match &*query {
       // TODO: cases.
       &Tyexp::Var(_) => Err(()),
-      &Tyexp::Fun(ref dom, ref ret) => {
-        let mut dom_ = Vec::with_capacity(dom.len());
-        for d in dom.iter() {
-          dom_.push(self._mgu_reduced(d.clone())?);
-        }
-        let ret_ = self._mgu_reduced(ret.clone())?;
-        Ok(LTy::Fun(dom_, ret_).into())
-      }
       &Tyexp::Env(ref env_id, ref idxs, ref vars, ref ctx) => {
         let mut idxs_ = IHTreapMap::default();
         let mut vars_ = IHTreapMap::default();
@@ -4174,6 +4167,14 @@ impl TyEnv {
           vars_.insert_mut(var.clone(), self._mgu_reduced(t.clone())?);
         }
         Ok(LTy::Env(env_id.clone(), idxs_.into(), vars_.into(), ctx.clone().into()).into())
+      }
+      &Tyexp::Fun(ref dom, ref ret) => {
+        let mut dom_ = Vec::with_capacity(dom.len());
+        for d in dom.iter() {
+          dom_.push(self._mgu_reduced(d.clone())?);
+        }
+        let ret_ = self._mgu_reduced(ret.clone())?;
+        Ok(LTy::Fun(dom_, ret_).into())
       }
       &Tyexp::STup(ref elems) => {
         let mut elems_ = Vec::with_capacity(elems.len());
@@ -4300,9 +4301,9 @@ impl LBuilder {
       &LTerm::ANApply(ref target, ref args) => {
         println!("TRACE: _gen_exp: generating IsANApply constraint");
         self._gen_exp(exp.lookup(target), env, tctx, tenv, work);
-        let args_ = args.iter().map(|&(idx, ref key, ref key_ident, ref key_adj)| {
-          let key_adj_ty = tenv.lookup_var(&exp, key_adj);
-          (idx, key.clone(), key_ident.clone(), key_adj.clone(), key_adj_ty)
+        let args_ = args.iter().map(|&(idx, ref key_ident, ref key_var, ref key_adj_var)| {
+          let key_adj_ty = tenv.lookup_var(&exp, key_adj_var);
+          (idx, key_ident.clone(), key_var.clone(), key_adj_var.clone(), key_adj_ty)
         }).collect();
         let con = TyCon::IsANApply(ety.into(), tenv.lookup_exp(target).into(), args_).into();
         work.cons.push_front(con);
@@ -4314,18 +4315,19 @@ impl LBuilder {
         let con = TyCon::IsAReturn(ety.into(), params.clone(), tenv.lookup_exp(target).into()).into();
         work.cons.push_front(con);
       }
-      &LTerm::ACons(/*ref mask,*/ ref key, ref ident, ref value, ref target) => {
+      &LTerm::ACons(/*ref mask,*/ ref binder, ref var, ref value, ref target) => {
         println!("TRACE: _gen_exp: generating IsACons constraint");
-        let key_v = tctx.lookup_var(key);
+        let v = tctx.lookup_var(var);
         self._gen_exp(exp.lookup(value), env, tctx.clone(), tenv, work);
         self._gen_exp(exp.lookup(target), env, tctx.clone(), tenv, work);
-        let key_con = TyCon::Eq_(key_v.clone().into(), tenv.lookup_exp(value).into()).into();
-        let con = TyCon::IsACons(ety.into(), key_v.into(), key.clone(), ident.clone(), tenv.lookup_exp(value).into(), tenv.lookup_exp(target).into()).into();
+        let var_con = TyCon::Eq_(v.clone().into(), tenv.lookup_exp(value).into()).into();
+        let con = TyCon::IsACons(ety.into(), v.into(), binder.clone(), var.clone(), tenv.lookup_exp(value).into(), tenv.lookup_exp(target).into()).into();
         work.cons.push_front(con);
-        work.cons.push_front(key_con);
+        work.cons.push_front(var_con);
       }
       &LTerm::AConcat(ref lhs, ref rhs) => {
         // TODO
+        unimplemented!();
       }
       &LTerm::PtlD(ref target) => {
         self._gen_exp(exp.lookup(target), env, tctx, tenv, work);
@@ -4567,13 +4569,7 @@ impl LBuilder {
             work.cons.push_back(TyConRef::new(TyCon::Eq_(l_ret.clone(), r_ret.clone())));
             self._solve(root, tenv, work)
           }
-          (&Tyexp::Env(ref l_env_id, ref l_idxs, ref l_vars, ref l_ctx), &Tyexp::Env(ref r_env_id, ref r_idxs, ref r_vars, ref r_ctx)) => {
-            /*if l_env_id != r_env_id {
-              println!("WARNING: solve: Eq_: Env: id mismatch");
-              work.unsat.push_back((con.clone(), TyUnsat::EnvId));
-              work.cons.push_back(TyCon::Bot.into());
-              return self._solve(root, tenv, work);
-            }*/
+          (&Tyexp::Env(ref _l_env_id, ref l_idxs, ref l_vars, ref l_ctx), &Tyexp::Env(ref _r_env_id, ref r_idxs, ref r_vars, ref r_ctx)) => {
             if l_idxs.len() != r_idxs.len() || l_vars.len() != r_vars.len() {
               println!("WARNING: solve: Eq_: Env: arity mismatch");
               work.unsat.push_back((con.clone(), TyUnsat::EnvArity));
@@ -4610,7 +4606,7 @@ impl LBuilder {
                 return self._solve(root, tenv, work);
               }
               match (l_bind, r_bind) {
-                (LBinding::Var(l_var), LBinding::Var(r_var)) => if l_var != r_var {
+                (LBinding::Def(l_var), LBinding::Def(r_var)) => if l_var != r_var {
                   println!("WARNING: solve: Eq_: Env: binding mismatch");
                   work.unsat.push_back((con.clone(), TyUnsat::EnvBinder));
                   work.cons.push_back(TyCon::Bot.into());
@@ -4663,11 +4659,11 @@ impl LBuilder {
             println!("TRACE: solve: IsANApply: instantiating a new env tyexp");
             let mut adj_doms = Vec::with_capacity(args.len());
             let mut adj_rets = Vec::with_capacity(args.len());
-            for &(idx, _, _, ref key_adj, ref key_adj_ty) in args.iter() {
+            for &(idx, _, _, ref _key_adj_var, ref key_adj_ty) in args.iter() {
               match tg_idxs.get(&idx) {
                 None => {}
                 Some(_) => {
-                  /*let key_adj_ty = tenv.lookup_var(key_adj);*/
+                  /*let key_adj_ty = tenv.lookup_var(key_adj_var);*/
                   match &*tenv.reduce_texp(key_adj_ty.clone().into()) {
                     &Tyexp::Var(_) => {
                       work.cons.push_back(con);
@@ -4705,7 +4701,7 @@ impl LBuilder {
             let mut app_idxs = tg_idxs.clone();
             let mut app_keys = tg_keys.clone();
             let mut app_ctx = tg_ctx.clone();
-            for (adj_idx, &(idx, _, ref ident, _, _)) in args.iter().enumerate().rev() {
+            for (adj_idx, &(idx, ref ident, _, _, _)) in args.iter().enumerate().rev() {
               match app_idxs.get(&idx) {
                 //None => unreachable!(),
                 None => {}
@@ -4740,15 +4736,15 @@ impl LBuilder {
                 }
               }
             }
-            for &(idx, ref key, ref ident, _, _) in args.iter() {
+            for &(idx, ref ident, ref key_var, _, _) in args.iter() {
               match app_idxs.get(&idx) {
                 None => {}
                 Some(val_ty) => {
                   let val_ty = val_ty.clone();
                   app_idxs.remove_mut(&idx);
-                  match app_keys.get(key) {
+                  match app_keys.get(key_var) {
                     None => {
-                      app_keys.insert_mut(key.clone(), val_ty);
+                      app_keys.insert_mut(key_var.clone(), val_ty);
                     }
                     Some(val_ty2) => {
                       let val_ty2 = val_ty2.clone();
@@ -4757,7 +4753,7 @@ impl LBuilder {
                     }
                   }
                   if let &LDefBinder::Ident(ref ident) = ident {
-                    app_ctx.bind_ident_mut(ident.clone(), key.clone());
+                    app_ctx.bind_ident_mut(ident.clone(), key_var.clone());
                   }
                 }
               }
@@ -4801,7 +4797,7 @@ impl LBuilder {
                     LDefBinder::Ident(var_ident) => {
                       match ret_ctx._lookup_ident_(&var_ident) {
                         None => {}
-                        Some(LBinding::Var(ref var2)) => {
+                        Some(LBinding::Def(ref var2)) => {
                           if var == var2 {
                             ret_ctx.unbind_ident_mut(&var_ident);
                           }
@@ -4831,7 +4827,7 @@ impl LBuilder {
           }
         }
       }
-      &TyCon::IsACons(/*ref mask,*/ ref query, ref key, ref key_var, ref key_ident, ref value, ref target) => {
+      &TyCon::IsACons(/*ref mask,*/ ref query, ref key, ref key_ident, ref key_var, ref value, ref target) => {
         match &*tenv.reduce_texp(target.clone()) {
           &Tyexp::Var(_) => {
             work.cons.push_back(con);
@@ -4871,13 +4867,13 @@ impl LBuilder {
 
 #[derive(Clone, Debug)]
 pub enum LBinding {
-  Var(LDef),
+  Def(LDef),
   Alts(IHTreapSet<LDef>),
 }
 
 impl From<LDef> for LBinding {
   fn from(var: LDef) -> LBinding {
-    LBinding::Var(var)
+    LBinding::Def(var)
   }
 }
 
@@ -4920,7 +4916,7 @@ impl LCtxRef {
     }*/
     match self.id_to_bind.get(ident.borrow()) {
       None => None,
-      Some(&LBinding::Var(ref var)) => Some(var.clone()),
+      Some(&LBinding::Def(ref var)) => Some(var.clone()),
       Some(_) => panic!(),
     }
   }
@@ -4932,7 +4928,7 @@ impl LCtxRef {
     }*/
     match self.id_to_bind.get(ident.borrow()) {
       None => panic!(),
-      Some(&LBinding::Var(ref var)) => var.clone(),
+      Some(&LBinding::Def(ref var)) => var.clone(),
       Some(_) => panic!(),
     }
   }
@@ -4963,7 +4959,7 @@ impl LCtxRef {
     let ident = ident.into();
     let id_to_bind = match self.id_to_bind.get(&ident) {
       None |
-      Some(LBinding::Var(_)) => {
+      Some(LBinding::Def(_)) => {
         /*let mut vars = IHTreapSet::default();
         vars.insert_mut(var);
         self.id_to_bind.insert(ident, LBinding::Alts(vars))*/
@@ -4999,7 +4995,7 @@ impl LCtxRef {
     let ident = ident.into();
     match self.id_to_bind.get(&ident) {
       None |
-      Some(LBinding::Var(_)) => {
+      Some(LBinding::Def(_)) => {
         /*let mut vars = IHTreapSet::default();
         vars.insert_mut(var);
         self.id_to_bind.insert_mut(ident, LBinding::Alts(vars));*/
@@ -5593,7 +5589,7 @@ impl PrintBox {
         } else if kvs.len() == 1 {
           let (k, v) = match kvs.iter().next() {
             None => unreachable!(),
-            Some(&(ref k, ref v)) => (k, v),
+            Some(&(_, ref k, ref v)) => (k, v),
           };
           write!(&mut buffer, "<env-vars>{{${} = ", k.0)?;
           let mut val_box = PrintBox{
@@ -5779,14 +5775,14 @@ impl PrintBox {
       }
       &LTerm::ANApply(ref target, ref args) => {
         write!(&mut buffer, "<A-norm-app>(")?;
-        for &(ref idx, ref key, ref ident, ref adj_key) in args.iter() {
+        for &(ref idx, ref ident, ref var, ref adj_var) in args.iter() {
           match ident {
             &LDefBinder::Ident(ref ident) => {
               let ident_s = builder.rlookup_name(ident);
-              write!(&mut buffer, "%{} => (${}({}), ${})", idx, key.0, ident_s, adj_key.0)?;
+              write!(&mut buffer, "%{} => (${}({}), ${})", idx, var.0, ident_s, adj_var.0)?;
             }
             _ => {
-              write!(&mut buffer, "%{} => (${}, ${})", idx, key.0, adj_key.0)?;
+              write!(&mut buffer, "%{} => (${}, ${})", idx, var.0, adj_var.0)?;
             }
           }
         }
@@ -5827,7 +5823,7 @@ impl PrintBox {
         writer.write_all(&buffer.into_inner())?;
         Ok(())
       }
-      &LTerm::ACons(ref key, ref _ident, ref value, ref target) => {
+      &LTerm::ACons(ref _ident, ref key, ref value, ref target) => {
         // TODO
         /*if ident.is_some() {
           let ident_s = builder.rlookup_name(ident.borrow().unwrap());
