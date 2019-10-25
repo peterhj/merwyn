@@ -362,6 +362,30 @@ impl<K: Ord, V, Storage: Clone + Borrow<K>> HashTreapMap<K, V, Storage> {
   }
 }
 
+impl<K: Ord, V: Eq, Storage: Borrow<K> + AsRef<V>> PartialEq for HashTreapMap<K, V, Storage> {
+  fn eq(&self, other: &HashTreapMap<K, V, Storage>) -> bool {
+    match (self.root.as_ref(), other.root.as_ref()) {
+      (None, None) => true,
+      (Some(lr), Some(rr)) => if Rc::ptr_eq(lr, rr) {
+        true
+      } else if self.len() == other.len() {
+        for ((lk, lv), (rk, rv)) in self.iter().zip(other.iter()) {
+          if lk != rk || lv != rv {
+            return false;
+          }
+        }
+        true
+      } else {
+        false
+      },
+      _ => false,
+    }
+  }
+}
+
+impl<K: Ord, V: Eq, Storage: Borrow<K> + AsRef<V>> Eq for HashTreapMap<K, V, Storage> {
+}
+
 pub struct HashTreapSetIter<'a, K, Storage> {
   iter: HTNodeIter<'a, K, Storage>,
 }
@@ -558,6 +582,30 @@ impl<K: Ord, Storage: Clone + Borrow<K>> HashTreapSet<K, Storage> {
     let new_root = HTNode::symm_diff(self.root.take(), other.root.clone());
     self.root = new_root;
   }
+}
+
+impl<K: Ord, Storage: Borrow<K>> PartialEq for HashTreapSet<K, Storage> {
+  fn eq(&self, other: &HashTreapSet<K, Storage>) -> bool {
+    match (self.root.as_ref(), other.root.as_ref()) {
+      (None, None) => true,
+      (Some(lr), Some(rr)) => if Rc::ptr_eq(lr, rr) {
+        true
+      } else if self.len() == other.len() {
+        for (lk, rk) in self.iter().zip(other.iter()) {
+          if lk != rk {
+            return false;
+          }
+        }
+        true
+      } else {
+        false
+      },
+      _ => false,
+    }
+  }
+}
+
+impl<K: Ord, Storage: Borrow<K>> Eq for HashTreapSet<K, Storage> {
 }
 
 #[inline]
