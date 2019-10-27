@@ -292,7 +292,7 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   Apply(E, Vec<E>),
   Lambda(Vec<LDef>, E),
   FixLambda(LDef, Vec<LDef>, E),
-  Let(/*LDefBinder,*/ LDef, E, E),
+  Let(LDefBinder, LDef, E, E),
   Alt(LIdent, E),
   LetAlt(LIdent, LDef, LTyRef, E, E),
   Def(LDef, E, E),
@@ -310,13 +310,13 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   IntLit(i64),
   FlpLit(f64),
   UnitLit,
-  Index(usize),
+  LookupIndex(usize),
   LookupIdent(LIdent),
   LookupDef(LDef),
-  ProjectIdx(E, usize),
-  ProjectDef(E, LDef),
+  ProjectIndex(E, usize),
   ProjectIdent(E, LIdent),
   //ProjectIdents(E, Vec<LIdent>),
+  ProjectDef(E, LDef),
   MX(ME),
   Bot,
 }
@@ -926,6 +926,7 @@ impl LBuilder {
             let body = self._lower2_exp(root.clone(), body_ctx, body.clone(), env, tenv);
             let rest = self._lower2_exp(root.clone(), rest_ctx, rest.clone(), env, tenv);
             let exp = root.append(self, &mut |_| LTerm::Let(
+                LDefBinder::Anon,
                 var.clone(),
                 body.loc(),
                 rest.loc()
@@ -948,10 +949,11 @@ impl LBuilder {
             }
             let name_ident = self.lookup_or_fresh_name(name);
             let name_var = self.fresh_ident_def(name_ident.clone());
-            rest_ctx.bind_ident_mut(name_ident, name_var.clone());
+            rest_ctx.bind_ident_mut(name_ident.clone(), name_var.clone());
             let body = self._lower2_exp(root.clone(), body_ctx, body.clone(), env, tenv);
             let rest = self._lower2_exp(root.clone(), rest_ctx, rest.clone(), env, tenv);
             let exp = root.append(self, &mut |_| LTerm::Let(
+                name_ident.clone().into(),
                 name_var.clone(),
                 body.loc(),
                 rest.loc()
@@ -1196,7 +1198,7 @@ impl LBuilder {
           kont(this, new_exp)
         })
       }
-      &LTerm::Let(ref name, ref body, ref rest) => {
+      &LTerm::Let(ref binder, ref name, ref body, ref rest) => {
         let body = exp.lookup(body);
         let rest = exp.lookup(rest);
         /*self._normalize_kont(body, &mut |this, body| {
@@ -1210,6 +1212,7 @@ impl LBuilder {
         let body = self._normalize_kont(body.clone(), kont);
         let rest = self._normalize_kont(rest.clone(), kont);
         exp.append(self, &mut |_| LTerm::Let(
+            binder.clone(),
             name.clone(),
             body.loc(),
             rest.loc(),
@@ -1353,6 +1356,7 @@ impl LBuilder {
           });
           let new_var_e = kont(this, new_var_e1);
           let bind_e = exp.append(this, &mut |_| LTerm::Let(
+              LDefBinder::Anon,
               new_var.clone(),
               exp.loc(),
               new_var_e.loc(),
@@ -1494,11 +1498,12 @@ impl LBuilder {
         }
         self._ctx_exp(exp.lookup(body), body_ctx, env, tenv);
       }
-      &LTerm::Let(ref var, ref body, ref rest) => {
+      &LTerm::Let(ref binder, ref var, ref body, ref rest) => {
         let mut rest_ctx = ctx.clone();
-        match self.lookup_def_binder(var) {
-          LDefBinder::Ident(id) => {
-            rest_ctx.bind_ident_mut(id, var.clone());
+        //match self.lookup_def_binder(var) {
+        match binder {
+          &LDefBinder::Ident(ref id) => {
+            rest_ctx.bind_ident_mut(id.clone(), var.clone());
           }
           _ => {}
         }
@@ -1585,7 +1590,7 @@ impl LBuilder {
       &LTerm::FlpLit(_) => {}
       &LTerm::LookupIdent(_) => {}
       &LTerm::LookupDef(_) => {}
-      &LTerm::ProjectIdx(ref target, _) => {
+      &LTerm::ProjectIndex(ref target, _) => {
         self._ctx_exp(exp.lookup(target), ctx, env, tenv);
       }
       &LTerm::ProjectDef(ref target, _) => {
@@ -1648,7 +1653,7 @@ impl LBuilder {
       &LTerm::PtlD(ref target) => {
         self._freectx_once_exp(exp.lookup(target), env)
       }
-      &LTerm::Let(ref name, ref body, ref rest) => {
+      &LTerm::Let(ref binder, ref name, ref body, ref rest) => {
         let mut ctx = self._freectx_once_exp(exp.lookup(rest), env);
         let mut body_ctx = self._freectx_once_exp(exp.lookup(body), env);
         body_ctx.freevars.remove_mut(name);
@@ -1708,7 +1713,7 @@ impl LBuilder {
         ctx.freevars.insert_mut(var.clone());
         ctx
       }
-      &LTerm::ProjectIdx(ref target, _) => {
+      &LTerm::ProjectIndex(ref target, _) => {
         self._freectx_once_exp(exp.lookup(target), env)
       }
       &LTerm::ProjectDef(ref target, _) => {
@@ -1794,10 +1799,11 @@ impl LBuilder {
       &LTerm::FixLambda(..) => {
         unimplemented!();
       }
-      &LTerm::Let(ref var, ref body, ref rest) => {
+      &LTerm::Let(ref binder, ref var, ref body, ref rest) => {
         let body = self._resolve_ctx_exp(exp.lookup(body), env, tenv);
         let rest = self._resolve_ctx_exp(exp.lookup(rest), env, tenv);
         exp.append(self, &mut |_| LTerm::Let(
+            binder.clone(),
             var.clone(),
             body.loc(),
             rest.loc()
@@ -1874,9 +1880,9 @@ impl LBuilder {
       &LTerm::LookupDef(_) => {
         exp
       }
-      &LTerm::ProjectIdx(ref target, idx) => {
+      &LTerm::ProjectIndex(ref target, idx) => {
         let target = self._resolve_ctx_exp(exp.lookup(target), env, tenv);
-        exp.append(self, &mut |_| LTerm::ProjectIdx(
+        exp.append(self, &mut |_| LTerm::ProjectIndex(
             target.loc(),
             idx
         ))
@@ -1965,10 +1971,11 @@ impl LBuilder {
       &LTerm::FixLambda(..) => {
         unimplemented!();
       }
-      &LTerm::Let(ref var, ref body, ref rest) => {
+      &LTerm::Let(ref binder, ref var, ref body, ref rest) => {
         let body = self._resolve_tctx_exp(exp.lookup(body), env, tenv);
         let rest = self._resolve_tctx_exp(exp.lookup(rest), env, tenv);
         exp.append(self, &mut |_| LTerm::Let(
+            binder.clone(),
             var.clone(),
             body.loc(),
             rest.loc()
@@ -2057,9 +2064,9 @@ impl LBuilder {
       &LTerm::LookupDef(_) => {
         exp
       }
-      &LTerm::ProjectIdx(ref target, idx) => {
+      &LTerm::ProjectIndex(ref target, idx) => {
         let target = self._resolve_tctx_exp(exp.lookup(target), env, tenv);
-        exp.append(self, &mut |_| LTerm::ProjectIdx(
+        exp.append(self, &mut |_| LTerm::ProjectIndex(
             target.loc(),
             idx
         ))
@@ -2314,6 +2321,7 @@ impl LBuilder {
                       param_target_e.loc()
                   ));
                   new_body_fixup_e = exp.append(self, &mut |_| LTerm::Let(
+                      LDefBinder::Anon,
                       adj_param.clone(),
                       param_adj_e.loc(),
                       new_body_fixup_e.loc()
@@ -2337,7 +2345,7 @@ impl LBuilder {
         // TODO
         unimplemented!();
       }
-      &LTerm::Let(ref name, ref body, ref rest) => {
+      &LTerm::Let(ref binder, ref name, ref body, ref rest) => {
         let mut incomplete = false;
         let body_e = exp.lookup(body);
         let rest_e = exp.lookup(rest);
@@ -2350,6 +2358,7 @@ impl LBuilder {
               ResolveAdj::Bridge(new_body_e, body_defer) => {
                 incomplete |= body_defer;
                 let new_exp = exp.append(self, &mut |_| LTerm::Let(
+                    binder.clone(),
                     name.clone(),
                     new_body_e.loc(),
                     rest_e.loc()
@@ -2368,6 +2377,7 @@ impl LBuilder {
               None => match self._resolve_adj_exp(body_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(body_e) => {
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
+                      binder.clone(),
                       name.clone(),
                       body_e.loc(),
                       new_rest_e.loc()
@@ -2377,6 +2387,7 @@ impl LBuilder {
                 ResolveAdj::Bridge(new_body_e, body_defer) => {
                   incomplete |= body_defer;
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
+                      binder.clone(),
                       name.clone(),
                       new_body_e.loc(),
                       new_rest_e.loc()
@@ -2595,7 +2606,7 @@ impl LBuilder {
       &LTerm::LookupDef(_) => {
         self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
       }
-      &LTerm::ProjectIdx(_, _) => {
+      &LTerm::ProjectIndex(_, _) => {
         self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
       }
       &LTerm::ProjectDef(_, _) => {
@@ -2887,6 +2898,7 @@ impl LBuilder {
                       param_target_e.loc()
                   ));
                   adj_body_fixup_e = exp.append(self, &mut |_| LTerm::Let(
+                      LDefBinder::Anon,
                       adj_param.clone(),
                       param_adj_e.loc(),
                       adj_body_fixup_e.loc()
@@ -2950,11 +2962,13 @@ impl LBuilder {
             ));
             // FIXME: in the future this binding should have an inlining hint.
             let bind_new_e = exp.append(self, &mut |_| LTerm::Let(
+                LDefBinder::Anon,
                 tmp_new_name.clone(),
                 new_lam_e.loc(),
                 pair_e.loc()
             ));
             let new_exp = exp.append(self, &mut |_| LTerm::Let(
+                LDefBinder::Anon,
                 tmp_adj_name.clone(),
                 adj_lam_e.loc(),
                 bind_new_e.loc()
@@ -2978,7 +2992,7 @@ impl LBuilder {
           ResolveAdj::Error => ResolveAdj::Error,
         }
       }
-      &LTerm::Let(ref name, ref body, ref rest) => {
+      &LTerm::Let(ref binder, ref name, ref body, ref rest) => {
         // TODO
         let mut incomplete = false;
         let body_e = exp.lookup(body);
@@ -2993,6 +3007,7 @@ impl LBuilder {
               None => match self._resolve_adj_exp(body_e, env, tenv, t_work, work) {
                 ResolveAdj::Primal(body_e) => {
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
+                      binder.clone(),
                       name.clone(),
                       body_e.loc(),
                       adj_rest_e.loc()
@@ -3002,6 +3017,7 @@ impl LBuilder {
                 ResolveAdj::Bridge(new_body_e, body_defer) => {
                   incomplete |= body_defer;
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
+                      binder.clone(),
                       name.clone(),
                       new_body_e.loc(),
                       adj_rest_e.loc()
@@ -3345,7 +3361,7 @@ impl LBuilder {
                   None => unreachable!(),
                   Some(&idx) => {
                     let imm_target_var_e = exp.append(self, &mut |_| LTerm::LookupDef(imm_target_var.clone()));
-                    let idx_e = exp.append(self, &mut |_| LTerm::Index(idx));
+                    let idx_e = exp.append(self, &mut |_| LTerm::LookupIndex(idx));
                     sink_sum_e = exp.append(self, &mut |_| LTerm::EImportIdx(
                         idx,
                         imm_target_var_e.loc(),
@@ -3356,7 +3372,7 @@ impl LBuilder {
                 for &idx in idxs_iter {
                   let imm_target_var_e = exp.append(self, &mut |_| LTerm::LookupDef(imm_target_var.clone()));
                   let add_e = exp.append(self, &mut |_| LTerm::LookupDef(add_var.clone()));
-                  let idx_e = exp.append(self, &mut |_| LTerm::Index(idx));
+                  let idx_e = exp.append(self, &mut |_| LTerm::LookupIndex(idx));
                   let idx_e = exp.append(self, &mut |_| LTerm::EImportIdx(
                       idx,
                       imm_target_var_e.loc(),
@@ -3541,6 +3557,7 @@ impl LBuilder {
                       prev_target_e.loc()
                   ));
                   target_e = Some(exp.append(self, &mut |_| LTerm::Let(
+                      LDefBinder::Anon,
                       imm_target_var.clone(),
                       imm_target_e.loc(),
                       next_target_e.loc()
@@ -3619,6 +3636,7 @@ impl LBuilder {
                       tmp_var_e.loc()
                   ));
                   let new_exp = exp.append(self, &mut |_| LTerm::Let(
+                      LDefBinder::Anon,
                       tmp_var.clone(),
                       target_e.loc(),
                       cons_e.loc()
@@ -3653,10 +3671,11 @@ impl LBuilder {
         ));
         new_exp
       }
-      &LTerm::Let(ref name, ref body, ref rest) => {
+      &LTerm::Let(ref binder, ref name, ref body, ref rest) => {
         let body = self._resolve_post_adj_exp(exp.lookup(body), env, tenv);
         let rest = self._resolve_post_adj_exp(exp.lookup(rest), env, tenv);
         let new_exp = exp.append(self, &mut |_| LTerm::Let(
+            binder.clone(),
             name.clone(),
             body.loc(),
             rest.loc()
@@ -3704,9 +3723,9 @@ impl LBuilder {
       &LTerm::LookupDef(_) => {
         exp
       }
-      &LTerm::ProjectIdx(ref target, idx) => {
+      &LTerm::ProjectIndex(ref target, idx) => {
         let target_e = self._resolve_post_adj_exp(exp.lookup(target), env, tenv);
-        let idx_e = exp.append(self, &mut |_| LTerm::Index(idx));
+        let idx_e = exp.append(self, &mut |_| LTerm::LookupIndex(idx));
         let new_exp = exp.append(self, &mut |_| LTerm::EImportIdx(
             idx,
             target_e.loc(),
@@ -4452,7 +4471,7 @@ impl LBuilder {
       &LTerm::TngD(ref _target) => {
         unimplemented!();
       }
-      &LTerm::Let(ref name, ref body, ref rest) => {
+      &LTerm::Let(ref binder, ref name, ref body, ref rest) => {
         let mut rest_tctx = tctx.clone();
         let name_v = rest_tctx.bind_var_mut(name, tenv);
         self._gen_exp(exp.lookup(body), env, tctx, tenv, work);
@@ -4555,7 +4574,7 @@ impl LBuilder {
         let con = TyCon::Eq_(ety.into(), v.into()).into();
         work.cons.push_front(con);
       }
-      &LTerm::ProjectIdx(ref target, idx) => {
+      &LTerm::ProjectIndex(ref target, idx) => {
         // FIXME
         self._gen_exp(exp.lookup(target), env, tctx, tenv, work);
       }
@@ -6075,14 +6094,15 @@ impl PrintBox {
         }
         Ok(())
       }
-      &LTerm::Let(ref name, ref body, ref rest) => {
-        match builder.lookup_def_binder(name) {
-          LDefBinder::Ident(ident) => {
-            let ident_s = builder.rlookup_name(&ident);
-            write!(&mut buffer, "let ${}({}) = ", name.0, ident_s)?;
+      &LTerm::Let(ref binder, ref name_var, ref body, ref rest) => {
+        //match builder.lookup_def_binder(name_var) {
+        match binder {
+          &LDefBinder::Ident(ref ident) => {
+            let ident_s = builder.rlookup_name(ident);
+            write!(&mut buffer, "let ${}({}#{}) = ", name_var.0, ident_s, ident.0)?;
           }
           _ => {
-            write!(&mut buffer, "let ${} = ", name.0)?;
+            write!(&mut buffer, "let ${} = ", name_var.0)?;
           }
         }
         let mut body_box = PrintBox{
@@ -6105,14 +6125,14 @@ impl PrintBox {
       }
       &LTerm::Alt(ref name_ident, ref rest) => {
         let ident_s = builder.rlookup_name(name_ident);
-        write!(&mut buffer, "alt ${}({}) in", name_ident.0, ident_s)?;
+        write!(&mut buffer, "alt {}#{} in", ident_s, name_ident.0)?;
         writer.write_all(&buffer.into_inner())?;
         self._newline(writer)?;
         self._print_exp(builder, exp.lookup(rest), writer)
       }
       &LTerm::LetAlt(ref name_ident, ref name_var, ref ty, ref body, ref rest) => {
         let ident_s = builder.rlookup_name(name_ident);
-        write!(&mut buffer, "let alt ${}({}) = ", name_ident.0, ident_s)?;
+        write!(&mut buffer, "let alt ${}({}#{}) = ", name_var.0, ident_s, name_ident.0)?;
         let mut body_box = PrintBox{
           left_indent:  self.left_indent + buffer.position() as usize,
           line_nr:      1,
@@ -6317,7 +6337,7 @@ impl PrintBox {
         writer.write_all(&buffer.into_inner())?;
         Ok(())
       }
-      &LTerm::Index(idx) => {
+      &LTerm::LookupIndex(idx) => {
         write!(&mut buffer, "%{}", idx)?;
         writer.write_all(&buffer.into_inner())?;
         Ok(())
@@ -6341,7 +6361,7 @@ impl PrintBox {
         writer.write_all(&buffer.into_inner())?;
         Ok(())
       }
-      &LTerm::ProjectIdx(ref target, idx) => {
+      &LTerm::ProjectIndex(ref target, idx) => {
         //let ident_s = builder.rlookup_name(&ident);
         let mut target_box = PrintBox{
           left_indent:  self.left_indent,

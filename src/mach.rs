@@ -1098,7 +1098,7 @@ impl MachineState {
               kont,
             }
           }
-          LTerm::Let(var, body, rest) => {
+          LTerm::Let(_, var, body, rest) => {
             let body = exp.jump(body);
             let rest = exp.jump(rest);
             let thk = MThunk::new(env.clone(), MCode::Term(body.clone())).into();
@@ -1234,7 +1234,7 @@ impl MachineState {
               kont,
             }
           }
-          LTerm::Index(idx) => {
+          LTerm::LookupIndex(idx) => {
             let thk_a = match env.lookup_idx(idx) {
               None => panic!("machine: bug"),
               Some(a) => a,

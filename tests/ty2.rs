@@ -56,7 +56,7 @@ fn test_ty2_anno_1() {
 }
 
 #[test]
-fn test_ty2_anno_2_a() {
+fn test_ty2_anno_2_1() {
   println!();
   let lexer = HLexer::new(r"alt x; let alt x: Int = 3; let alt x: Flp = 3.14; let f_mono: [Int] -> Int = \z -> z in f_mono[x]");
   let parser = HParser::new(lexer);
@@ -74,7 +74,7 @@ fn test_ty2_anno_2_a() {
 }
 
 #[test]
-fn test_ty2_anno_2_b() {
+fn test_ty2_anno_2_2() {
   println!();
   let lexer = HLexer::new(r"alt x; let alt x: Int = 3; let alt x: Flp = 3.14; let f_mono: [Flp] -> Flp = \z -> z in f_mono[x]");
   let parser = HParser::new(lexer);

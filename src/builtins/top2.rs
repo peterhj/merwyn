@@ -20,7 +20,7 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
         fun:    Rc::new(|args| {
           let y = match (&*args[0], &*args[1]) {
             (&MVal::Flp(x0), &MVal::Flp(x1)) => {
-              x0 * x1
+              x0 / x1
             }
             _ => panic!(),
           };
@@ -104,8 +104,9 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
       divf_mlam.loc()
   ));
   let div_id = builder.lookup_or_fresh_name("div");
-  let div_var = builder.fresh_ident_def(div_id);
+  let div_var = builder.fresh_ident_def(div_id.clone());
   root = root.append(builder, &mut |_| LTerm::Let(
+      div_id.clone().into(),
       div_var.clone(),
       divf_mx.loc(),
       root.loc()
@@ -180,8 +181,9 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
       mulf_mlam.loc()
   ));
   let mul_id = builder.lookup_or_fresh_name("mul");
-  let mul_var = builder.fresh_ident_def(mul_id);
+  let mul_var = builder.fresh_ident_def(mul_id.clone());
   root = root.append(builder, &mut |_| LTerm::Let(
+      mul_id.clone().into(),
       mul_var.clone(),
       mulf_mx.loc(),
       root.loc()
@@ -252,8 +254,9 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
       subf_mlam.loc()
   ));
   let sub_id = builder.lookup_or_fresh_name("sub");
-  let sub_var = builder.fresh_ident_def(sub_id);
+  let sub_var = builder.fresh_ident_def(sub_id.clone());
   root = root.append(builder, &mut |_| LTerm::Let(
+      sub_id.clone().into(),
       sub_var.clone(),
       subf_mx.loc(),
       root.loc()
@@ -317,8 +320,9 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
       negf_mlam.loc()
   ));
   let neg_id = builder.lookup_or_fresh_name("neg");
-  let neg_var = builder.fresh_ident_def(neg_id);
+  let neg_var = builder.fresh_ident_def(neg_id.clone());
   root = root.append(builder, &mut |_| LTerm::Let(
+      neg_id.clone().into(),
       neg_var.clone(),
       negf_mx.loc(),
       root.loc()
@@ -381,8 +385,9 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
       addf_mlam.loc()
   ));
   let add_id = builder.lookup_or_fresh_name("add");
-  let add_var = builder.fresh_ident_def(add_id);
+  let add_var = builder.fresh_ident_def(add_id.clone());
   root = root.append(builder, &mut |_| LTerm::Let(
+      add_id.clone().into(),
       add_var.clone(),
       addf_mx.loc(),
       root.loc()
