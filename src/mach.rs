@@ -5,13 +5,14 @@
 //use crate::cffi::{MCValRef};
 //use crate::coll::{HTreapMap};
 use crate::coll::{IHTreapMap, IHTreapSet};
-use crate::ir2::{LCodeRef, LDef, /*LEnvMask,*/ LExprCell, LMExprCell, LPat, LPatRef, LTerm, LTermRef, LMTerm, LMTermRef};
+use crate::ir2::{LCodeRef, LDef, /*LEnvMask,*/ LExprCell, LMExprCell, LIdent, LPat, LPatRef, LQuote, LQuoteRef, LTerm, LTermRef, LMTerm, LMTermRef};
 use crate::num_util::{Checked, checked};
 
 use std::cell::{RefCell};
 use std::collections::{VecDeque};
 //use std::fmt::{Debug as FmtDebug, Error as FmtError, Formatter};
 use std::iter::{FromIterator};
+use std::ops::{Deref};
 use std::rc::{Rc};
 
 pub type MKontRef = Rc<MKont>;
@@ -28,14 +29,24 @@ pub type MThunkRef = Rc<MThunk>;
 #[derive(Clone)]
 pub enum MVal {
   //Box(_),
+  Quo(MQuoteRef),
   Env(MEnvRef),
   Clo(MClosure),
   STup(Vec<MValRef>),
-  HTup(Vec<MValRef>),
+  UTup(Vec<MValRef>),
   Bit(bool),
   Int(Checked<i64>),
   Flp(f64),
   Unit,
+}
+
+impl MVal {
+  pub fn as_quote(&self) -> MQuoteRef {
+    match self {
+      &MVal::Quo(ref quote) => quote.clone(),
+      _ => panic!("bug: MVal: expected quote"),
+    }
+  }
 }
 
 pub trait MValUnpack<T> {
@@ -74,10 +85,35 @@ impl MValUnpack<()> for MVal {
     match self {
       // TODO
       MVal::STup(_) => unimplemented!(),
-      MVal::HTup(_) => unimplemented!(),
+      MVal::UTup(_) => unimplemented!(),
       MVal::Unit => Some(()),
       _ => None,
     }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub enum MQuote {
+  Ident(LIdent),
+}
+
+#[derive(Clone, Debug)]
+pub struct MQuoteRef(Rc<MQuote>);
+
+impl From<LQuoteRef> for MQuoteRef {
+  fn from(quote: LQuoteRef) -> MQuoteRef {
+    let mquote = match &*quote {
+      &LQuote::Ident(ref ident) => MQuote::Ident(ident.clone()),
+    };
+    MQuoteRef(mquote.into())
+  }
+}
+
+impl Deref for MQuoteRef {
+  type Target = MQuote;
+
+  fn deref(&self) -> &MQuote {
+    &*self.0
   }
 }
 
@@ -174,7 +210,7 @@ pub enum MKont<E=LExprCell> {
   App(Option<MClosure>, Vec<MValRef>, VecDeque<E>, MEnvRef, MKontRef),
   Mch(VecDeque<(LPatRef, E)>, MEnvRef, MKontRef),
   STup(Vec<MValRef>, VecDeque<E>, MEnvRef, MKontRef),
-  HTup(Vec<MValRef>, VecDeque<E>, MEnvRef, MKontRef),
+  UTup(Vec<MValRef>, VecDeque<E>, MEnvRef, MKontRef),
   XInc(E, MKontRef),
   Hlt,
 }
@@ -947,14 +983,14 @@ impl MachineState {
               env,
             }
           }
-          LTerm::EImportVar(sel_var, target, rest) => {
+          LTerm::EImportDef(sel_var, target, rest) => {
             MachineTuple{
               ctrl: MReg::Term(exp.jump(target)),
               kont: MKont::EImpV1(sel_var, exp.jump(rest), env.clone(), kont.into()).into(),
               env,
             }
           }
-          LTerm::EImportVars(sel_vars, target, rest) => {
+          LTerm::EImportDefs(sel_vars, target, rest) => {
             MachineTuple{
               ctrl: MReg::Term(exp.jump(target)),
               kont: MKont::EImpV(sel_vars, exp.jump(rest), env.clone(), kont.into()).into(),
@@ -968,7 +1004,7 @@ impl MachineState {
               env,
             }
           }
-          LTerm::EConsVarLazy(var, value, target) => {
+          LTerm::EConsDefLazy(var, value, target) => {
             MachineTuple{
               ctrl: MReg::Term(exp.jump(target)),
               kont: MKont::EConsVL(var, exp.jump(value), env.clone(), kont.into()).into(),
@@ -996,14 +1032,14 @@ impl MachineState {
               env,
             }
           }
-          LTerm::EPopVars(vars, target) => {
+          LTerm::EPopDefs(vars, target) => {
             MachineTuple{
               ctrl: MReg::Term(exp.jump(target)),
               kont: MKont::EPopV(vars, env.clone(), kont.into()).into(),
               env,
             }
           }
-          LTerm::ESymmVars(lhs, rhs) => {
+          LTerm::ESymmDefs(lhs, rhs) => {
             MachineTuple{
               ctrl: MReg::Term(exp.jump(lhs)),
               kont: MKont::ESymmVl(exp.jump(rhs), env.clone(), kont.into()).into(),
@@ -1154,9 +1190,17 @@ impl MachineState {
               }
             }
           }
-          LTerm::Tuple(elems) => {
+          LTerm::UTuple(elems) => {
             // TODO
             unimplemented!();
+          }
+          LTerm::Quote(quote) => {
+            let val = MVal::Quo(quote.into()).into();
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env,
+              kont,
+            }
           }
           LTerm::BitLit(x) => {
             let val = MVal::Bit(x).into();
@@ -1201,7 +1245,7 @@ impl MachineState {
               kont,
             }
           }
-          LTerm::LookupVar(var) => {
+          LTerm::LookupDef(var) => {
             let thk_a = match env.lookup_var(&var) {
               None => panic!("machine: bug"),
               Some(a) => a,

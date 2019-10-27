@@ -235,7 +235,7 @@ fn test_ty2_deriv_5() {
 #[test]
 fn test_ty2_deriv_6() {
   println!();
-  let lexer = HLexer::new(r"let x = 3.0; let n = 5; let f = \t, k -> match k | 0 => t | _ => t; let y = f[x, n]; let dy = d[y]; dy.x");
+  let lexer = HLexer::new(r"let x = 3.0; let n = 5; let f = \t, k -> match k with | 0 => t | _ => t; let y = f[x, n]; let dy = d[y]; dy.x");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   let mut builder = LBuilder::default();
@@ -255,7 +255,7 @@ fn test_ty2_deriv_6() {
 #[test]
 fn test_ty2_deriv_7() {
   println!();
-  let lexer = HLexer::new(r"let x1 = 1.0; let x2 = 2.0; let n = 5; let f = \t, k -> match k | 0 => t | _ => x2; let y = f[x1, n]; let dy = d[y]; dy.x2");
+  let lexer = HLexer::new(r"let x1 = 1.0; let x2 = 2.0; let n = 5; let f = \t, k -> match k with | 0 => t | _ => x2; let y = f[x1, n]; let dy = d[y]; dy.x2");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   let mut builder = LBuilder::default();

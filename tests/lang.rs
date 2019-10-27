@@ -278,16 +278,16 @@ fn test_lang_literal_int_2() {
 }
 
 #[test]
-fn test_lang_literal_logical_bot() {
-  let lexer = HLexer::new("bot");
+fn test_lang_literal_logical_false() {
+  let lexer = HLexer::new("false");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
 }
 
 #[test]
-fn test_lang_literal_logical_tee() {
-  let lexer = HLexer::new("tee");
+fn test_lang_literal_logical_truth() {
+  let lexer = HLexer::new("truth");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -435,7 +435,7 @@ fn test_lang_let_for_if() {
 
 #[test]
 fn test_lang_match() {
-  let lexer = HLexer::new(r"match x | 1 => a | tee => b[1,a] | () => \c -> 2*c | _ => \y, z -> match y | 1 => 2 | _ => 1");
+  let lexer = HLexer::new(r"match x with | 1 => a | truth => b[1,a] | () => \c -> 2*c | _ => \y, z -> match y with | 1 => 2 | _ => 1");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -500,19 +500,20 @@ fn test_lang_stuple() {
 
 #[test]
 fn test_lang_tylam() {
-  let lexer = HLexer::new("let x[y,z]: ['a, 'b] -> 'c = 0 in 0");
+  let lexer = HLexer::new("let x[y,z]: [a, Flp] -> [x] -> Int = 0 in 0");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
 }
 
-#[test]
+// TODO: quote syntax is being reused.
+/*#[test]
 fn test_lang_tyvar() {
   let lexer = HLexer::new("let x: 'a = 0 in 0");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
-}
+}*/
 
 // TODO: status of where syntax pending.
 /*#[test]
