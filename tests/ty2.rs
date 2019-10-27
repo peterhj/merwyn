@@ -20,6 +20,7 @@ fn test_ty2_anno_0() {
   let val = machine.reset_eval(module.tree.root());
   let r: Option<f64> = val.clone().try_unpack();
   println!("DEBUG: result: {:?}", r);
+  assert_eq!(r, Some(1.0));
 }
 
 #[should_panic]
@@ -30,14 +31,10 @@ fn test_ty2_anno_0_fails() {
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   let mut builder = LBuilder::default();
-  let module = match builder._compile(htree, LCtxRef::default(), LTyctxRef::default()) {
+  let _module = match builder._compile(htree, LCtxRef::default(), LTyctxRef::default()) {
     Err(_) => panic!(),
     Ok(module) => module,
   };
-  let mut machine = Machine::default();
-  let val = machine.reset_eval(module.tree.root());
-  let r: Option<i64> = val.clone().try_unpack();
-  println!("DEBUG: result: {:?}", r);
 }
 
 #[test]
@@ -55,12 +52,13 @@ fn test_ty2_anno_1() {
   let val = machine.reset_eval(module.tree.root());
   let r: Option<i64> = val.clone().try_unpack();
   println!("DEBUG: result: {:?}", r);
+  assert_eq!(r, Some(42));
 }
 
 #[test]
-fn test_ty2_anno_2() {
+fn test_ty2_anno_2_a() {
   println!();
-  let lexer = HLexer::new(r"alt x; let alt x: Int = 3; let alt x: Flp = 3.14; let f: [Int] -> Int = \z -> z in f[x]");
+  let lexer = HLexer::new(r"alt x; let alt x: Int = 3; let alt x: Flp = 3.14; let f_mono: [Int] -> Int = \z -> z in f_mono[x]");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   let mut builder = LBuilder::default();
@@ -72,6 +70,25 @@ fn test_ty2_anno_2() {
   let val = machine.reset_eval(module.tree.root());
   let r: Option<i64> = val.clone().try_unpack();
   println!("DEBUG: result: {:?}", r);
+  assert_eq!(r, Some(3));
+}
+
+#[test]
+fn test_ty2_anno_2_b() {
+  println!();
+  let lexer = HLexer::new(r"alt x; let alt x: Int = 3; let alt x: Flp = 3.14; let f_mono: [Flp] -> Flp = \z -> z in f_mono[x]");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  let mut builder = LBuilder::default();
+  let module = match builder._compile(htree, LCtxRef::default(), LTyctxRef::default()) {
+    Err(_) => panic!(),
+    Ok(module) => module,
+  };
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
+  assert_eq!(r, Some(3.14));
 }
 
 #[test]
