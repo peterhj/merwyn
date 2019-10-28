@@ -197,8 +197,16 @@ fn test_lang_ident_infix() {
 }
 
 #[test]
+fn test_lang_ident_postfix() {
+  let lexer = HLexer::new("1 ^neg");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
 fn test_lang_ident_cryptic() {
-  let lexer = HLexer::new("~Az/09+==");
+  let lexer = HLexer::new("@=Az/09+==");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -467,7 +475,7 @@ fn test_lang_partial_derivative_2() {
 }*/
 
 #[test]
-fn test_lang_partial_alt_derivative() {
+fn test_lang_partial_derivative_variant() {
   let lexer = HLexer::new("d.x[y]");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
@@ -475,16 +483,8 @@ fn test_lang_partial_alt_derivative() {
 }
 
 #[test]
-fn test_lang_partial_alt_derivative_2() {
+fn test_lang_partial_derivative_variant_2() {
   let lexer = HLexer::new("d.{x, y}[(f, g)]");
-  let parser = HParser::new(lexer);
-  let htree = parser.parse().unwrap();
-  println!("{:?}", htree);
-}
-
-#[test]
-fn test_lang_tuple() {
-  let lexer = HLexer::new("(|1, 2, x, y|)");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -514,6 +514,14 @@ fn test_lang_tyvar() {
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
 }*/
+
+#[test]
+fn test_lang_utuple() {
+  let lexer = HLexer::new("(|1, 2, x, y|)");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
 
 // TODO: status of where syntax pending.
 /*#[test]

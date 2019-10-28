@@ -1110,6 +1110,15 @@ impl MachineState {
               env,
             }
           }
+          LTerm::SLet(_, s_pat, body, rest) => {
+            let mut pat_arms_ = VecDeque::new();
+            pat_arms_.push_back((s_pat.into(), exp.jump(rest)));
+            MachineTuple{
+              ctrl: MReg::Term(exp.jump(body)),
+              kont: MKont::Mch(pat_arms_, env.clone(), kont.into()).into(),
+              env,
+            }
+          }
           LTerm::Alt(_, rest) => {
             let rest = exp.jump(rest);
             MachineTuple{

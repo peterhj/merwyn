@@ -10,155 +10,159 @@ use std::rc::{Rc};
 lexer! {
   fn next_token(text: 'a) -> HLToken;
 
-  r#"\n"#           => HLToken::Newline,
-  r#"[ \t\r]+"#     => HLToken::Whitespace,
-  r#"#[^\n]*"#      => HLToken::EolComment,
+  r#"\n"#       => HLToken::Newline,
+  r#"[ \t\r]+"# => HLToken::Whitespace,
+  r#"#[^\n]*"#  => HLToken::EolComment,
   r#"\([*](~(.*[*]\).*))[*]\)"# => HLToken::MultilineComment(0),
 
-  /*r#"d'["#          => HLToken::DMinorPrimeBrack,
-  r#"d["#           => HLToken::DMinorBrack,
-  r#"D'["#          => HLToken::DMajorPrimeBrack,
-  r#"D["#           => HLToken::DMajorBrack,
-  r#"J'["#          => HLToken::JMajorPrimeBrack,
-  r#"J["#           => HLToken::JMajorBrack,*/
-  r#"d'"#           => HLToken::DMinorPrime,
-  r#"d"#            => HLToken::DMinor,
-  r#"D'"#           => HLToken::DMajorPrime,
-  r#"D"#            => HLToken::DMajor,
-  r#"J'"#           => HLToken::JMajorPrime,
-  r#"J"#            => HLToken::JMajor,
-  //r#"trace"#        => HLToken::Trace,
-  r#"adj"#          => HLToken::Adj,
-  r#"alt"#          => HLToken::Alt,
-  //r#"alternate"#    => HLToken::Alt,
-  r#"as"#           => HLToken::As,
-  r#"break"#        => HLToken::Break,
-  r#"const"#        => HLToken::Const,
-  r#"export"#       => HLToken::Export,
-  r#"def"#          => HLToken::Def,
-  r#"dyn"#          => HLToken::Dyn,
-  r#"end"#          => HLToken::End,
-  r#"for"#          => HLToken::For,
-  r#"gen"#          => HLToken::Gen,
-  //r#"generic"#      => HLToken::Gen,
-  r#"import"#       => HLToken::Import,
-  r#"in"#           => HLToken::In,
-  r#"include"#      => HLToken::Include,
-  //r#"lambda"#       => HLToken::Lambda,
-  r#"let"#          => HLToken::Let,
-  r#"match"#        => HLToken::Match,
-  r#"module"#       => HLToken::Module,
-  r#"pub"#          => HLToken::Pub,
-  r#"rec"#          => HLToken::Rec,
-  r#"ref"#          => HLToken::Ref,
-  r#"require"#      => HLToken::Require,
-  r#"return"#       => HLToken::Return,
-  r#"rnd"#          => HLToken::Rnd,
-  r#"seq"#          => HLToken::Seq,
-  r#"switch"#       => HLToken::Switch,
-  r#"tng"#          => HLToken::Tng,
-  r#"undef"#        => HLToken::Undef,
-  r#"where"#        => HLToken::Where,
-  r#"with"#         => HLToken::With,
-  r#"λ"#            => HLToken::Lambda,
-  r#"≤"#            => HLToken::LtEquals,
-  r#"≥"#            => HLToken::GtEquals,
-  r#":-"#           => HLToken::If,
-  r#":="#           => HLToken::Assigns,
-  r#"<="#           => HLToken::LtEquals,
-  r#"<"#            => HLToken::Lt,
-  r#">="#           => HLToken::GtEquals,
-  r#">"#            => HLToken::Gt,
-  r#"/="#           => HLToken::NotEquals,
-  r#"==>"#          => HLToken::RDDArrow,
-  r#"=>"#           => HLToken::RDArrow,
-  r#"=="#           => HLToken::EqEquals,
-  r#"="#            => HLToken::Equals,
-  r#"\~"#           => HLToken::Tilde,
-  r#"\\"#           => HLToken::Backslash,
-  r#"\.\+"#         => HLToken::DotPlus,
-  r#"\.-"#          => HLToken::DotDash,
-  r#"\.\*"#         => HLToken::DotStar,
-  r#"\./"#          => HLToken::DotSlash,
-  r#"'\["#          => HLToken::LQuoteBrack,
-  r#"\.\("#         => HLToken::LDotParen,
-  r#"\.\["#         => HLToken::LDotBrack,
-  r#"\.\{"#         => HLToken::LDotCurly,
-  r#"\.\.\."#       => HLToken::Ellipsis,
-  r#"\.\."#         => HLToken::DotDot,
-  r#"\."#           => HLToken::Dot,
-  r#","#            => HLToken::Comma,
-  r#";;"#           => HLToken::SemiSemi,
-  r#";"#            => HLToken::Semi,
-  r#"::"#           => HLToken::ColonColon,
-  r#":"#            => HLToken::Colon,
-  r#"\|>"#          => HLToken::RPipe,
-  r#"\|\|"#         => HLToken::BarBar,
-  r#"\|"#           => HLToken::Bar,
-  r#"^^"#           => HLToken::HatHat,
-  r#"^"#            => HLToken::Hat,
-  r#"\+\+"#         => HLToken::PlusPlus,
-  r#"\+:"#          => HLToken::PlusColon,
-  r#"\+\."#         => HLToken::PlusDot,
-  r#"\+"#           => HLToken::Plus,
-  //r#"-:"#           => HLToken::Then,
-  r#"-o"#           => HLToken::ROArrow,
-  r#"->"#           => HLToken::RArrow,
-  r#"-:"#           => HLToken::DashColon,
-  r#"-\."#          => HLToken::DashDot,
-  r#"-"#            => HLToken::Dash,
-  r#"\*:"#          => HLToken::StarColon,
-  r#"\*\."#         => HLToken::StarDot,
-  r#"\*"#           => HLToken::Star,
-  r#"/:"#           => HLToken::SlashColon,
-  r#"/\."#          => HLToken::SlashDot,
-  r#"/"#            => HLToken::Slash,
-  r#"\(\|"#         => HLToken::LParenBar,
-  r#"\("#           => HLToken::LParen,
-  r#"\|\)"#         => HLToken::RParenBar,
-  r#"\)"#           => HLToken::RParen,
-  r#"\["#           => HLToken::LBrack,
-  r#"\]"#           => HLToken::RBrack,
-  r#"\{"#           => HLToken::LCurly,
-  r#"\}"#           => HLToken::RCurly,
-  r#"'"#            => HLToken::Quote,
+  /*r#"d'["#      => HLToken::DMinorPrimeBrack,
+  r#"d["#       => HLToken::DMinorBrack,
+  r#"D'["#      => HLToken::DMajorPrimeBrack,
+  r#"D["#       => HLToken::DMajorBrack,
+  r#"J'["#      => HLToken::JMajorPrimeBrack,
+  r#"J["#       => HLToken::JMajorBrack,*/
+  r#"d'"#       => HLToken::DMinorPrime,
+  r#"d"#        => HLToken::DMinor,
+  r#"D'"#       => HLToken::DMajorPrime,
+  r#"D"#        => HLToken::DMajor,
+  r#"J'"#       => HLToken::JMajorPrime,
+  r#"J"#        => HLToken::JMajor,
+  //r#"trace"#    => HLToken::Trace,
+  r#"adj"#      => HLToken::Adj,
+  r#"alt"#      => HLToken::Alt,
+  //r#"alternate"#=> HLToken::Alt,
+  r#"as"#       => HLToken::As,
+  r#"assert"#   => HLToken::Assert,
+  r#"break"#    => HLToken::Break,
+  r#"const"#    => HLToken::Const,
+  r#"export"#   => HLToken::Export,
+  r#"def"#      => HLToken::Def,
+  r#"dyn"#      => HLToken::Dyn,
+  r#"end"#      => HLToken::End,
+  r#"for"#      => HLToken::For,
+  r#"gen"#      => HLToken::Gen,
+  //r#"generic"#  => HLToken::Gen,
+  r#"import"#   => HLToken::Import,
+  r#"in"#       => HLToken::In,
+  r#"include"#  => HLToken::Include,
+  //r#"lambda"#   => HLToken::Lambda,
+  r#"let"#      => HLToken::Let,
+  r#"match"#    => HLToken::Match,
+  r#"module"#   => HLToken::Module,
+  r#"pub"#      => HLToken::Pub,
+  r#"rec"#      => HLToken::Rec,
+  r#"ref"#      => HLToken::Ref,
+  r#"require"#  => HLToken::Require,
+  r#"return"#   => HLToken::Return,
+  r#"rnd"#      => HLToken::Rnd,
+  r#"seq"#      => HLToken::Seq,
+  r#"switch"#   => HLToken::Switch,
+  r#"tng"#      => HLToken::Tng,
+  r#"undef"#    => HLToken::Undef,
+  r#"unsafe"#   => HLToken::Unsafe,
+  r#"where"#    => HLToken::Where,
+  r#"with"#     => HLToken::With,
+  r#"λ"#        => HLToken::Lambda,
+  r#"≤"#        => HLToken::LtEquals,
+  r#"≥"#        => HLToken::GtEquals,
+  r#":-"#       => HLToken::If,
+  r#":="#       => HLToken::Assigns,
+  r#"<="#       => HLToken::LtEquals,
+  r#"<"#        => HLToken::Lt,
+  r#">="#       => HLToken::GtEquals,
+  r#">"#        => HLToken::Gt,
+  r#"/="#       => HLToken::NotEquals,
+  r#"==>"#      => HLToken::RDDArrow,
+  r#"=>"#       => HLToken::RDArrow,
+  r#"=="#       => HLToken::EqEquals,
+  r#"="#        => HLToken::Equals,
+  r#"\~"#       => HLToken::Tilde,
+  r#"\\"#       => HLToken::Backslash,
+  r#"\.\+"#     => HLToken::DotPlus,
+  r#"\.-"#      => HLToken::DotDash,
+  r#"\.\*"#     => HLToken::DotStar,
+  r#"\./"#      => HLToken::DotSlash,
+  r#"'\["#      => HLToken::LQuoteBrack,
+  //r#"\.\("#     => HLToken::LDotParen,
+  //r#"\.\["#     => HLToken::LDotBrack,
+  //r#"\.\{"#     => HLToken::LDotCurly,
+  r#"\.\.\."#   => HLToken::Ellipsis,
+  r#"\.\."#     => HLToken::DotDot,
+  r#"\."#       => HLToken::Dot,
+  r#","#        => HLToken::Comma,
+  r#";;"#       => HLToken::SemiSemi,
+  r#";"#        => HLToken::Semi,
+  r#"::"#       => HLToken::ColonColon,
+  r#":"#        => HLToken::Colon,
+  r#"\|>"#      => HLToken::RPipe,
+  r#"\|\|"#     => HLToken::BarBar,
+  r#"\|"#       => HLToken::Bar,
+  r#"^^"#       => HLToken::HatHat,
+  r#"^"#        => HLToken::Hat,
+  r#"\+\+"#     => HLToken::PlusPlus,
+  r#"\+:"#      => HLToken::PlusColon,
+  r#"\+\."#     => HLToken::PlusDot,
+  r#"\+"#       => HLToken::Plus,
+  //r#"-:"#       => HLToken::Then,
+  r#"-o"#       => HLToken::ROArrow,
+  r#"->"#       => HLToken::RArrow,
+  r#"-:"#       => HLToken::DashColon,
+  r#"-\."#      => HLToken::DashDot,
+  r#"-"#        => HLToken::Dash,
+  r#"\*:"#      => HLToken::StarColon,
+  r#"\*\."#     => HLToken::StarDot,
+  r#"\*"#       => HLToken::Star,
+  r#"/:"#       => HLToken::SlashColon,
+  r#"/\."#      => HLToken::SlashDot,
+  r#"/"#        => HLToken::Slash,
+  r#"\(\|"#     => HLToken::LParenBar,
+  r#"\("#       => HLToken::LParen,
+  r#"\|\)"#     => HLToken::RParenBar,
+  r#"\)"#       => HLToken::RParen,
+  r#"\["#       => HLToken::LBrack,
+  r#"\]"#       => HLToken::RBrack,
+  r#"\{"#       => HLToken::LCurly,
+  r#"\}"#       => HLToken::RCurly,
+  r#"'"#        => HLToken::Quote,
 
-  r#"_"#            => HLToken::PlacePat,
+  r#"_"#        => HLToken::PlacePat,
 
-  //r#"'_"#           => HLToken::PlaceTy,
-  //r#"'\?"#          => HLToken::TopTy,
-  r#"Bit"#          => HLToken::BitTy,
-  r#"Int"#          => HLToken::IntTy,
-  r#"Flp"#          => HLToken::FlpTy,
-  //r#"Flp16"#        => HLToken::Flp16Ty,
-  //r#"Flp32"#        => HLToken::Flp32Ty,
-  //r#"Fmp"#          => HLToken::FmpTy,
+  //r#"'_"#       => HLToken::PlaceTy,
+  //r#"'\?"#      => HLToken::TopTy,
+  r#"Bit"#      => HLToken::BitTy,
+  r#"Int"#      => HLToken::IntTy,
+  r#"Flp"#      => HLToken::FlpTy,
+  //r#"Flp16"#    => HLToken::Flp16Ty,
+  //r#"Flp32"#    => HLToken::Flp32Ty,
+  //r#"Fmp"#      => HLToken::FmpTy,
 
-  r#"unit"#         => HLToken::UnitLit,
-  r#"tee"#          => HLToken::TeeLit,
-  r#"bot"#          => HLToken::BotLit,
-  r#"truth"#        => HLToken::TruthLit,
-  r#"false"#        => HLToken::FalseLit,
+  r#"unit"#     => HLToken::UnitLit,
+  r#"tee"#      => HLToken::TeeLit,
+  r#"bot"#      => HLToken::BotLit,
+  r#"truth"#    => HLToken::TruthLit,
+  r#"false"#    => HLToken::FalseLit,
 
-  //r#"[0-9]+\.[0-9]*[fp16]"# => HLToken::Flp16Lit(text[ .. text.len() - 1].parse().unwrap()),
-  //r#"[0-9]+\.[0-9]*[fp32]"# => HLToken::Flp32Lit(text[ .. text.len() - 1].parse().unwrap()),
-  //r#"[0-9]+\.[0-9]*[fmp]"#  => HLToken::FmpLit(text[ .. text.len() - 1].parse().unwrap()),
-  r#"[0-9]+\.[0-9]*[f]"#    => HLToken::FlpLit(text[ .. text.len() - 1].parse().unwrap()),
-  r#"[0-9]+\.[0-9]*"#       => HLToken::FlpLit(text.parse().unwrap()),
-  r#"[0-9]+[f]"#            => HLToken::FlpLit(text[ .. text.len() - 1].parse().unwrap()),
-  r#"[0-9]+[n]"#            => HLToken::IntLit(text[ .. text.len() - 1].parse().unwrap()),
-  r#"[0-9]+"#               => HLToken::IntLit(text.parse().unwrap()),
+  //r#"[0-9]+\.[0-9]*[fp16]"#         => HLToken::Flp16Lit(text[ .. text.len() - 1].parse().unwrap()),
+  //r#"[0-9]+\.[0-9]*[fp32]"#         => HLToken::Flp32Lit(text[ .. text.len() - 1].parse().unwrap()),
+  //r#"[0-9]+\.[0-9]*[fmp]"#          => HLToken::FmpLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"[0-9]+\.[0-9]*f"#              => HLToken::FlpLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"[0-9]+\.[0-9]*"#               => HLToken::FlpLit(text.parse().unwrap()),
+  r#"[0-9]+f"#                      => HLToken::FlpLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"[0-9]+n"#                      => HLToken::IntLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"[0-9]+"#                       => HLToken::IntLit(text.parse().unwrap()),
 
   r#"[a-zA-Z_][a-zA-Z0-9_]*[']*"#   => HLToken::Ident(text.to_owned()),
   r#"`[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::InfixIdent(text.to_owned()),
+  r#"^[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::PostfixIdent(text.to_owned()),
   r#"\?[a-zA-Z_][a-zA-Z0-9_]*[']*"# => HLToken::ImplicitIdent(text.to_owned()),
   r#"\?[0-9]+"#                     => HLToken::ImplicitIndex(text.parse().unwrap()),
   //r#"'[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::TyvarIdent(text.to_owned()),
-  r#"\~[A-Za-z0-9/\+]+[=]*"#        => HLToken::CrypticIdent(text.to_owned()),
-  r#"@[a-z0-9\-\.]+[:][a-z0-9\-]+"# => HLToken::UseIdent(text.to_owned()),
+  //r#"\~[A-Za-z0-9/\+]+[=]*"#        => HLToken::CrypticIdent(text.to_owned()),
+  r#"@=[A-Za-z0-9/\+]+[=]*"#        => HLToken::CrypticIdent(text.to_owned()),
+  r#"@[a-z0-9\-\.]+:[a-z0-9\-/]+"#  => HLToken::UseIdent(text.to_owned()),
   r#"@[a-z0-9\-]+"#                 => HLToken::UseIdent(text.to_owned()),
 
-  r#"."#            => HLToken::_Eof,
+  r#"."#        => HLToken::_Eof,
 }
 
 #[derive(Clone, Debug)]
@@ -195,6 +199,7 @@ pub enum HLToken {
   Adj,
   Alt,
   As,
+  Assert,
   Break,
   Const,
   Def,
@@ -220,6 +225,7 @@ pub enum HLToken {
   Tng,
   Trace,
   Undef,
+  Unsafe,
   Where,
   With,
   Lambda,
@@ -298,6 +304,7 @@ pub enum HLToken {
   FlpLit(f64),
   Ident(String),
   InfixIdent(String),
+  PostfixIdent(String),
   ImplicitIdent(String),
   ImplicitIndex(i64),
   CrypticIdent(String),
@@ -454,7 +461,8 @@ pub enum HExpr {
   Apply(Rc<HExpr>, Vec<Rc<HExpr>>),
   UTuple(Vec<Rc<HExpr>>),
   STuple(Vec<Rc<HExpr>>),
-  ETuple(Vec<Rc<HExpr>>),
+  //ETuple(Vec<Rc<HExpr>>),
+  ETuple(Vec<String>),
   PartialD(Rc<HExpr>),
   PartialAltD(Rc<HExpr>, Rc<HExpr>),
   AdjointD(Rc<HExpr>),
@@ -495,6 +503,7 @@ pub enum HExpr {
   Mul(Rc<HExpr>, Rc<HExpr>),
   Div(Rc<HExpr>, Rc<HExpr>),
   Infix(String, Rc<HExpr>, Rc<HExpr>),
+  Postfix(String, Rc<HExpr>),
   Neg(Rc<HExpr>),
   //Cons(Rc<HExpr>, Rc<HExpr>),
   Concat(Rc<HExpr>, Rc<HExpr>),
@@ -668,7 +677,8 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
       &HLToken::Dash => 500,
       &HLToken::Star |
       &HLToken::Slash => 520,
-      &HLToken::InfixIdent(_) => 600,
+      &HLToken::InfixIdent(_) |
+      &HLToken::PostfixIdent(_) => 600,
       &HLToken::As => 700,
       &HLToken::Dot => 800,
       //&HLToken::LParenBar => _,
@@ -782,12 +792,49 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
         match self.current_token() {
           HLToken::Dot => {
             self.advance();
-            let wrt = self.expression(self.lbp(&HLToken::Dot))?;
+            let mut idents = Vec::new();
+            match self.current_token() {
+              HLToken::LCurly => {
+                self.advance();
+                match self.current_token() {
+                  HLToken::RCurly => {
+                    self.advance();
+                  }
+                  _ => {
+                    loop {
+                      match self.current_token() {
+                        HLToken::Ident(ident) => {
+                          self.advance();
+                          idents.push(ident);
+                        }
+                        t => return Err(HError::Expected(vec![HLToken::Ident("<identifier>".to_owned())], t))
+                      }
+                      match self.current_token() {
+                        HLToken::Comma => {
+                          self.advance();
+                        }
+                        HLToken::RCurly => {
+                          self.advance();
+                          break;
+                        }
+                        //_ => panic!(),
+                        t => return Err(HError::Expected(vec![HLToken::Comma, HLToken::RCurly], t))
+                      }
+                    }
+                  }
+                }
+              }
+              HLToken::Ident(ident) => {
+                self.advance();
+                idents.push(ident);
+              }
+              t => return Err(HError::Expected(vec![HLToken::LCurly, HLToken::Ident("<identifier>".to_owned())], t))
+            }
+            let wrt = HExpr::ETuple(idents);
             match self.current_token() {
               HLToken::LBrack => {
                 self.advance();
               }
-              //_ => panic!(),
               t => return Err(HError::Expected(vec![HLToken::LBrack], t))
             }
             let e = self.expression(0)?;
@@ -795,12 +842,11 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
               HLToken::RBrack => {
                 self.advance();
               }
-              //_ => panic!(),
               t => return Err(HError::Expected(vec![HLToken::RBrack], t))
             }
             Ok(HExpr::PartialAltD(Rc::new(wrt), Rc::new(e)))
           }
-          HLToken::LDotCurly => {
+          /*HLToken::LDotCurly => {
             self.advance();
             let mut idents = Vec::new();
             match self.current_token() {
@@ -842,7 +888,7 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
               t => return Err(HError::Expected(vec![HLToken::RBrack], t))
             }
             Ok(HExpr::PartialAltD(Rc::new(wrt), Rc::new(e)))
-          }
+          }*/
           HLToken::LBrack => {
             self.advance();
             let e = self.expression(self.lbp(&HLToken::LBrack))?;
@@ -1678,6 +1724,11 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
         name.replace_range(.. 1, "");
         let right = self.expression(self.lbp(&tok))?;
         Ok(HExpr::Infix(name, Rc::new(left), Rc::new(right)))
+      }
+      HLToken::PostfixIdent(ref postfix_name) => {
+        let mut name = postfix_name.clone();
+        name.replace_range(.. 1, "");
+        Ok(HExpr::Postfix(name, Rc::new(left)))
       }
       HLToken::LBrack => {
         match self.current_token() {
