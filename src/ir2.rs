@@ -66,9 +66,18 @@ impl From<LSIPat> for LSIPatRef {
   }
 }
 
+impl From<LDefBinder> for LSIPatRef {
+  fn from(binder: LDefBinder) -> LSIPatRef {
+    match binder {
+      LDefBinder::Ident(ident) => ident.into(),
+      LDefBinder::Anon => LSIPat::Anon.into(),
+    }
+  }
+}
+
 impl From<LIdent> for LSIPatRef {
-  fn from(var: LIdent) -> LSIPatRef {
-    LSIPat::Ident(var).into()
+  fn from(ident: LIdent) -> LSIPatRef {
+    LSIPat::Ident(ident).into()
   }
 }
 
@@ -2644,12 +2653,18 @@ impl LBuilder {
                 ResolveAdj::Dual(..) => unreachable!(),
                 ResolveAdj::Pair(adj_body_e, body_defer) => {
                   incomplete |= body_defer;
-                  let new_exp = exp.append(self, &mut |_| LTerm::Match(
+                  /*let new_exp = exp.append(self, &mut |_| LTerm::Match(
                       adj_body_e.loc(),
                       vec![(
                         LPat::STuple(vec![name.clone().into(), adj_name.clone().into()]).into(),
                         new_rest_e.loc()
                       )]
+                  ));*/
+                  let new_exp = exp.append(self, &mut |_| LTerm::SLet(
+                      LSIPat::STuple(vec![binder.clone().into(), anon().into()]).into(),
+                      LSPat::STuple(vec![name.clone().into(), adj_name.clone().into()]).into(),
+                      adj_body_e.loc(),
+                      new_rest_e.loc()
                   ));
                   self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, incomplete))
                 }
@@ -2662,6 +2677,63 @@ impl LBuilder {
           ResolveAdj::Pair(..) => unreachable!(),
           //ResolveAdj::Defer => ResolveAdj::Defer,
           ResolveAdj::Error => ResolveAdj::Error,
+        }
+      }
+      &LTerm::SLet(ref si_pat, ref s_pat, ref body, ref rest) => {
+        // FIXME
+        // TODO
+        let mut incomplete = false;
+        let mut any_bridge = false;
+        let maybe_new_rest_e = match self._resolve_adj_exp(exp.lookup(rest), env, tenv, t_work, work) {
+          ResolveAdj::Primal(rest_e) => {
+            rest_e
+          }
+          ResolveAdj::Bridge(new_rest_e, rest_defer) => {
+            // TODO
+            incomplete |= rest_defer;
+            any_bridge = true;
+            //unimplemented!();
+            let (pat_vars, pat_vars_set) = s_pat.vars_set();
+            for pv in pat_vars.iter() {
+              match self._lookup_def_adj(pv) {
+                None => {}
+                Some(adj_pv) => if !pat_vars_set.contains(&adj_pv) {
+                  panic!("unimplemented case: non-adj-closed pattern");
+                }
+              }
+            }
+            new_rest_e
+          }
+          ResolveAdj::Dual(..) |
+          ResolveAdj::Pair(..) => unreachable!(),
+          ResolveAdj::Error => return ResolveAdj::Error,
+        };
+        let maybe_new_body_e = match self._resolve_adj_exp(exp.lookup(body), env, tenv, t_work, work) {
+          ResolveAdj::Primal(body_e) => {
+            body_e
+          }
+          ResolveAdj::Bridge(new_body_e, body_defer) => {
+            incomplete |= body_defer;
+            any_bridge = true;
+            new_body_e
+          }
+          ResolveAdj::Dual(..) |
+          ResolveAdj::Pair(..) => unreachable!(),
+          ResolveAdj::Error => return ResolveAdj::Error,
+        };
+        if any_bridge {
+          // TODO
+          //unimplemented!();
+          let new_exp = exp.append(self, &mut |_| LTerm::SLet(
+              si_pat.clone(),
+              s_pat.clone(),
+              maybe_new_body_e.loc(),
+              maybe_new_rest_e.loc()
+          ));
+          self._register_adj(&exp, work, ResolveAdj::Bridge(new_exp, incomplete))
+        } else {
+          assert!(!incomplete);
+          self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
         }
       }
       /*&LTerm::Fix(ref fixname, ref fixbody) => {
@@ -3055,12 +3127,18 @@ impl LBuilder {
             let new_pair_e = exp.append(self, &mut |_| LTerm::STuple(
                 vec![tmp_new_e.loc(), linear_e.loc()]
             ));
-            let new_exp = exp.append(self, &mut |_| LTerm::Match(
+            /*let new_exp = exp.append(self, &mut |_| LTerm::Match(
                 adj_app_e.loc(),
                 vec![(
                     LPat::STuple(vec![tmp_new.clone().into(), tmp_adj.clone().into()]).into(),
                     new_pair_e.loc()
                 )]
+            ));*/
+            let new_exp = exp.append(self, &mut |_| LTerm::SLet(
+                LSIPat::STuple(vec![anon().into(), anon().into()]).into(),
+                LSPat::STuple(vec![tmp_new.clone().into(), tmp_adj.clone().into()]).into(),
+                adj_app_e.loc(),
+                new_pair_e.loc()
             ));
             self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, incomplete))
           }
@@ -3145,12 +3223,18 @@ impl LBuilder {
                 }
               }
             }
-            adj_body_fixup_e = exp.append(self, &mut |_| LTerm::Match(
+            /*adj_body_fixup_e = exp.append(self, &mut |_| LTerm::Match(
                 adj_body_fixup_e.loc(),
                 vec![(
                     LPat::STuple(vec![tmp_new.clone().into(), tmp_adj.clone().into()]).into(),
                     new_pair_e.loc()
                 )]
+            ));*/
+            adj_body_fixup_e = exp.append(self, &mut |_| LTerm::SLet(
+                LSIPat::STuple(vec![anon().into(), anon().into()]).into(),
+                LSPat::STuple(vec![tmp_new.clone().into(), tmp_adj.clone().into()]).into(),
+                adj_body_fixup_e.loc(),
+                new_pair_e.loc()
             ));
             let adj_lam_e = exp.append(self, &mut |_| LTerm::Lambda(
                 params.clone(),
@@ -3183,12 +3267,18 @@ impl LBuilder {
             let result_pri_name = self.fresh_anon_def();
             let result_adj_name = self.lookup_or_fresh_def_adj(&result_pri_name);
             let result_pri_e = exp.append(self, &mut |_| LTerm::LookupDef(result_pri_name.clone()));
-            let new_body_e = exp.append(self, &mut |_| LTerm::Match(
+            /*let new_body_e = exp.append(self, &mut |_| LTerm::Match(
                 adj_app_e.loc(),
                 vec![(
                   LPat::STuple(vec![result_pri_name.clone().into(), result_adj_name.clone().into()]).into(),
                   result_pri_e.loc()
                 )]
+            ));*/
+            let new_body_e = exp.append(self, &mut |_| LTerm::SLet(
+                LSIPat::STuple(vec![anon().into(), anon().into()]).into(),
+                LSPat::STuple(vec![result_pri_name.clone().into(), result_adj_name.clone().into()]).into(),
+                adj_app_e.loc(),
+                result_pri_e.loc()
             ));
             let new_lam_e = exp.append(self, &mut |_| LTerm::Lambda(
                 new_params.clone(),
@@ -3274,12 +3364,18 @@ impl LBuilder {
                 ResolveAdj::Dual(..) => unreachable!(),
                 ResolveAdj::Pair(adj_body_e, body_defer) => {
                   incomplete |= body_defer;
-                  let new_exp = exp.append(self, &mut |_| LTerm::Match(
+                  /*let new_exp = exp.append(self, &mut |_| LTerm::Match(
                       adj_body_e.loc(),
                       vec![(
                         LPat::STuple(vec![name.clone().into(), adj_name.clone().into()]).into(),
                         adj_rest_e.loc()
                       )]
+                  ));*/
+                  let new_exp = exp.append(self, &mut |_| LTerm::SLet(
+                      LSIPat::STuple(vec![binder.clone().into(), anon().into()]).into(),
+                      LSPat::STuple(vec![name.clone().into(), adj_name.clone().into()]).into(),
+                      adj_body_e.loc(),
+                      adj_rest_e.loc()
                   ));
                   self._register_adj(&exp, work, ResolveAdj::Pair(new_exp, incomplete))
                 }
@@ -3916,6 +4012,17 @@ impl LBuilder {
         let new_exp = exp.append(self, &mut |_| LTerm::Let(
             binder.clone(),
             name.clone(),
+            body.loc(),
+            rest.loc()
+        ));
+        new_exp
+      }
+      &LTerm::SLet(ref si_pat, ref s_pat, ref body, ref rest) => {
+        let body = self._resolve_post_adj_exp(exp.lookup(body), env, tenv);
+        let rest = self._resolve_post_adj_exp(exp.lookup(rest), env, tenv);
+        let new_exp = exp.append(self, &mut |_| LTerm::SLet(
+            si_pat.clone(),
+            s_pat.clone(),
             body.loc(),
             rest.loc()
         ));
