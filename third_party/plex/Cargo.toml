@@ -1,0 +1,31 @@
+[package]
+
+name = "plex"
+version = "0.2.5"
+authors = ["Geoffry Song <goffrie@gmail.com>"]
+
+description = "A syntax extension for writing lexers and parsers."
+homepage = "https://github.com/goffrie/plex"
+repository = "https://github.com/goffrie/plex"
+documentation = "https://docs.rs/plex"
+license = "MIT OR Apache-2.0"
+keywords = ["tokenizer", "scanner", "lexer", "parser", "generator"]
+
+[lib]
+
+name = "plex"
+proc-macro = true
+
+[features]
+
+default = ["lexer", "parser"]
+lexer = ["redfa"]
+parser = ["lalr"]
+
+[dependencies]
+
+lalr = { version = "0.0.2", optional = true }
+redfa = { version = "0.0.2", optional = true }
+syn = { version = "0.15.36", features = ["extra-traits", "full"] }
+proc-macro2 = { version = "0.4.3", features = ["nightly"] }
+quote = "0.6.0"

@@ -329,6 +329,7 @@ pub struct HLTokenInfo {
 pub struct HLexer<'src> {
   source:   &'src str,
   remnant:  &'src str,
+  offset:   usize,
   line_nr:  usize,
   line_pos: usize,
   next_pos: usize,
@@ -340,6 +341,7 @@ impl<'src> HLexer<'src> {
     HLexer{
       source,
       remnant:  source,
+      offset:   0,
       line_nr:  0,
       line_pos: 0,
       next_pos: 0,
@@ -362,19 +364,15 @@ impl<'src> Iterator for HLexer<'src> {
         };
         return Some((HLToken::_Eof, tok_info));
       }
-      let (tok, tok_text, tok_span) = if let Some((tok, next_remnant)) = next_token(self.remnant) {
-        let tok_off = unsafe { next_remnant.as_ptr().offset_from(self.remnant.as_ptr()) };
-        let tok_start_off = unsafe { self.remnant.as_ptr().offset_from(self.source.as_ptr()) };
-        assert!(tok_off >= 0);
-        assert!(tok_start_off >= 0);
-        let tok_len = tok_off as usize;
-        let tok_start = tok_start_off as usize;
+      let (tok, tok_span, tok_text) = if let Some((tok, tok_text, next_remnant)) = next_token(self.remnant) {
+        let tok_start = self.offset;
+        let tok_len = tok_text.len();
         let tok_span = (tok_start, tok_start + tok_len);
-        let tok_text = self.remnant.get(0 .. tok_len);
         self.remnant = next_remnant;
+        self.offset += tok_len;
         self.line_pos = self.next_pos;
         self.next_pos += tok_len;
-        (tok, tok_text, Some(tok_span))
+        (tok, Some(tok_span), Some(tok_text))
       } else {
         self.line_pos = self.next_pos;
         self.eof = true;

@@ -4,7 +4,6 @@
 
 #![feature(non_ascii_idents)]
 #![feature(proc_macro_hygiene)]
-#![feature(ptr_offset_from)]
 
 #[cfg(all(feature = "xgpu", target_os = "macos"))] extern crate objrs;
 #[cfg(all(feature = "xgpu", target_os = "macos"))] extern crate objrs_frameworks_foundation;
