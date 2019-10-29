@@ -5,16 +5,16 @@
 #![feature(non_ascii_idents)]
 #![feature(proc_macro_hygiene)]
 
+extern crate libc;
 #[cfg(all(feature = "xgpu", target_os = "macos"))] extern crate objrs;
 #[cfg(all(feature = "xgpu", target_os = "macos"))] extern crate objrs_frameworks_foundation;
-extern crate libc;
 extern crate plex;
 extern crate rand_core;
 //extern crate rearray;
 //extern crate rpds;
 //extern crate serde;
 //#[macro_use] extern crate serde_derive;
-extern crate termion;
+//extern crate termion;
 
 pub mod arch_util;
 pub mod build;

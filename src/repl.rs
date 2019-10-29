@@ -7,17 +7,319 @@ use crate::build::{GIT_COMMIT_HASH, GIT_MODIFIED};
 use crate::ir2::{LBuilder};
 use crate::mach::{Machine};
 
-use termion::{AsyncReader, async_stdin};
-use termion::clear::{CurrentLine};
-use termion::cursor::{Left, Right};
-use termion::raw::{IntoRawMode};
+use libc::{termios};
 
 use std::collections::{VecDeque};
-use std::fmt::{Error as FmtError, Write as FmtWrite};
-use std::io::{Bytes, Read, Write, stdout};
+use std::fmt::{Display, Error as FmtError, Result as FmtResult, Formatter, Write as FmtWrite};
+use std::fs::{File, OpenOptions};
+use std::io::{Bytes, Error as IoError, Result as IoResult, Read, Write, stdout};
+use std::mem::{zeroed};
+use std::ops::{Deref, DerefMut};
+use std::os::raw::{c_int};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::{JoinHandle, sleep, spawn};
 use std::time::{Duration, Instant};
+
+/* Some parts below were thinly adapted from termion: */
+
+/* termion
+   (authors: ticki <Ticki@users.noreply.github.com>,
+    gycos <alexandre.bury@gmail.com>,
+    IGI-111 <igi-111@protonmail.com>):
+
+The MIT License (MIT)
+
+Copyright (c) 2016 Ticki
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+// Create a CSI-introduced sequence.
+macro_rules! csi {
+  ($( $l:expr ),*) => { concat!("\x1B[", $( $l ),*) };
+}
+
+// Derive a CSI sequence struct.
+macro_rules! derive_csi_sequence {
+  ($doc:expr, $name:ident, $value:expr) => {
+    #[doc = $doc]
+    #[derive(Copy, Clone)]
+    pub struct $name;
+
+    impl Display for $name {
+      fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        write!(f, csi!($value))
+      }
+    }
+
+    impl AsRef<[u8]> for $name {
+      fn as_ref(&self) -> &'static [u8] { csi!($value).as_bytes() }
+    }
+
+    impl AsRef<str> for $name {
+      fn as_ref(&self) -> &'static str { csi!($value) }
+    }
+  };
+}
+
+derive_csi_sequence!("Clear the current line.", ClearCurrentLine, "2K");
+
+// Move cursor left.
+#[derive(Copy, Clone, PartialEq, Eq)]
+struct CursorLeft(pub u16);
+
+impl From<CursorLeft> for String {
+  fn from(this: CursorLeft) -> String {
+    let mut buf = [0u8; 20];
+    format!("\x1B[{}D", this.0)
+  }
+}
+
+impl Display for CursorLeft {
+  fn fmt(&self, f: &mut Formatter) -> FmtResult {
+    f.write_str(&String::from(*self))
+  }
+}
+
+// Move cursor right.
+#[derive(Copy, Clone, PartialEq, Eq)]
+struct CursorRight(pub u16);
+
+impl From<CursorRight> for String {
+  fn from(this: CursorRight) -> String {
+    let mut buf = [0u8; 20];
+    format!("\x1B[{}C", this.0)
+  }
+}
+
+impl Display for CursorRight {
+  fn fmt(&self, f: &mut Formatter) -> FmtResult {
+    f.write_str(&String::from(*self))
+  }
+}
+
+// Managing raw mode.
+//
+// Raw mode is a particular state a TTY can have. It signifies that:
+//
+// 1. No line buffering (the input is given byte-by-byte).
+// 2. The input is not written out, instead it has to be done manually by the programmer.
+// 3. The output is not canonicalized (for example, `\n` means "go one line down", not "line
+//    break").
+//
+// It is essential to design terminal programs.
+//
+// # Example
+//
+// ```rust,no_run
+// use termion::raw::IntoRawMode;
+// use std::io::{Write, stdout};
+//
+// fn main() {
+//     let mut stdout = stdout().into_raw_mode().unwrap();
+//
+//     write!(stdout, "Hey there.").unwrap();
+// }
+// ```
+
+fn int2result(t: c_int) -> IoResult<c_int> {
+  if t == -1 {
+    Err(IoError::last_os_error())
+  } else {
+    Ok(t)
+  }
+}
+
+fn get_terminal_attr() -> IoResult<termios> {
+  extern "C" {
+    pub fn tcgetattr(fd: c_int, termptr: *mut termios) -> c_int;
+  }
+  unsafe {
+    let mut termios = zeroed();
+    int2result(tcgetattr(1, &mut termios))?;
+    Ok(termios)
+  }
+}
+
+fn set_terminal_attr(termios: &termios) -> IoResult<()> {
+  extern "C" {
+    pub fn tcsetattr(fd: c_int, opt: c_int, termptr: *const termios) -> c_int;
+  }
+  int2result(unsafe { tcsetattr(1, 0, termios) }).and(Ok(()))
+}
+
+fn raw_terminal_attr(termios: &mut termios) {
+  extern "C" {
+    pub fn cfmakeraw(termptr: *mut termios);
+  }
+  unsafe { cfmakeraw(termios) }
+}
+
+// A terminal restorer, which keeps the previous state of the terminal, and restores it, when
+// dropped.
+//
+// Restoring will entirely bring back the old TTY state.
+struct RawTerminal<W: Write> {
+  prev_ios: termios,
+  output: W,
+}
+
+impl<W: Write> Drop for RawTerminal<W> {
+  fn drop(&mut self) {
+    set_terminal_attr(&self.prev_ios).unwrap();
+  }
+}
+
+impl<W: Write> Deref for RawTerminal<W> {
+  type Target = W;
+
+  fn deref(&self) -> &W {
+    &self.output
+  }
+}
+
+impl<W: Write> DerefMut for RawTerminal<W> {
+  fn deref_mut(&mut self) -> &mut W {
+    &mut self.output
+  }
+}
+
+impl<W: Write> Write for RawTerminal<W> {
+  fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+    self.output.write(buf)
+  }
+
+  fn flush(&mut self) -> IoResult<()> {
+    self.output.flush()
+  }
+}
+
+/// Types which can be converted into "raw mode".
+///
+/// # Why is this type defined on writers and not readers?
+///
+/// TTYs has their state controlled by the writer, not the reader. You use the writer to clear the
+/// screen, move the cursor and so on, so naturally you use the writer to change the mode as well.
+trait IntoRawMode: Write + Sized {
+  /// Switch to raw mode.
+  ///
+  /// Raw mode means that stdin won't be printed (it will instead have to be written manually by
+  /// the program). Furthermore, the input isn't canonicalised or buffered (that is, you can
+  /// read from stdin one byte of a time). The output is neither modified in any way.
+  fn into_raw_mode(self) -> IoResult<RawTerminal<Self>>;
+}
+
+impl<W: Write> IntoRawMode for W {
+  fn into_raw_mode(self) -> IoResult<RawTerminal<W>> {
+    let mut ios = get_terminal_attr()?;
+    let prev_ios = ios;
+
+    raw_terminal_attr(&mut ios);
+
+    set_terminal_attr(&ios)?;
+
+    Ok(RawTerminal {
+      prev_ios: prev_ios,
+      output: self,
+    })
+  }
+}
+
+impl<W: Write> RawTerminal<W> {
+  fn suspend_raw_mode(&self) -> IoResult<()> {
+    set_terminal_attr(&self.prev_ios)?;
+    Ok(())
+  }
+
+  fn activate_raw_mode(&self) -> IoResult<()> {
+    let mut ios = get_terminal_attr()?;
+    raw_terminal_attr(&mut ios);
+    set_terminal_attr(&ios)?;
+    Ok(())
+  }
+}
+
+// Get the TTY device.
+//
+// This allows for getting stdio representing _only_ the TTY, and not other streams.
+fn get_tty() -> IoResult<File> {
+  OpenOptions::new().read(true).write(true).open("/dev/tty")
+}
+
+// Construct an asynchronous handle to the TTY standard input.
+//
+// This allows you to read from standard input _without blocking_ the current thread.
+// Specifically, it works by firing up another thread to handle the event stream, which will then
+// be buffered in a mpsc queue, which will eventually be read by the current thread.
+//
+// This will not read the piped standard input, but rather read from the TTY device, since reading
+// asyncronized from piped input would rarely make sense. In other words, if you pipe standard
+// output from another process, it won't be reflected in the stream returned by this function, as
+// this represents the TTY device, and not the piped standard input.
+fn async_stdin() -> AsyncReader {
+  let (send, recv) = channel();
+
+  spawn(move || for i in get_tty().unwrap().bytes() {
+    if send.send(i).is_err() {
+      return;
+    }
+  });
+
+  AsyncReader { recv: recv }
+}
+
+// An asynchronous reader.
+//
+// This acts as any other stream, with the exception that reading from it won't block. Instead,
+// the buffer will only be partially updated based on how much the internal buffer holds.
+pub struct AsyncReader {
+  // The underlying mpsc receiver.
+  recv: Receiver<IoResult<u8>>,
+}
+
+impl Read for AsyncReader {
+  // Read from the byte stream.
+  //
+  // This will never block, but try to drain the event queue until empty. If the total number of
+  // bytes written is lower than the buffer's length, the event queue is empty or that the event
+  // stream halted.
+  fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+    let mut total = 0;
+
+    loop {
+      if total >= buf.len() {
+        break;
+      }
+
+      match self.recv.try_recv() {
+        Ok(Ok(b)) => {
+          buf[total] = b;
+          total += 1;
+        }
+        Ok(Err(e)) => return Err(e),
+        Err(_) => break,
+      }
+    }
+
+    Ok(total)
+  }
+}
 
 const CTRL_A: u8 = 1;
 const CTRL_C: u8 = 3;
@@ -271,21 +573,21 @@ impl ReplTermState {
         return;
       }
       ReplIOMode::Blocked => {
-        write!(stdout, "{}\r{}  {}", CurrentLine, self.blocked, self.tmpbuf).unwrap();
+        write!(stdout, "{}\r{}  {}", ClearCurrentLine, self.blocked, self.tmpbuf).unwrap();
       }
       ReplIOMode::Prompt => {
-        write!(stdout, "{}\r{}- {}", CurrentLine, self.query, self.tmpbuf).unwrap();
+        write!(stdout, "{}\r{}- {}", ClearCurrentLine, self.query, self.tmpbuf).unwrap();
       }
       ReplIOMode::Command => {
-        write!(stdout, "{}\r{}-:{}", CurrentLine, self.query, self.tmpbuf).unwrap();
+        write!(stdout, "{}\r{}-:{}", ClearCurrentLine, self.query, self.tmpbuf).unwrap();
       }
       ReplIOMode::Stdin => {
-        write!(stdout, "{}\r{}< {}", CurrentLine, self.query, self.tmpbuf).unwrap();
+        write!(stdout, "{}\r{}< {}", ClearCurrentLine, self.query, self.tmpbuf).unwrap();
       }
     }
     if self.tmppos < self.tmpbuf.len() {
       let offset = (self.tmpbuf.len() - self.tmppos) as u16;
-      write!(stdout, "{}", Left(offset)).unwrap();
+      write!(stdout, "{}", CursorLeft(offset)).unwrap();
     }
   }
 
@@ -380,11 +682,11 @@ impl ReplTermState {
                   // FIXME
                   self.tmpbuf.pop();
                   self.tmppos -= 1;
-                  write!(stdout, "{} {}", Left(1), Left(1)).unwrap();
+                  write!(stdout, "{} {}", CursorLeft(1), CursorLeft(1)).unwrap();
                 } else if self.tmppos > 0 {
                   // FIXME
                   self.tmppos -= 1;
-                  write!(stdout, "{}", Left(1)).unwrap();
+                  write!(stdout, "{}", CursorLeft(1)).unwrap();
                 }
               }
               _ => {
@@ -392,11 +694,11 @@ impl ReplTermState {
                   // FIXME
                   self.tmpbuf.pop();
                   self.tmppos -= 1;
-                  write!(stdout, "{} {}", Left(1), Left(1)).unwrap();
+                  write!(stdout, "{} {}", CursorLeft(1), CursorLeft(1)).unwrap();
                 } else if self.tmppos > 0 {
                   // FIXME
                   self.tmppos -= 1;
-                  write!(stdout, "{}", Left(1)).unwrap();
+                  write!(stdout, "{}", CursorLeft(1)).unwrap();
                 }
               }
             }
@@ -410,14 +712,14 @@ impl ReplTermState {
             if self.tmppos > 0 {
               let offset = self.tmppos as u16;
               self.tmppos = 0;
-              write!(stdout, "{}", Left(offset)).unwrap();
+              write!(stdout, "{}", CursorLeft(offset)).unwrap();
             }
           }
           Some(Ok(CTRL_E)) => {
             if self.tmppos < self.tmpbuf.len() {
               let offset = (self.tmpbuf.len() - self.tmppos) as u16;
               self.tmppos = self.tmpbuf.len();
-              write!(stdout, "{}", Right(offset)).unwrap();
+              write!(stdout, "{}", CursorRight(offset)).unwrap();
             }
           }
           Some(Ok(ESC)) => {
@@ -455,14 +757,14 @@ impl ReplTermState {
                     // Right.
                     if self.tmppos < self.tmpbuf.len() {
                       self.tmppos += 1;
-                      write!(stdout, "{}", Right(1)).unwrap();
+                      write!(stdout, "{}", CursorRight(1)).unwrap();
                     }
                   }
                   Some(Ok(b'D')) => {
                     // Left.
                     if self.tmppos > 0 {
                       self.tmppos -= 1;
-                      write!(stdout, "{}", Left(1)).unwrap();
+                      write!(stdout, "{}", CursorLeft(1)).unwrap();
                     }
                   }
                   Some(Ok(b)) => {
@@ -539,14 +841,14 @@ impl ReplTerminal {
           }
           Ok(ReplCtrl::IO(iomode)) => {
             if !commit {
-              write!(&mut stdout, "{}\r", CurrentLine).unwrap();
+              write!(&mut stdout, "{}\r", ClearCurrentLine).unwrap();
               commit = true;
             }
             self.term.mode = iomode;
           }
           Ok(ReplCtrl::Line(linemode, msg)) => {
             if !commit {
-              write!(&mut stdout, "{}\r", CurrentLine).unwrap();
+              write!(&mut stdout, "{}\r", ClearCurrentLine).unwrap();
               commit = true;
             }
             self.term.answer(&mut stdout, linemode, &msg);
@@ -558,7 +860,7 @@ impl ReplTerminal {
       }
       if let Some(line) = self.term.commit.take() {
         if !commit {
-          write!(&mut stdout, "{}\r", CurrentLine).unwrap();
+          write!(&mut stdout, "{}\r", ClearCurrentLine).unwrap();
           commit = true;
         }
         match self.term.mode {

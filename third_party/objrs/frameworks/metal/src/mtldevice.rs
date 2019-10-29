@@ -15,9 +15,6 @@ use objrs_frameworks_foundation::{NSError, NSString};
 #[objrs(protocol)]
 #[link(name = "Metal", kind = "framework")]
 pub trait MTLDevice {
-  #[objrs(selector = "name")]
-  fn name(&self) -> Option<objrs::Strong<NSString>>;
-
   #[objrs(selector = "newLibraryWithSource:options:error:")]
   fn new_library_with_source_options_error(
     &mut self,
