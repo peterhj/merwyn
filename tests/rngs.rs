@@ -1,8 +1,8 @@
-extern crate byteorder;
+//extern crate byteorder;
 extern crate merwyn;
 extern crate rand_core;
 
-use byteorder::{WriteBytesExt, LE};
+use merwyn::io_util::{WriteBytesExt, LE};
 use merwyn::rngs::{ChaCha20State};
 use rand_core::block::{BlockRngCore};
 

@@ -19,4 +19,5 @@ fn test_mach_example_0() {
   let val = machine.reset_eval(module.tree.root());
   let r: Option<f64> = val.clone().try_unpack();
   println!("DEBUG: result: {:?}", r);
+  assert_eq!(r, Some(2.0));
 }
