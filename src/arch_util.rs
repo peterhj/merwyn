@@ -110,13 +110,13 @@ impl GpuInfo {
   }
 }
 
-#[cfg(feature = "xgpu")]
+#[cfg(all(feature = "xgpu", target_os = "macos"))]
 #[derive(Clone, Debug)]
 pub struct MetalGpuInfo {
   pub dev_name: String,
 }
 
-#[cfg(feature = "xgpu")]
+#[cfg(all(feature = "xgpu", target_os = "linux"))]
 #[derive(Clone, Debug)]
 pub struct CudaGpuInfo {
   pub driver:   kuda::Version,
@@ -128,6 +128,7 @@ pub struct CudaGpuInfo {
 pub struct GpuInfo {
   #[cfg(target_os = "macos")]
   pub metal:    Option<String>,
+  #[cfg(target_os = "linux")]
   pub cuda:     Option<kuda::Version>,
 }
 
@@ -149,6 +150,7 @@ impl GpuInfo {
           }
         }
       },
+      #[cfg(target_os = "linux")]
       cuda:     {
         kuda::CUDA.as_ref().and_then(|cuda| cuda.version().ok())
       },
@@ -156,6 +158,7 @@ impl GpuInfo {
   }
 
   pub fn digest(&self) -> Option<String> {
+    #[cfg(target_os = "linux")]
     match self.cuda.as_ref() {
       Some(v) => {
         return Some(format!("cuda:{}.{}", v.major, v.minor));

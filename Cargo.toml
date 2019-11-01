@@ -22,7 +22,6 @@ xgpu = ["kuda", "objrs", "objrs_frameworks_foundation"]
 #[dev-dependencies]
 
 [dependencies]
-kuda = { path = "third_party/kuda", optional = true }
 libc = "^0.2"
 #num-traits = "^0.2"
 #plex = { git = "https://github.com/goffrie/plex", rev = "a4c1068fc31293b209677f6347aa51bbf73c1e53", default-features = false, features = ["lexer"] }
@@ -34,6 +33,9 @@ rand_core = "^0.5"
 #serde = "^1.0"
 #serde_derive = "^1.0"
 #termion = "^1.5"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+kuda = { path = "third_party/kuda", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objrs = { path = "third_party/objrs", optional = true }

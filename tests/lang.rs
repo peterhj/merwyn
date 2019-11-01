@@ -491,8 +491,40 @@ fn test_lang_partial_derivative_variant_2() {
 }
 
 #[test]
-fn test_lang_stuple() {
+fn test_lang_tuple_s() {
+  let lexer = HLexer::new("()");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_tuple_s_1() {
+  let lexer = HLexer::new("(1,)");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_tuple_s_2() {
   let lexer = HLexer::new("(1, 2, x, y)");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_tuple_s_3() {
+  let lexer = HLexer::new("(1, 2, x, y,)");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_tuple_u() {
+  let lexer = HLexer::new("(|1, 2, x, y|)");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -514,14 +546,6 @@ fn test_lang_tyvar() {
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
 }*/
-
-#[test]
-fn test_lang_utuple() {
-  let lexer = HLexer::new("(|1, 2, x, y|)");
-  let parser = HParser::new(lexer);
-  let htree = parser.parse().unwrap();
-  println!("{:?}", htree);
-}
 
 // TODO: status of where syntax pending.
 /*#[test]

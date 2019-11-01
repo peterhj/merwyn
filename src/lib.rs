@@ -5,6 +5,7 @@
 #![feature(non_ascii_idents)]
 #![feature(proc_macro_hygiene)]
 
+#[cfg(all(feature = "xgpu", target_os = "linux"))] extern crate kuda;
 extern crate libc;
 #[cfg(all(feature = "xgpu", target_os = "macos"))] extern crate objrs;
 #[cfg(all(feature = "xgpu", target_os = "macos"))] extern crate objrs_frameworks_foundation;

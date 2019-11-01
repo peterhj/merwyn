@@ -948,7 +948,7 @@ impl MachineState {
               env,
             }
           }*/
-          LTerm::EnvIdxsLazy(idx_keys) => {
+          LTerm::EIdxRecLazy(idx_keys) => {
             let mut target = MEnvRef::default();
             for (idx, value) in idx_keys.into_iter() {
               let thk = MThunk::new(env.clone(), MCode::Term(exp.jump(value))).into();
@@ -962,7 +962,7 @@ impl MachineState {
               kont,
             }
           }
-          LTerm::EnvVarsLazy(var_keys) => {
+          LTerm::ERecLazy(var_keys) => {
             let mut target = MEnvRef::default();
             for (var, value) in var_keys.into_iter() {
               let thk = MThunk::new(env.clone(), MCode::Term(exp.jump(value))).into();

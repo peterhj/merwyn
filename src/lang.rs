@@ -94,6 +94,7 @@ lexer! {
   r#";"#        => HLToken::Semi,
   r#"::"#       => HLToken::ColonColon,
   r#":"#        => HLToken::Colon,
+  r#"<\|"#      => HLToken::LPipe,
   r#"\|>"#      => HLToken::RPipe,
   r#"\|\|"#     => HLToken::BarBar,
   r#"\|"#       => HLToken::Bar,
@@ -267,6 +268,7 @@ pub enum HLToken {
   RDArrow,
   RDDArrow,
   ROArrow,
+  LPipe,
   RPipe,
   Star,
   StarDot,
@@ -1530,11 +1532,8 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
             let right = self.expression(0)?;
             match self.current_token() {
               HLToken::Comma => {
-                self.advance();
                 let mut elems = vec![Rc::new(right)];
                 loop {
-                  let right = self.expression(0)?;
-                  elems.push(Rc::new(right));
                   match self.current_token() {
                     HLToken::Comma => {
                       self.advance();
@@ -1544,16 +1543,23 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
                       assert!(elems.len() >= 2);
                       return Ok(HExpr::STuple(elems));
                     }
-                    //_ => panic!(),
                     t => return Err(HError::Expected(vec![HLToken::Comma, HLToken::RParen], t))
                   }
+                  match self.current_token() {
+                    HLToken::Comma => return Err(HError::Unexpected(HLToken::Comma)),
+                    HLToken::RParen => {
+                      self.advance();
+                      return Ok(HExpr::STuple(elems));
+                    }
+                    _ => {}
+                  }
+                  let right = self.expression(0)?;
+                  elems.push(Rc::new(right));
                 }
-                unreachable!();
               }
               HLToken::RParen => {
                 self.advance();
               }
-              //_ => panic!(),
               t => return Err(HError::Expected(vec![HLToken::Comma, HLToken::RParen], t))
             }
             Ok(right)
