@@ -359,9 +359,39 @@ d[y].x");
   assert_eq!(r, Some(1.0));
 }
 
-/*// TODO
 #[test]
 fn test_ty2_deriv_8() {
+  println!();
+  let lexer = HLexer::new(r"
+alt x;
+let alt x: Flp = 3.0;
+let n = 5;
+alt f;
+let alt f: [Flp, Int] -> Flp = \t, k -> match k with
+      | 0 => t
+      | _ => t
+ in
+let y = f[x, n];
+d[y].x");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  let mut builder = LBuilder::default();
+  let module = match builder._compile(htree, LCtxRef::default(), LTyctxRef::default()) {
+    Err(_) => panic!(),
+    Ok(module) => module,
+  };
+  // TODO
+  //builder._print(module.tree);
+  let mut machine = Machine::default();
+  let val = machine.reset_eval(module.tree.root());
+  let r: Option<f64> = val.clone().try_unpack();
+  println!("DEBUG: result: {:?}", r);
+  assert_eq!(r, Some(1.0));
+}
+
+/*// TODO
+#[test]
+fn test_ty2_deriv_9() {
   println!();
   let lexer = HLexer::new(r"
 let x1 = 1.0;
