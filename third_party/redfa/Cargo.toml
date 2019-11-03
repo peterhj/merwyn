@@ -1,0 +1,21 @@
+[package]
+
+name = "redfa"
+version = "0.0.1"
+authors = ["Geoffry Song <goffrie@gmail.com>"]
+
+description = "Regular expression derivatives for creating DFAs."
+
+homepage = "https://github.com/goffrie/redfa"
+repository = "https://github.com/goffrie/redfa"
+documentation = "http://goffrie.github.io/redfa"
+license = "MIT OR Apache-2.0"
+keywords = ["regex", "dfa"]
+
+[lib]
+
+name = "redfa"
+
+[dependencies]
+
+bit-set = "0.2.0"
