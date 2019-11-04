@@ -16,7 +16,7 @@ fn test_ir2_example_0() {
     Ok(module) => module,
   };
   // TODO
-  builder._print(module.tree);
+  builder._debug_print(module.tree);
 }
 
 #[test]
@@ -31,7 +31,7 @@ fn test_ir2_example_1() {
     Ok(module) => module,
   };
   // TODO
-  builder._print(module.tree);
+  builder._debug_print(module.tree);
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn test_ir2_quote() {
     Ok(module) => module,
   };
   // TODO
-  //builder._print(module.tree);
+  //builder._debug_print(module.tree);
   let mut machine = Machine::default();
   let val = machine.reset_eval(module.tree.root());
   let r = val.as_quote();

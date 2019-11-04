@@ -148,6 +148,15 @@ fn test_lang_derivative_tangent() {
   println!("{:?}", htree);
 }
 
+#[should_panic]
+#[test]
+fn test_lang_dim() {
+  let lexer = HLexer::new("(3.14, 42. i, 137f j, -1. k");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
 #[test]
 fn test_lang_group_paren() {
   let lexer = HLexer::new("(x)");
@@ -198,7 +207,7 @@ fn test_lang_ident_infix() {
 
 #[test]
 fn test_lang_ident_postfix() {
-  let lexer = HLexer::new("1 ^neg");
+  let lexer = HLexer::new("x ^T");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -206,7 +215,7 @@ fn test_lang_ident_postfix() {
 
 #[test]
 fn test_lang_ident_cryptic() {
-  let lexer = HLexer::new("@=Az/09+==");
+  let lexer = HLexer::new("~=Az/09+==");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -214,7 +223,7 @@ fn test_lang_ident_cryptic() {
 
 #[test]
 fn test_lang_ident_use() {
-  let lexer = HLexer::new("@asdf");
+  let lexer = HLexer::new("~asdf");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -222,7 +231,7 @@ fn test_lang_ident_use() {
 
 #[test]
 fn test_lang_ident_use_2() {
-  let lexer = HLexer::new("@example.net:asdf");
+  let lexer = HLexer::new("~example.net:asdf");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -312,7 +321,7 @@ fn test_lang_logical() {
 
 #[test]
 fn test_lang_logical_short() {
-  let lexer = HLexer::new("let y = p[x] || q[x] ^^ r[x] || s[x]; 0");
+  let lexer = HLexer::new(r"let t = p[x] \/ q[x] /\ r[x] \/ s[x]; t");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
@@ -485,6 +494,46 @@ fn test_lang_partial_derivative_variant() {
 #[test]
 fn test_lang_partial_derivative_variant_2() {
   let lexer = HLexer::new("d.{x, y}[(f, g)]");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_quote() {
+  let lexer = HLexer::new("'x");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_quote_2() {
+  let lexer = HLexer::new("'x + y");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_quote_3() {
+  let lexer = HLexer::new("'(x + y)");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_quote_unquote() {
+  let lexer = HLexer::new("'?(x + y)");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_quote_unquote_2() {
+  let lexer = HLexer::new("'(?x + ?(y))");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);

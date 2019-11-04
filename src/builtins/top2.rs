@@ -31,41 +31,38 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
     ty:     None,
     adj:    Some(Rc::new(|def, root, ctx, builder| {
       let div_ident = builder.lookup_name("div");
-      let div_var = ctx.lookup_ident(div_ident);
       let mul_ident = builder.lookup_name("mul");
-      let mul_var = ctx.lookup_ident(mul_ident);
       let neg_ident = builder.lookup_name("neg");
-      let neg_var = ctx.lookup_ident(neg_ident);
-      let x0 = builder.fresh_anon_def();
-      let x1 = builder.fresh_anon_def();
-      let tmp_sink = builder.fresh_anon_def();
-      let x1_e = root.append(builder, &mut |_| LTerm::LookupDef(x1.clone()));
-      let tmp_sink_0_e = root.append(builder, &mut |_| LTerm::LookupDef(tmp_sink.clone()));
-      let div_e = root.append(builder, &mut |_| LTerm::LookupDef(div_var.clone()));
+      let x0 = builder.fresh_anon_var();
+      let x1 = builder.fresh_anon_var();
+      let tmp_sink = builder.fresh_anon_var();
+      let x1_e = root.append(builder, &mut |_| LTerm::LookupVar(x1.clone()));
+      let tmp_sink_0_e = root.append(builder, &mut |_| LTerm::LookupVar(tmp_sink.clone()));
+      let div_e = root.append(builder, &mut |_| LTerm::LookupIdent(div_ident.clone()));
       let adj_0_e = root.append(builder, &mut |_| LTerm::Apply(
           div_e.loc(),
           vec![tmp_sink_0_e.loc(), x1_e.loc()]
       ));
-      let mul_e = root.append(builder, &mut |_| LTerm::LookupDef(mul_var.clone()));
-      let x0_e = root.append(builder, &mut |_| LTerm::LookupDef(x0.clone()));
-      let tmp_sink_1_e = root.append(builder, &mut |_| LTerm::LookupDef(tmp_sink.clone()));
+      let mul_e = root.append(builder, &mut |_| LTerm::LookupIdent(mul_ident.clone()));
+      let x0_e = root.append(builder, &mut |_| LTerm::LookupVar(x0.clone()));
+      let tmp_sink_1_e = root.append(builder, &mut |_| LTerm::LookupVar(tmp_sink.clone()));
       let adj_1_nmr_e = root.append(builder, &mut |_| LTerm::Apply(
           mul_e.loc(),
           vec![tmp_sink_1_e.loc(), x0_e.loc()]
       ));
-      let mul_e = root.append(builder, &mut |_| LTerm::LookupDef(mul_var.clone()));
-      let x1_0_e = root.append(builder, &mut |_| LTerm::LookupDef(x1.clone()));
-      let x1_1_e = root.append(builder, &mut |_| LTerm::LookupDef(x1.clone()));
+      let mul_e = root.append(builder, &mut |_| LTerm::LookupIdent(mul_ident.clone()));
+      let x1_0_e = root.append(builder, &mut |_| LTerm::LookupVar(x1.clone()));
+      let x1_1_e = root.append(builder, &mut |_| LTerm::LookupVar(x1.clone()));
       let adj_1_dnm_e = root.append(builder, &mut |_| LTerm::Apply(
           mul_e.loc(),
           vec![x1_0_e.loc(), x1_1_e.loc()]
       ));
-      let div_e = root.append(builder, &mut |_| LTerm::LookupDef(div_var.clone()));
+      let div_e = root.append(builder, &mut |_| LTerm::LookupIdent(div_ident.clone()));
       let adj_1_quo_e = root.append(builder, &mut |_| LTerm::Apply(
           div_e.loc(),
           vec![adj_1_nmr_e.loc(), adj_1_dnm_e.loc()]
       ));
-      let neg_e = root.append(builder, &mut |_| LTerm::LookupDef(neg_var.clone()));
+      let neg_e = root.append(builder, &mut |_| LTerm::LookupIdent(neg_ident.clone()));
       let adj_1_e = root.append(builder, &mut |_| LTerm::Apply(
           neg_e.loc(),
           vec![adj_1_quo_e.loc()]
@@ -80,9 +77,9 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           vec![tmp_sink.clone()],
           target_e.loc()
       ));
-      let div_e = root.append(builder, &mut |_| LTerm::LookupDef(div_var.clone()));
-      let x0_e = root.append(builder, &mut |_| LTerm::LookupDef(x0.clone()));
-      let x1_e = root.append(builder, &mut |_| LTerm::LookupDef(x1.clone()));
+      let div_e = root.append(builder, &mut |_| LTerm::LookupIdent(div_ident.clone()));
+      let x0_e = root.append(builder, &mut |_| LTerm::LookupVar(x0.clone()));
+      let x1_e = root.append(builder, &mut |_| LTerm::LookupVar(x1.clone()));
       let pri_e = root.append(builder, &mut |_| LTerm::Apply(
           div_e.loc(),
           vec![x0_e.loc(), x1_e.loc()]
@@ -104,7 +101,7 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
       divf_mlam.loc()
   ));
   let div_ident = builder.lookup_or_fresh_name("div");
-  let div_var = builder.fresh_ident_def(div_ident.clone());
+  let div_var = builder.fresh_var(div_ident.clone());
   root = root.append(builder, &mut |_| LTerm::Let(
       div_ident.clone().into(),
       div_var.clone(),
@@ -129,20 +126,19 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
     ty:     None,
     adj:    Some(Rc::new(|def, root, ctx, builder| {
       let mul_ident = builder.lookup_name("mul");
-      let mul_var = ctx.lookup_ident(mul_ident);
-      let x0 = builder.fresh_anon_def();
-      let x1 = builder.fresh_anon_def();
-      let tmp_sink = builder.fresh_anon_def();
-      let x0_e = root.append(builder, &mut |_| LTerm::LookupDef(x0.clone()));
-      let x1_e = root.append(builder, &mut |_| LTerm::LookupDef(x1.clone()));
-      let tmp_sink_0_e = root.append(builder, &mut |_| LTerm::LookupDef(tmp_sink.clone()));
-      let tmp_sink_1_e = root.append(builder, &mut |_| LTerm::LookupDef(tmp_sink.clone()));
-      let mul_e = root.append(builder, &mut |_| LTerm::LookupDef(mul_var.clone()));
+      let x0 = builder.fresh_anon_var();
+      let x1 = builder.fresh_anon_var();
+      let tmp_sink = builder.fresh_anon_var();
+      let x0_e = root.append(builder, &mut |_| LTerm::LookupVar(x0.clone()));
+      let x1_e = root.append(builder, &mut |_| LTerm::LookupVar(x1.clone()));
+      let tmp_sink_0_e = root.append(builder, &mut |_| LTerm::LookupVar(tmp_sink.clone()));
+      let tmp_sink_1_e = root.append(builder, &mut |_| LTerm::LookupVar(tmp_sink.clone()));
+      let mul_e = root.append(builder, &mut |_| LTerm::LookupIdent(mul_ident.clone()));
       let adj_0_e = root.append(builder, &mut |_| LTerm::Apply(
           mul_e.loc(),
           vec![tmp_sink_0_e.loc(), x1_e.loc()]
       ));
-      let mul_e = root.append(builder, &mut |_| LTerm::LookupDef(mul_var.clone()));
+      let mul_e = root.append(builder, &mut |_| LTerm::LookupIdent(mul_ident.clone()));
       let adj_1_e = root.append(builder, &mut |_| LTerm::Apply(
           mul_e.loc(),
           vec![tmp_sink_1_e.loc(), x0_e.loc()]
@@ -157,9 +153,9 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           vec![tmp_sink.clone()],
           target_e.loc()
       ));
-      let mul_e = root.append(builder, &mut |_| LTerm::LookupDef(mul_var.clone()));
-      let x0_e = root.append(builder, &mut |_| LTerm::LookupDef(x0.clone()));
-      let x1_e = root.append(builder, &mut |_| LTerm::LookupDef(x1.clone()));
+      let mul_e = root.append(builder, &mut |_| LTerm::LookupIdent(mul_ident.clone()));
+      let x0_e = root.append(builder, &mut |_| LTerm::LookupVar(x0.clone()));
+      let x1_e = root.append(builder, &mut |_| LTerm::LookupVar(x1.clone()));
       let pri_e = root.append(builder, &mut |_| LTerm::Apply(
           mul_e.loc(),
           vec![x0_e.loc(), x1_e.loc()]
@@ -181,7 +177,7 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
       mulf_mlam.loc()
   ));
   let mul_ident = builder.lookup_or_fresh_name("mul");
-  let mul_var = builder.fresh_ident_def(mul_ident.clone());
+  let mul_var = builder.fresh_var(mul_ident.clone());
   root = root.append(builder, &mut |_| LTerm::Let(
       mul_ident.clone().into(),
       mul_var.clone(),
@@ -206,16 +202,14 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
     ty:     None,
     adj:    Some(Rc::new(|def, root, ctx, builder| {
       let sub_ident = builder.lookup_name("sub");
-      let sub_var = ctx.lookup_ident(sub_ident);
       let neg_ident = builder.lookup_name("neg");
-      let neg_var = ctx.lookup_ident(neg_ident);
-      let x0 = builder.fresh_anon_def();
-      let x1 = builder.fresh_anon_def();
-      let tmp_sink = builder.fresh_anon_def();
-      let tmp_sink_0_e = root.append(builder, &mut |_| LTerm::LookupDef(tmp_sink.clone()));
+      let x0 = builder.fresh_anon_var();
+      let x1 = builder.fresh_anon_var();
+      let tmp_sink = builder.fresh_anon_var();
+      let tmp_sink_0_e = root.append(builder, &mut |_| LTerm::LookupVar(tmp_sink.clone()));
       let adj_0_e = tmp_sink_0_e;
-      let neg_e = root.append(builder, &mut |_| LTerm::LookupDef(neg_var.clone()));
-      let tmp_sink_1_e = root.append(builder, &mut |_| LTerm::LookupDef(tmp_sink.clone()));
+      let neg_e = root.append(builder, &mut |_| LTerm::LookupIdent(neg_ident.clone()));
+      let tmp_sink_1_e = root.append(builder, &mut |_| LTerm::LookupVar(tmp_sink.clone()));
       let adj_1_e = root.append(builder, &mut |_| LTerm::Apply(
           neg_e.loc(),
           vec![tmp_sink_1_e.loc()]
@@ -230,9 +224,9 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           vec![tmp_sink.clone()],
           target_e.loc()
       ));
-      let sub_e = root.append(builder, &mut |_| LTerm::LookupDef(sub_var.clone()));
-      let x0_e = root.append(builder, &mut |_| LTerm::LookupDef(x0.clone()));
-      let x1_e = root.append(builder, &mut |_| LTerm::LookupDef(x1.clone()));
+      let sub_e = root.append(builder, &mut |_| LTerm::LookupIdent(sub_ident.clone()));
+      let x0_e = root.append(builder, &mut |_| LTerm::LookupVar(x0.clone()));
+      let x1_e = root.append(builder, &mut |_| LTerm::LookupVar(x1.clone()));
       let pri_e = root.append(builder, &mut |_| LTerm::Apply(
           sub_e.loc(),
           vec![x0_e.loc(), x1_e.loc()]
@@ -254,13 +248,14 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
       subf_mlam.loc()
   ));
   let sub_ident = builder.lookup_or_fresh_name("sub");
-  let sub_var = builder.fresh_ident_def(sub_ident.clone());
+  let sub_var = builder.fresh_var(sub_ident.clone());
   root = root.append(builder, &mut |_| LTerm::Let(
       sub_ident.clone().into(),
       sub_var.clone(),
       subf_mx.loc(),
       root.loc()
   ));
+  let neg_ident = builder.lookup_or_fresh_name("neg");
   let negf_def = LMLambdaDef{
     ar:     1,
     mk:     Rc::new(|/*root,*/ /*builder*/| {
@@ -279,11 +274,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
     ty:     None,
     adj:    Some(Rc::new(|def, root, ctx, builder| {
       let neg_ident = builder.lookup_name("neg");
-      let neg_var = ctx.lookup_ident(neg_ident);
-      let x0 = builder.fresh_anon_def();
-      let tmp_sink = builder.fresh_anon_def();
-      let tmp_sink_0_e = root.append(builder, &mut |_| LTerm::LookupDef(tmp_sink.clone()));
-      let neg_e = root.append(builder, &mut |_| LTerm::LookupDef(neg_var.clone()));
+      let x0 = builder.fresh_anon_var();
+      let tmp_sink = builder.fresh_anon_var();
+      let tmp_sink_0_e = root.append(builder, &mut |_| LTerm::LookupVar(tmp_sink.clone()));
+      let neg_e = root.append(builder, &mut |_| LTerm::LookupIdent(neg_ident.clone()));
       let adj_0_e = root.append(builder, &mut |_| LTerm::Apply(
           neg_e.loc(),
           vec![tmp_sink_0_e.loc()]
@@ -297,8 +291,8 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           vec![tmp_sink.clone()],
           target_e.loc()
       ));
-      let neg_e = root.append(builder, &mut |_| LTerm::LookupDef(neg_var.clone()));
-      let x0_e = root.append(builder, &mut |_| LTerm::LookupDef(x0.clone()));
+      let neg_e = root.append(builder, &mut |_| LTerm::LookupIdent(neg_ident.clone()));
+      let x0_e = root.append(builder, &mut |_| LTerm::LookupVar(x0.clone()));
       let pri_e = root.append(builder, &mut |_| LTerm::Apply(
           neg_e.loc(),
           vec![x0_e.loc()]
@@ -319,12 +313,49 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
   let negf_mx = root.append(builder, &mut |_| LTerm::MX(
       negf_mlam.loc()
   ));
-  let neg_ident = builder.lookup_or_fresh_name("neg");
-  let neg_var = builder.fresh_ident_def(neg_ident.clone());
-  root = root.append(builder, &mut |_| LTerm::Let(
-      neg_ident.clone().into(),
-      neg_var.clone(),
+  let negf_var = builder.fresh_var(neg_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      neg_ident.clone(),
+      negf_var.clone(),
+      LTy::Fun(vec![LTy::Flp.into()], LTy::Flp.into()).into(),
       negf_mx.loc(),
+      root.loc()
+  ));
+  let negb_def = LMLambdaDef{
+    ar:     1,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match &*args[0] {
+            &MVal::Bit(x) => {
+              let y = !x;
+              MVal::Bit(y).into()
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let negb_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      negb_def.clone(),
+      (negb_def.mk)()
+  ));
+  let negb_mx = root.append(builder, &mut |_| LTerm::MX(
+      negb_mlam.loc()
+  ));
+  let negb_var = builder.fresh_var(neg_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      neg_ident.clone(),
+      negb_var.clone(),
+      LTy::Fun(vec![LTy::Bit.into()], LTy::Bit.into()).into(),
+      negb_mx.loc(),
+      root.loc()
+  ));
+  root = root.append(builder, &mut |_| LTerm::Alt(
+      neg_ident.clone(),
       root.loc()
   ));
   let addf_def = LMLambdaDef{
@@ -345,12 +376,11 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
     ty:     None,
     adj:    Some(Rc::new(|def, root, ctx, builder| {
       let add_ident = builder.lookup_name("add");
-      let add_var = ctx.lookup_ident(add_ident);
-      let x0 = builder.fresh_anon_def();
-      let x1 = builder.fresh_anon_def();
-      let tmp_sink = builder.fresh_anon_def();
-      let tmp_sink_0_e = root.append(builder, &mut |_| LTerm::LookupDef(tmp_sink.clone()));
-      let tmp_sink_1_e = root.append(builder, &mut |_| LTerm::LookupDef(tmp_sink.clone()));
+      let x0 = builder.fresh_anon_var();
+      let x1 = builder.fresh_anon_var();
+      let tmp_sink = builder.fresh_anon_var();
+      let tmp_sink_0_e = root.append(builder, &mut |_| LTerm::LookupVar(tmp_sink.clone()));
+      let tmp_sink_1_e = root.append(builder, &mut |_| LTerm::LookupVar(tmp_sink.clone()));
       let target_e = root.append(builder, &mut |_| LTerm::EnvIdxRec(
           vec![
             (0, tmp_sink_0_e.loc()),
@@ -361,9 +391,9 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           vec![tmp_sink.clone()],
           target_e.loc()
       ));
-      let op_e = root.append(builder, &mut |_| LTerm::LookupDef(add_var.clone()));
-      let x0_e = root.append(builder, &mut |_| LTerm::LookupDef(x0.clone()));
-      let x1_e = root.append(builder, &mut |_| LTerm::LookupDef(x1.clone()));
+      let op_e = root.append(builder, &mut |_| LTerm::LookupIdent(add_ident.clone()));
+      let x0_e = root.append(builder, &mut |_| LTerm::LookupVar(x0.clone()));
+      let x1_e = root.append(builder, &mut |_| LTerm::LookupVar(x1.clone()));
       let pri_e = root.append(builder, &mut |_| LTerm::Apply(
           op_e.loc(),
           vec![x0_e.loc(), x1_e.loc()]
@@ -385,7 +415,7 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
       addf_mlam.loc()
   ));
   let add_ident = builder.lookup_or_fresh_name("add");
-  let add_var = builder.fresh_ident_def(add_ident.clone());
+  let add_var = builder.fresh_var(add_ident.clone());
   root = root.append(builder, &mut |_| LTerm::Let(
       add_ident.clone().into(),
       add_var.clone(),
@@ -394,29 +424,29 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
   ));
   let zero_add_ident = builder.lookup_or_fresh_name("zero_add");
   /*let zero_addf_def = root.append(builder, &mut |_| LTerm::FlpLit(0.0));
-  let zero_addf_var = builder.fresh_ident_def(zero_add_ident.clone());
+  let zero_addf_var = builder.fresh_var(zero_add_ident.clone());
   root = root.append(builder, &mut |_| LTerm::Let(
       zero_add_ident.clone().into(),
       zero_addf_var.clone(),
       zero_addf_def.loc(),
       root.loc()
   ));*/
-  let zero_addi_def = root.append(builder, &mut |_| LTerm::IntLit(0));
-  let zero_addi_var = builder.fresh_ident_def(zero_add_ident.clone());
-  root = root.append(builder, &mut |_| LTerm::LetAlt(
-      zero_add_ident.clone(),
-      zero_addi_var.clone(),
-      LTy::Int.into(),
-      zero_addi_def.loc(),
-      root.loc()
-  ));
   let zero_addf_def = root.append(builder, &mut |_| LTerm::FlpLit(0.0));
-  let zero_addf_var = builder.fresh_ident_def(zero_add_ident.clone());
+  let zero_addf_var = builder.fresh_var(zero_add_ident.clone());
   root = root.append(builder, &mut |_| LTerm::LetAlt(
       zero_add_ident.clone(),
       zero_addf_var.clone(),
       LTy::Flp.into(),
       zero_addf_def.loc(),
+      root.loc()
+  ));
+  let zero_addi_def = root.append(builder, &mut |_| LTerm::IntLit(0));
+  let zero_addi_var = builder.fresh_var(zero_add_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      zero_add_ident.clone(),
+      zero_addi_var.clone(),
+      LTy::Int.into(),
+      zero_addi_def.loc(),
       root.loc()
   ));
   root = root.append(builder, &mut |_| LTerm::Alt(

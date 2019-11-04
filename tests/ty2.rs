@@ -331,7 +331,7 @@ d[y].x");
 }
 
 #[test]
-fn test_ty2_deriv_7() {
+fn test_ty2_deriv_6_2() {
   println!();
   let lexer = HLexer::new(r"
 alt x;
@@ -360,7 +360,7 @@ d[y].x");
 }
 
 #[test]
-fn test_ty2_deriv_8() {
+fn test_ty2_deriv_6_3() {
   println!();
   let lexer = HLexer::new(r"
 alt x;
@@ -391,7 +391,7 @@ d[y].x");
 
 /*// TODO
 #[test]
-fn test_ty2_deriv_9() {
+fn test_ty2_deriv_7() {
   println!();
   let lexer = HLexer::new(r"
 let x1 = 1.0;

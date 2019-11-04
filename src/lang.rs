@@ -27,7 +27,6 @@ lexer! {
   r#"D"#        => HLToken::DMajor,
   r#"J'"#       => HLToken::JMajorPrime,
   r#"J"#        => HLToken::JMajor,
-  //r#"trace"#    => HLToken::Trace,
   r#"adj"#      => HLToken::Adj,
   r#"alt"#      => HLToken::Alt,
   //r#"alternate"#=> HLToken::Alt,
@@ -58,7 +57,10 @@ lexer! {
   r#"seq"#      => HLToken::Seq,
   r#"switch"#   => HLToken::Switch,
   r#"tng"#      => HLToken::Tng,
+  r#"trace"#    => HLToken::Trace,
+  r#"type"#     => HLToken::Type,
   r#"undef"#    => HLToken::Undef,
+  r#"unit"#     => HLToken::Unit,
   r#"unsafe"#   => HLToken::Unsafe,
   r#"where"#    => HLToken::Where,
   r#"with"#     => HLToken::With,
@@ -77,6 +79,7 @@ lexer! {
   r#"=="#       => HLToken::EqEquals,
   r#"="#        => HLToken::Equals,
   r#"\~"#       => HLToken::Tilde,
+  r#"\\/"#      => HLToken::BackslashSlash,
   r#"\\"#       => HLToken::Backslash,
   r#"\.\+"#     => HLToken::DotPlus,
   r#"\.-"#      => HLToken::DotDash,
@@ -96,10 +99,10 @@ lexer! {
   r#":"#        => HLToken::Colon,
   r#"<\|"#      => HLToken::LPipe,
   r#"\|>"#      => HLToken::RPipe,
-  r#"\|\|"#     => HLToken::BarBar,
+  //r#"\|\|"#     => HLToken::BarBar,
   r#"\|"#       => HLToken::Bar,
-  r#"^^"#       => HLToken::HatHat,
-  r#"^"#        => HLToken::Hat,
+  //r#"^^"#       => HLToken::HatHat,
+  //r#"^"#        => HLToken::Hat,
   r#"\+\+"#     => HLToken::PlusPlus,
   r#"\+:"#      => HLToken::PlusColon,
   r#"\+\."#     => HLToken::PlusDot,
@@ -112,7 +115,9 @@ lexer! {
   r#"-"#        => HLToken::Dash,
   r#"\*:"#      => HLToken::StarColon,
   r#"\*\."#     => HLToken::StarDot,
+  r#"\*\*"#     => HLToken::StarStar,
   r#"\*"#       => HLToken::Star,
+  r#"/\\"#      => HLToken::SlashBackslash,
   r#"/:"#       => HLToken::SlashColon,
   r#"/\."#      => HLToken::SlashDot,
   r#"/"#        => HLToken::Slash,
@@ -125,23 +130,27 @@ lexer! {
   r#"\{"#       => HLToken::LCurly,
   r#"\}"#       => HLToken::RCurly,
   r#"'"#        => HLToken::Quote,
-
-  r#"_"#        => HLToken::PlacePat,
+  r#"\?_"#      => HLToken::StagingPlace,
+  r#"\?"#       => HLToken::Antiquote,
+  r#"_"#        => HLToken::Place,
 
   //r#"'_"#       => HLToken::PlaceTy,
   //r#"'\?"#      => HLToken::TopTy,
+  r#"Quo"#      => HLToken::QuoTy,
+  r#"Iota"#     => HLToken::IotaTy,
   r#"Bit"#      => HLToken::BitTy,
+  r#"Oct"#      => HLToken::OctTy,
   r#"Int"#      => HLToken::IntTy,
   r#"Flp"#      => HLToken::FlpTy,
   //r#"Flp16"#    => HLToken::Flp16Ty,
   //r#"Flp32"#    => HLToken::Flp32Ty,
   //r#"Fmp"#      => HLToken::FmpTy,
 
-  r#"unit"#     => HLToken::UnitLit,
-  r#"tee"#      => HLToken::TeeLit,
-  r#"bot"#      => HLToken::BotLit,
-  r#"truth"#    => HLToken::TruthLit,
-  r#"false"#    => HLToken::FalseLit,
+  r#"iota"#     => HLToken::Iota,
+  r#"tee"#      => HLToken::Tee,
+  r#"bot"#      => HLToken::Bot,
+  r#"truth"#    => HLToken::Truth,
+  r#"false"#    => HLToken::False,
 
   //r#"[0-9]+\.[0-9]*[fp16]"#         => HLToken::Flp16Lit(text[ .. text.len() - 1].parse().unwrap()),
   //r#"[0-9]+\.[0-9]*[fp32]"#         => HLToken::Flp32Lit(text[ .. text.len() - 1].parse().unwrap()),
@@ -155,13 +164,13 @@ lexer! {
   r#"[a-zA-Z_][a-zA-Z0-9_]*[']*"#   => HLToken::Ident(text.to_owned()),
   r#"`[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::InfixIdent(text.to_owned()),
   r#"^[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::PostfixIdent(text.to_owned()),
-  r#"\?[a-zA-Z_][a-zA-Z0-9_]*[']*"# => HLToken::ImplicitIdent(text.to_owned()),
-  r#"\?[0-9]+"#                     => HLToken::ImplicitIndex(text.parse().unwrap()),
   //r#"'[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::TyvarIdent(text.to_owned()),
+  r#"\?[a-zA-Z_][a-zA-Z0-9_]*[']*"# => HLToken::StagingIdent(text.to_owned()),
+  r#"\?[0-9]+"#                     => HLToken::StagingIndex(text.to_owned()),
   //r#"\~[A-Za-z0-9/\+]+[=]*"#        => HLToken::CrypticIdent(text.to_owned()),
-  r#"@=[A-Za-z0-9/\+]+[=]*"#        => HLToken::CrypticIdent(text.to_owned()),
-  r#"@[a-z0-9\-\.]+:[a-z0-9\-/]+"#  => HLToken::UseIdent(text.to_owned()),
-  r#"@[a-z0-9\-]+"#                 => HLToken::UseIdent(text.to_owned()),
+  r#"\~=[A-Za-z0-9/\+]+[=]*"#       => HLToken::CrypticIdent(text.to_owned()),
+  r#"\~[a-z0-9\-\.]+:[a-z0-9\-/]+"# => HLToken::UseIdent(text.to_owned()),
+  r#"\~[a-z0-9\-]+"#                => HLToken::UseIdent(text.to_owned()),
 
   r#"."#        => HLToken::_Eof,
 }
@@ -170,9 +179,10 @@ lexer! {
 pub enum HError {
   Eof,
   Unknown,
-  Unstable(String),
+  Reserved(String),
   Unexpected(HLToken),
   Expected(Vec<HLToken>, HLToken),
+  ExpectedIntLit,
   ExpectedTypat,
   MissingMatchArms,
   NoGenericAlternative,
@@ -225,7 +235,9 @@ pub enum HLToken {
   Switch,
   Tng,
   Trace,
+  Type,
   Undef,
+  Unit,
   Unsafe,
   Where,
   With,
@@ -241,6 +253,7 @@ pub enum HLToken {
   LtEquals,
   Tilde,
   Backslash,
+  BackslashSlash,
   Dot,
   DotDot,
   DotPlus,
@@ -273,9 +286,11 @@ pub enum HLToken {
   Star,
   StarDot,
   StarColon,
+  StarStar,
   Slash,
   SlashDot,
   SlashColon,
+  SlashBackslash,
   LDotParen,
   LParenBar,
   RParenBar,
@@ -289,26 +304,30 @@ pub enum HLToken {
   LCurly,
   RCurly,
   Quote,
-  PlacePat,
+  Antiquote,
+  StagingPlace,
+  Place,
   PlaceTy,
   TopTy,
   QuoTy,
+  IotaTy,
   BitTy,
+  OctTy,
   IntTy,
   FlpTy,
-  TyvarIdent(String),
-  UnitLit,
-  TeeLit,
-  BotLit,
-  TruthLit,
-  FalseLit,
+  Iota,
+  Tee,
+  Bot,
+  Truth,
+  False,
   IntLit(i64),
   FlpLit(f64),
   Ident(String),
   InfixIdent(String),
   PostfixIdent(String),
-  ImplicitIdent(String),
-  ImplicitIndex(i64),
+  //TyvarIdent(String),
+  StagingIdent(String),
+  StagingIndex(String),
   CrypticIdent(String),
   UseIdent(String),
   _Eof,
@@ -433,15 +452,32 @@ pub struct HLetDecorators {
 
 #[derive(Clone, Debug)]
 pub enum HTypat {
-  TopTy,
-  PlaceTy,
-  Tyvar(String),
-  FunTy(Vec<Rc<HTypat>>, Rc<HTypat>),
-  BitTy,
-  IntTy,
-  FlpTy,
-  UnitTy,
+  //Top,
+  //Place,
+  //Tyvar(String),
+  Fun(Vec<Rc<HTypat>>, Rc<HTypat>),
+  Quo,
+  Iota,
+  Bit,
+  Oct,
+  Int,
+  Flp,
   Ident(String),
+}
+
+impl From<HLToken> for HTypat {
+  fn from(tok: HLToken) -> HTypat {
+    match tok {
+      HLToken::QuoTy => HTypat::Quo,
+      HLToken::IotaTy => HTypat::Iota,
+      HLToken::BitTy => HTypat::Bit,
+      HLToken::OctTy => HTypat::Oct,
+      HLToken::IntTy => HTypat::Int,
+      HLToken::FlpTy => HTypat::Flp,
+      HLToken::Ident(name) => HTypat::Ident(name),
+      _ => panic!(),
+    }
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -508,15 +544,18 @@ pub enum HExpr {
   //Cons(Rc<HExpr>, Rc<HExpr>),
   Concat(Rc<HExpr>, Rc<HExpr>),
   Quote(Rc<HExpr>),
-  PlacePat,
+  Antiquote(Rc<HExpr>),
+  Place,
   Typat(Rc<HTypat>),
-  UnitLit,
+  IotaLit,
   TeeLit,
   BotLit,
   BitLit(bool),
   IntLit(i64),
   FlpLit(f64),
   Ident(String),
+  StagingIdent(String),
+  StagingIndex(i64),
   CrypticIdent(String),
   UseIdent(String),
   PathIndex(Rc<HExpr>, usize),
@@ -613,6 +652,10 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
     }
   }
 
+  fn dash_prefix_rbp(&self) -> i32 {
+    560
+  }
+
   fn lbp(&self, tok: &HLToken) -> i32 {
     // TODO
     match tok {
@@ -656,14 +699,16 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
       &HLToken::Semi |
       &HLToken::DashColon |
       &HLToken::RPipe |
+      &HLToken::RArrow |
       &HLToken::RDArrow |
       &HLToken::Colon |
       &HLToken::Bar => 0,
-      &HLToken::RArrow => 100,
       &HLToken::ColonColon => 180,
       &HLToken::PlusPlus => 200,
-      &HLToken::BarBar => 300,
-      &HLToken::HatHat => 320,
+      &HLToken::BarBar |
+      &HLToken::BackslashSlash => 300,
+      &HLToken::HatHat |
+      &HLToken::SlashBackslash => 320,
       &HLToken::EqEquals |
       &HLToken::NotEquals |
       &HLToken::Gt |
@@ -672,12 +717,12 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
       &HLToken::LtEquals => 400,
       //&HLToken::Bar => 460,
       //&HLToken::BarBar => 460,
-      &HLToken::Hat => 480,
+      //&HLToken::Hat => 480,
       &HLToken::Plus |
       &HLToken::Dash => 500,
       &HLToken::Star |
       &HLToken::Slash => 520,
-      &HLToken::InfixIdent(_) |
+      &HLToken::InfixIdent(_) => 580,
       &HLToken::PostfixIdent(_) => 600,
       &HLToken::As => 700,
       &HLToken::Dot => 800,
@@ -685,19 +730,12 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
       &HLToken::RParenBar => 0,
       //&HLToken::LParen => _,
       &HLToken::RParen => 0,
-      &HLToken::LBrack => 800,
+      &HLToken::LBrack => 900,
       &HLToken::RBrack => 0,
-      &HLToken::LDotCurly => 800,
+      //&HLToken::LDotCurly => 800,
       //&HLToken::LCurly => _,
       &HLToken::RCurly => 0,
-      &HLToken::Quote => 900,
-      &HLToken::UnitLit |
-      &HLToken::TeeLit |
-      &HLToken::BotLit |
-      &HLToken::IntLit(_) |
-      &HLToken::FlpLit(_) |
-      &HLToken::Ident(_) |
-      &HLToken::TyvarIdent(_) => 0,
+      &HLToken::Quote => 1000,
       &HLToken::_Eof => 0,
       _ => unimplemented!(),
     }
@@ -722,7 +760,7 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
       }
       HLToken::Export => {
         // TODO
-        Err(HError::Unstable("export".to_owned()))
+        Err(HError::Reserved("export".to_owned()))
       }
       HLToken::Import => {
         // TODO
@@ -739,7 +777,7 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
           }
           _ => panic!(),
         }*/
-        Err(HError::Unstable("import".to_owned()))
+        Err(HError::Reserved("import".to_owned()))
       }
       HLToken::DMajor => {
         match self.current_token() {
@@ -916,7 +954,7 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
         Ok(HExpr::PartialD(Rc::new(e)))
       }*/
       HLToken::DMinorPrime => {
-        Err(HError::Unstable("d'".to_owned()))
+        Err(HError::Reserved("d'".to_owned()))
       }
       HLToken::JMajor => {
         match self.current_token() {
@@ -1057,7 +1095,7 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
         }
         let decos = maybe_decos.clone().unwrap_or_default();
         if decos.gen {
-          return Err(HError::Unstable("let gen".to_owned()));
+          return Err(HError::Reserved("let gen".to_owned()));
         }
         if decos.alt {
           if decos.gen {
@@ -1319,19 +1357,19 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
           HLToken::RArrow => {
             self.advance();
           }
-          HLToken::PlacePat | HLToken::Ident(_) => {
+          HLToken::Place | HLToken::Ident(_) => {
             loop {
               match self.current_token() {
-                HLToken::PlacePat => {
+                HLToken::Place => {
                   self.advance();
-                  params.push(Rc::new(HExpr::PlacePat));
+                  params.push(Rc::new(HExpr::Place));
                 }
                 HLToken::Ident(param_name) => {
                   self.advance();
                   params.push(Rc::new(HExpr::Ident(param_name)));
                 }
                 //_ => panic!(),
-                t => return Err(HError::Expected(vec![HLToken::PlacePat, HLToken::Ident("<identifier>".into())], t))
+                t => return Err(HError::Expected(vec![HLToken::Place, HLToken::Ident("<identifier>".into())], t))
               }
               match self.current_token() {
                 HLToken::Comma => {
@@ -1347,26 +1385,45 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
             }
           }
           //_ => panic!(),
-          t => return Err(HError::Expected(vec![HLToken::RArrow, HLToken::PlacePat, HLToken::Ident("<identifier>".into())], t))
+          t => return Err(HError::Expected(vec![HLToken::RArrow, HLToken::Place, HLToken::Ident("<identifier>".into())], t))
         }
         let body = self.expression(0)?;
         Ok(HExpr::Lambda(params, Rc::new(body)))
       }
       HLToken::Dash => {
-        let right = self.expression(700)?;
+        let right = self.expression(self.dash_prefix_rbp())?;
         Ok(HExpr::Neg(Rc::new(right)))
       }
       HLToken::LBrack => {
         let mut arg_typats = Vec::new();
         loop {
-          match self.current_token() {
-            HLToken::RBrack => {
+          let arg_tok = self.current_token();
+          match &arg_tok {
+            &HLToken::LBrack => {
+              let arg_e = self.expression(0)?;
+              match arg_e {
+                HExpr::Typat(arg_ty) => match &*arg_ty {
+                  &HTypat::Fun(..) => {
+                    arg_typats.push(arg_ty);
+                  }
+                  _ => panic!(),
+                },
+                _ => return Err(HError::ExpectedTypat)
+              }
+            }
+            &HLToken::RBrack => {
               self.advance();
               break;
             }
-            HLToken::BitTy => {
+            &HLToken::QuoTy |
+            &HLToken::IotaTy |
+            &HLToken::BitTy |
+            &HLToken::OctTy |
+            &HLToken::IntTy |
+            &HLToken::FlpTy |
+            &HLToken::Ident(_) => {
               self.advance();
-              arg_typats.push(Rc::new(HTypat::BitTy));
+              arg_typats.push(HTypat::from(arg_tok).into());
               match self.current_token() {
                 HLToken::Comma => {
                   self.advance();
@@ -1376,77 +1433,22 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
                   self.advance();
                   break;
                 }
-                //_ => panic!(),
                 t => return Err(HError::Expected(vec![HLToken::Comma, HLToken::RBrack], t))
               }
             }
-            HLToken::IntTy => {
-              self.advance();
-              arg_typats.push(Rc::new(HTypat::IntTy));
-              match self.current_token() {
-                HLToken::Comma => {
-                  self.advance();
-                  continue;
-                }
-                HLToken::RBrack => {
-                  self.advance();
-                  break;
-                }
-                //_ => panic!(),
-                t => return Err(HError::Expected(vec![HLToken::Comma, HLToken::RBrack], t))
-              }
-            }
-            HLToken::FlpTy => {
-              self.advance();
-              arg_typats.push(Rc::new(HTypat::FlpTy));
-              match self.current_token() {
-                HLToken::Comma => {
-                  self.advance();
-                  continue;
-                }
-                HLToken::RBrack => {
-                  self.advance();
-                  break;
-                }
-                //_ => panic!(),
-                t => return Err(HError::Expected(vec![HLToken::Comma, HLToken::RBrack], t))
-              }
-            }
-            HLToken::Ident(name) => {
-              self.advance();
-              arg_typats.push(Rc::new(HTypat::Ident(name)));
-              match self.current_token() {
-                HLToken::Comma => {
-                  self.advance();
-                  continue;
-                }
-                HLToken::RBrack => {
-                  self.advance();
-                  break;
-                }
-                //_ => panic!(),
-                t => return Err(HError::Expected(vec![HLToken::Comma, HLToken::RBrack], t))
-              }
-            }
-            HLToken::TyvarIdent(tyvar_name) => {
-              self.advance();
-              let mut name = tyvar_name.clone();
-              name.replace_range(.. 1, "");
-              arg_typats.push(Rc::new(HTypat::Tyvar(name)));
-              match self.current_token() {
-                HLToken::Comma => {
-                  self.advance();
-                  continue;
-                }
-                HLToken::RBrack => {
-                  self.advance();
-                  break;
-                }
-                //_ => panic!(),
-                t => return Err(HError::Expected(vec![HLToken::Comma, HLToken::RBrack], t))
-              }
-            }
-            tok => panic!("TRACE: unhandled token: {:?}", tok),
+            //_ => panic!("TRACE: not a type pattern: {:?}", arg_tok),
+            _ => return Err(HError::Expected(vec![
+                HLToken::LBrack,
+                HLToken::RBrack,
+                HLToken::QuoTy,
+                HLToken::IotaTy,
+                HLToken::BitTy,
+                HLToken::OctTy,
+                HLToken::IntTy,
+                HLToken::FlpTy,
+                HLToken::Ident("<identifier>".into()),
+                //HLToken::TyvarIdent("<type-variable>".into()),
+            ], tok))
           }
         }
         match self.current_token() {
@@ -1456,45 +1458,42 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
           //_ => panic!(),
           t => return Err(HError::Expected(vec![HLToken::RArrow], t))
         }
-        let ret_typat = match self.current_token() {
-          HLToken::LBrack => {
-            let ret_e = self.expression(self.lbp(&HLToken::RArrow))?;
+        let ret_tok = self.current_token();
+        let ret_typat = match &ret_tok {
+          &HLToken::LBrack => {
+            let ret_e = self.expression(0)?;
             match ret_e {
-              HExpr::Typat(typat) => typat.into(),
+              HExpr::Typat(ret_ty) => match &*ret_ty {
+                &HTypat::Fun(..) => ret_ty,
+                _ => panic!(),
+              },
               _ => return Err(HError::ExpectedTypat)
             }
           }
-          HLToken::BitTy => {
+          &HLToken::QuoTy |
+          &HLToken::IotaTy |
+          &HLToken::BitTy |
+          &HLToken::OctTy |
+          &HLToken::IntTy |
+          &HLToken::FlpTy |
+          &HLToken::Ident(_) => {
             self.advance();
-            Rc::new(HTypat::BitTy)
-          }
-          HLToken::IntTy => {
-            self.advance();
-            Rc::new(HTypat::IntTy)
-          }
-          HLToken::FlpTy => {
-            self.advance();
-            Rc::new(HTypat::FlpTy)
-          }
-          HLToken::Ident(name) => {
-            self.advance();
-            Rc::new(HTypat::Ident(name))
-          }
-          HLToken::TyvarIdent(name) => {
-            self.advance();
-            Rc::new(HTypat::Tyvar(name))
+            HTypat::from(ret_tok).into()
           }
           //_ => panic!(),
-          t => return Err(HError::Expected(vec![
+          _ => return Err(HError::Expected(vec![
               HLToken::LBrack,
+              HLToken::QuoTy,
+              HLToken::IotaTy,
               HLToken::BitTy,
+              HLToken::OctTy,
               HLToken::IntTy,
               HLToken::FlpTy,
               HLToken::Ident("<identifier>".into()),
-              HLToken::TyvarIdent("<type-variable>".into()),
-          ], t))
+              //HLToken::TyvarIdent("<type-variable>".into()),
+          ], tok))
         };
-        Ok(HExpr::Typat(HTypat::FunTy(arg_typats, ret_typat).into()))
+        Ok(HExpr::Typat(HTypat::Fun(arg_typats, ret_typat).into()))
       }
       HLToken::LParenBar => {
         let mut elems = Vec::new();
@@ -1567,44 +1566,84 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
         }
       }
       HLToken::Quote => {
-        let e = self.expression(0)?;
+        let e = self.expression(self.lbp(&tok))?;
         Ok(HExpr::Quote(e.into()))
       }
-      HLToken::PlacePat => {
-        Ok(HExpr::PlacePat)
+      HLToken::Antiquote => {
+        match self.current_token() {
+          HLToken::LParen => {
+            self.advance();
+          }
+          t => return Err(HError::Expected(vec![HLToken::LParen], t))
+        }
+        let e = self.expression(0)?;
+        match self.current_token() {
+          HLToken::RParen => {
+            self.advance();
+          }
+          t => return Err(HError::Expected(vec![HLToken::RParen], t))
+        }
+        Ok(HExpr::Antiquote(e.into()))
       }
-      HLToken::BitTy => {
-        Ok(HExpr::Typat(HTypat::BitTy.into()))
+      HLToken::Place => {
+        Ok(HExpr::Place)
       }
-      HLToken::IntTy => {
-        Ok(HExpr::Typat(HTypat::IntTy.into()))
-      }
+      HLToken::QuoTy |
+      HLToken::IotaTy |
+      HLToken::BitTy |
+      HLToken::OctTy |
+      HLToken::IntTy |
       HLToken::FlpTy => {
-        Ok(HExpr::Typat(HTypat::FlpTy.into()))
+        Ok(HExpr::Typat(HTypat::from(tok).into()))
       }
-      HLToken::UnitLit => {
-        Ok(HExpr::UnitLit)
+      HLToken::Iota => {
+        Ok(HExpr::IotaLit)
       }
-      HLToken::TeeLit => {
+      HLToken::Tee => {
         Ok(HExpr::TeeLit)
       }
-      HLToken::BotLit => {
+      HLToken::Bot => {
         Ok(HExpr::BotLit)
       }
-      HLToken::TruthLit => {
+      HLToken::Truth => {
         Ok(HExpr::BitLit(true))
       }
-      HLToken::FalseLit => {
+      HLToken::False => {
         Ok(HExpr::BitLit(false))
       }
       HLToken::IntLit(x) => {
+        match self.current_token() {
+          HLToken::Ident(name) => {
+            // FIXME
+            return Err(HError::Reserved("dimensional literals".to_owned()));
+          }
+          _ => {}
+        }
         Ok(HExpr::IntLit(x))
       }
       HLToken::FlpLit(x) => {
+        match self.current_token() {
+          HLToken::Ident(name) => {
+            // FIXME
+            return Err(HError::Reserved("dimensional literals".to_owned()));
+          }
+          _ => {}
+        }
         Ok(HExpr::FlpLit(x))
       }
       HLToken::Ident(name) => {
         Ok(HExpr::Ident(name))
+      }
+      /*HLToken::TyvarIdent(name) => {
+        Ok(HExpr::Typat(HTypat::Tyvar(name).into()))
+      }*/
+      HLToken::StagingIdent(mut name) => {
+        name.replace_range(.. 1, "");
+        Ok(HExpr::StagingIdent(name))
+      }
+      HLToken::StagingIndex(mut name) => {
+        name.replace_range(.. 1, "");
+        Ok(HExpr::StagingIndex(name.parse().map_err(|_| HError::ExpectedIntLit)?))
       }
       HLToken::CrypticIdent(mut name) => {
         name.replace_range(.. 1, "");
@@ -1613,9 +1652,6 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
       HLToken::UseIdent(mut name) => {
         name.replace_range(.. 1, "");
         Ok(HExpr::UseIdent(name))
-      }
-      HLToken::TyvarIdent(name) => {
-        Ok(HExpr::Typat(HTypat::Tyvar(name).into()))
       }
       _ => {
         Err(HError::Unknown)
@@ -1666,11 +1702,13 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
         let right = self.expression(self.lbp(&tok) - 1)?;
         Ok(HExpr::Cons(Rc::new(left), Rc::new(right)))
       }*/
-      HLToken::BarBar => {
+      //HLToken::BarBar |
+      HLToken::BackslashSlash => {
         let right = self.expression(self.lbp(&tok) - 1)?;
         Ok(HExpr::ShortOr(Rc::new(left), Rc::new(right)))
       }
-      HLToken::HatHat => {
+      //HLToken::HatHat |
+      HLToken::SlashBackslash => {
         let right = self.expression(self.lbp(&tok) - 1)?;
         Ok(HExpr::ShortAnd(Rc::new(left), Rc::new(right)))
       }
@@ -1698,15 +1736,15 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
         let right = self.expression(self.lbp(&tok))?;
         Ok(HExpr::LtEq(Rc::new(left), Rc::new(right)))
       }
-      //HLToken::Bar => {
-      /*HLToken::BarBar => {
+      /*//HLToken::Bar => {
+      HLToken::BarBar => {
         let right = self.expression(self.lbp(&tok))?;
         Ok(HExpr::Or(Rc::new(left), Rc::new(right)))
-      }*/
+      }
       HLToken::Hat => {
         let right = self.expression(self.lbp(&tok))?;
         Ok(HExpr::And(Rc::new(left), Rc::new(right)))
-      }
+      }*/
       HLToken::Plus => {
         let right = self.expression(self.lbp(&tok))?;
         Ok(HExpr::Add(Rc::new(left), Rc::new(right)))
