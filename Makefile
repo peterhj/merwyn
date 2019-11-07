@@ -7,6 +7,8 @@ endif
 
 CARGO_FLAGS ?=
 
+# TODO: Currently we are using some unstable features (plex requires some,
+# while we also utilize 'non_ascii_idents'), so build with nightly.
 #CARGO := cargo
 #RUSTC := rustc
 CARGO := cargo +nightly
