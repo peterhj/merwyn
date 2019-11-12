@@ -6,12 +6,12 @@ edition = "2018"
 license = "MPL-2.0"
 
 [profile.dev]
-codegen-units = 1
+#codegen-units = 1
 #incremental = true
 panic = "abort"
 
 [profile.release]
-codegen-units = 1
+#codegen-units = 1
 #incremental = true
 panic = "abort"
 

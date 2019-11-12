@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #![feature(non_ascii_idents)]
-#![feature(proc_macro_hygiene)]
+//#![feature(proc_macro_hygiene)]
 
 #[cfg(all(feature = "xgpu", target_os = "linux"))] extern crate kuda;
 extern crate libc;

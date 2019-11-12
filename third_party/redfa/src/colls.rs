@@ -21,13 +21,6 @@ pub struct VecMap<V> {
 }
 
 impl<V> VecMap<V> {
-    pub fn new() -> VecMap<V> {
-        VecMap{
-            n: 0,
-            v: Vec::new()
-        }
-    }
-
     pub fn with_capacity(capacity: usize) -> VecMap<V> {
         VecMap{
             n: 0,
@@ -35,14 +28,12 @@ impl<V> VecMap<V> {
         }
     }
 
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.n
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.n == 0
+    fn get(&self, key: usize) -> Option<&V> {
+        if key < self.v.len() {
+            self.v[key].as_ref()
+        } else {
+            None
+        }
     }
 
     pub fn insert(&mut self, key: usize, new_value: V) -> Option<V> {
@@ -61,11 +52,7 @@ impl<V> Index<usize> for VecMap<V> {
     type Output = V;
 
     fn index(&self, key: usize) -> &V {
-        if key < self.v.len() {
-            self.v[key].as_ref()
-        } else {
-            None
-        }.expect("key not present")
+        self.get(key).expect("key not present")
     }
 }
 
@@ -110,11 +97,6 @@ impl BitSet {
             nbits: 0,
             storage: Vec::new()
         }
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.storage.iter().fold(0, |acc, n| acc + n.count_ones() as usize)
     }
 
     #[inline]
@@ -213,6 +195,32 @@ impl BitSet {
 #[cfg(test)]
 mod tests {
     use super::{BitSet, VecMap};
+
+    impl<V> VecMap<V> {
+        pub fn new() -> VecMap<V> {
+            VecMap{
+                n: 0,
+                v: Vec::new()
+            }
+        }
+
+        #[inline]
+        pub fn len(&self) -> usize {
+            self.n
+        }
+
+        #[inline]
+        pub fn is_empty(&self) -> bool {
+            self.n == 0
+        }
+    }
+
+    impl BitSet {
+        #[inline]
+        pub fn len(&self) -> usize {
+            self.storage.iter().fold(0, |acc, n| acc + n.count_ones() as usize)
+        }
+    }
 
     #[test]
     fn test_vec_map_insert() {

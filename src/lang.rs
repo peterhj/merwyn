@@ -12,15 +12,10 @@ lexer! {
 
   r#"\n"#       => HLToken::Newline,
   r#"[ \t\r]+"# => HLToken::Whitespace,
-  r#"#[^\n]*"#  => HLToken::EolComment,
-  r#"\([*](~(.*[*]\).*))[*]\)"# => HLToken::MultilineComment(0),
+  r#"--[-]*[ \t]*\|[^\n]*"# => HLToken::DocComment,
+  r#"--[^\n]*"# => HLToken::EolComment,
+  r#"\(--(~(.*--\).*))--\)"# => HLToken::MultilineComment,
 
-  /*r#"d'["#      => HLToken::DMinorPrimeBrack,
-  r#"d["#       => HLToken::DMinorBrack,
-  r#"D'["#      => HLToken::DMajorPrimeBrack,
-  r#"D["#       => HLToken::DMajorBrack,
-  r#"J'["#      => HLToken::JMajorPrimeBrack,
-  r#"J["#       => HLToken::JMajorBrack,*/
   r#"d'"#       => HLToken::DMinorPrime,
   r#"d"#        => HLToken::DMinor,
   r#"D'"#       => HLToken::DMajorPrime,
@@ -29,7 +24,6 @@ lexer! {
   r#"J"#        => HLToken::JMajor,
   r#"adj"#      => HLToken::Adj,
   r#"alt"#      => HLToken::Alt,
-  //r#"alternate"#=> HLToken::Alt,
   r#"as"#       => HLToken::As,
   r#"assert"#   => HLToken::Assert,
   r#"break"#    => HLToken::Break,
@@ -40,11 +34,9 @@ lexer! {
   r#"end"#      => HLToken::End,
   r#"for"#      => HLToken::For,
   r#"gen"#      => HLToken::Gen,
-  //r#"generic"#  => HLToken::Gen,
   r#"import"#   => HLToken::Import,
   r#"in"#       => HLToken::In,
   r#"include"#  => HLToken::Include,
-  //r#"lambda"#   => HLToken::Lambda,
   r#"let"#      => HLToken::Let,
   r#"match"#    => HLToken::Match,
   r#"module"#   => HLToken::Module,
@@ -67,13 +59,10 @@ lexer! {
   r#"λ"#        => HLToken::Lambda,
   r#"≤"#        => HLToken::LtEquals,
   r#"≥"#        => HLToken::GtEquals,
-  r#":-"#       => HLToken::If,
-  r#":="#       => HLToken::Assigns,
   r#"<="#       => HLToken::LtEquals,
   r#"<"#        => HLToken::Lt,
   r#">="#       => HLToken::GtEquals,
   r#">"#        => HLToken::Gt,
-  r#"/="#       => HLToken::NotEquals,
   r#"==>"#      => HLToken::RDDArrow,
   r#"=>"#       => HLToken::RDArrow,
   r#"=="#       => HLToken::EqEquals,
@@ -81,11 +70,11 @@ lexer! {
   r#"\~"#       => HLToken::Tilde,
   r#"\\/"#      => HLToken::BackslashSlash,
   r#"\\"#       => HLToken::Backslash,
+  r#"!"#        => HLToken::Bang,
   r#"\.\+"#     => HLToken::DotPlus,
   r#"\.-"#      => HLToken::DotDash,
   r#"\.\*"#     => HLToken::DotStar,
   r#"\./"#      => HLToken::DotSlash,
-  r#"'\["#      => HLToken::LQuoteBrack,
   //r#"\.\("#     => HLToken::LDotParen,
   //r#"\.\["#     => HLToken::LDotBrack,
   //r#"\.\{"#     => HLToken::LDotCurly,
@@ -96,6 +85,8 @@ lexer! {
   r#";;"#       => HLToken::SemiSemi,
   r#";"#        => HLToken::Semi,
   r#"::"#       => HLToken::ColonColon,
+  r#":-"#       => HLToken::ColonDash,
+  r#":="#       => HLToken::ColonEquals,
   r#":"#        => HLToken::Colon,
   r#"<\|"#      => HLToken::LPipe,
   r#"\|>"#      => HLToken::RPipe,
@@ -107,7 +98,6 @@ lexer! {
   r#"\+:"#      => HLToken::PlusColon,
   r#"\+\."#     => HLToken::PlusDot,
   r#"\+"#       => HLToken::Plus,
-  //r#"-:"#       => HLToken::Then,
   r#"-o"#       => HLToken::ROArrow,
   r#"->"#       => HLToken::RArrow,
   r#"-:"#       => HLToken::DashColon,
@@ -120,6 +110,7 @@ lexer! {
   r#"/\\"#      => HLToken::SlashBackslash,
   r#"/:"#       => HLToken::SlashColon,
   r#"/\."#      => HLToken::SlashDot,
+  r#"/="#       => HLToken::SlashEquals,
   r#"/"#        => HLToken::Slash,
   r#"\(\|"#     => HLToken::LParenBar,
   r#"\("#       => HLToken::LParen,
@@ -129,10 +120,11 @@ lexer! {
   r#"\]"#       => HLToken::RBrack,
   r#"\{"#       => HLToken::LCurly,
   r#"\}"#       => HLToken::RCurly,
+  r#"'\["#      => HLToken::LQuoteBrack,
   r#"'"#        => HLToken::Quote,
   r#"\?_"#      => HLToken::StagingPlace,
   r#"\?"#       => HLToken::Antiquote,
-  r#"_"#        => HLToken::Place,
+  r#"[_]+"#     => HLToken::Place,
 
   //r#"'_"#       => HLToken::PlaceTy,
   //r#"'\?"#      => HLToken::TopTy,
@@ -155,17 +147,22 @@ lexer! {
   //r#"[0-9]+\.[0-9]*[fp16]"#         => HLToken::Flp16Lit(text[ .. text.len() - 1].parse().unwrap()),
   //r#"[0-9]+\.[0-9]*[fp32]"#         => HLToken::Flp32Lit(text[ .. text.len() - 1].parse().unwrap()),
   //r#"[0-9]+\.[0-9]*[fmp]"#          => HLToken::FmpLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"-[0-9]+\.[0-9]*f"#             => HLToken::FlpLit(text[ .. text.len() - 1].parse().unwrap()),
   r#"[0-9]+\.[0-9]*f"#              => HLToken::FlpLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"-[0-9]+\.[0-9]*"#              => HLToken::FlpLit(text.parse().unwrap()),
   r#"[0-9]+\.[0-9]*"#               => HLToken::FlpLit(text.parse().unwrap()),
+  r#"-[0-9]+f"#                     => HLToken::FlpLit(text[ .. text.len() - 1].parse().unwrap()),
   r#"[0-9]+f"#                      => HLToken::FlpLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"-[0-9]+n"#                     => HLToken::IntLit(text[ .. text.len() - 1].parse().unwrap()),
   r#"[0-9]+n"#                      => HLToken::IntLit(text[ .. text.len() - 1].parse().unwrap()),
+  r#"-[0-9]+"#                      => HLToken::IntLit(text.parse().unwrap()),
   r#"[0-9]+"#                       => HLToken::IntLit(text.parse().unwrap()),
 
   r#"[a-zA-Z_][a-zA-Z0-9_]*[']*"#   => HLToken::Ident(text.to_owned()),
   r#"`[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::InfixIdent(text.to_owned()),
   r#"^[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::PostfixIdent(text.to_owned()),
   //r#"'[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HLToken::TyvarIdent(text.to_owned()),
-  r#"\?[a-zA-Z_][a-zA-Z0-9_]*[']*"# => HLToken::StagingIdent(text.to_owned()),
+  r#"\?[a-zA-Z_][a-zA-Z0-9_]*"#     => HLToken::StagingIdent(text.to_owned()),
   r#"\?[0-9]+"#                     => HLToken::StagingIndex(text.to_owned()),
   //r#"\~[A-Za-z0-9/\+]+[=]*"#        => HLToken::CrypticIdent(text.to_owned()),
   r#"\~=[A-Za-z0-9/\+]+[=]*"#       => HLToken::CrypticIdent(text.to_owned()),
@@ -193,8 +190,9 @@ pub enum HError {
 pub enum HLToken {
   Newline,
   Whitespace,
+  DocComment,
   EolComment,
-  MultilineComment(usize),
+  MultilineComment,
   DMajor,
   DMajorPrime,
   DMinor,
@@ -242,11 +240,9 @@ pub enum HLToken {
   Where,
   With,
   Lambda,
-  If,
-  Assigns,
   Equals,
   EqEquals,
-  NotEquals,
+  SlashEquals,
   Gt,
   GtEquals,
   Lt,
@@ -254,6 +250,7 @@ pub enum HLToken {
   Tilde,
   Backslash,
   BackslashSlash,
+  Bang,
   Dot,
   DotDot,
   DotPlus,
@@ -266,6 +263,8 @@ pub enum HLToken {
   SemiSemi,
   Colon,
   ColonColon,
+  ColonDash,
+  ColonEquals,
   Bar,
   BarBar,
   Hat,
@@ -407,10 +406,11 @@ impl<'src> Iterator for HLexer<'src> {
           continue;
         }
         (HLToken::Whitespace, _, _) |
+        (HLToken::DocComment, _, _) |
         (HLToken::EolComment, _, _) => {
           continue;
         }
-        (HLToken::MultilineComment(_), _, Some(text)) => {
+        (HLToken::MultilineComment, _, Some(text)) => {
           let mut eol_iter = text.rmatch_indices('\n');
           let (line_ct, line_off) = match eol_iter.next() {
             None => (0, text.len()),
@@ -423,7 +423,7 @@ impl<'src> Iterator for HLexer<'src> {
           self.next_pos = line_off;
           continue;
         }
-        (HLToken::MultilineComment(_), _, None) => {
+        (HLToken::MultilineComment, _, None) => {
           panic!();
         }
         (tok, tok_span, _) => {
@@ -439,7 +439,7 @@ impl<'src> Iterator for HLexer<'src> {
   }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct HLetDecorators {
   pub pub_: bool,
   pub alt:  bool,
@@ -448,9 +448,10 @@ pub struct HLetDecorators {
   //pub rnd:  bool,
   //pub seq:  bool,
   pub ty:   Option<Rc<HExpr>>,
+  //pub ty:   Option<Rc<HTypat>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum HTypat {
   //Top,
   //Place,
@@ -484,10 +485,10 @@ impl From<HLToken> for HTypat {
 pub struct HExprRef {
   // FIXME
   pub term: Rc<HExpr>,
-  pub toks: Vec<HLTokenInfo>,
+  //pub toks: Vec<HLTokenInfo>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum HExpr {
   End,
   //Export(Rc<HExpr>, Option<Rc<HExpr>>, Rc<HExpr>),
@@ -495,6 +496,7 @@ pub enum HExpr {
   Break(Rc<HExpr>),
   Lambda(Vec<Rc<HExpr>>, Rc<HExpr>),
   Apply(Rc<HExpr>, Vec<Rc<HExpr>>),
+  Atom(Rc<HExpr>, Vec<Rc<HExpr>>),
   UTuple(Vec<Rc<HExpr>>),
   STuple(Vec<Rc<HExpr>>),
   //ETuple(Vec<Rc<HExpr>>),
@@ -538,9 +540,10 @@ pub enum HExpr {
   Sub(Rc<HExpr>, Rc<HExpr>),
   Mul(Rc<HExpr>, Rc<HExpr>),
   Div(Rc<HExpr>, Rc<HExpr>),
+  Neg(Rc<HExpr>),
+  Defined(Rc<HExpr>),
   Infix(String, Rc<HExpr>, Rc<HExpr>),
   Postfix(String, Rc<HExpr>),
-  Neg(Rc<HExpr>),
   //Cons(Rc<HExpr>, Rc<HExpr>),
   Concat(Rc<HExpr>, Rc<HExpr>),
   Quote(Rc<HExpr>),
@@ -653,7 +656,7 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
   }
 
   fn dash_prefix_rbp(&self) -> i32 {
-    560
+    540
   }
 
   fn lbp(&self, tok: &HLToken) -> i32 {
@@ -688,9 +691,8 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
       &HLToken::Switch |
       &HLToken::Match |
       &HLToken::With |
-      &HLToken::If |
-      &HLToken::Lambda |
       &HLToken::For |
+      &HLToken::Lambda |
       &HLToken::Equals |
       &HLToken::Tilde |
       &HLToken::Backslash |
@@ -710,7 +712,7 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
       &HLToken::HatHat |
       &HLToken::SlashBackslash => 320,
       &HLToken::EqEquals |
-      &HLToken::NotEquals |
+      &HLToken::SlashEquals |
       &HLToken::Gt |
       &HLToken::GtEquals |
       &HLToken::Lt |
@@ -722,13 +724,14 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
       &HLToken::Dash => 500,
       &HLToken::Star |
       &HLToken::Slash => 520,
-      &HLToken::InfixIdent(_) => 580,
-      &HLToken::PostfixIdent(_) => 600,
-      &HLToken::As => 700,
+      &HLToken::InfixIdent(_) => 560,
+      &HLToken::PostfixIdent(_) => 580,
+      &HLToken::Bang => 600,
+      &HLToken::As => 780,
       &HLToken::Dot => 800,
       //&HLToken::LParenBar => _,
       &HLToken::RParenBar => 0,
-      //&HLToken::LParen => _,
+      &HLToken::LParen => 900,
       &HLToken::RParen => 0,
       &HLToken::LBrack => 900,
       &HLToken::RBrack => 0,
@@ -1716,7 +1719,7 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
         let right = self.expression(self.lbp(&tok))?;
         Ok(HExpr::Eq(Rc::new(left), Rc::new(right)))
       }
-      HLToken::NotEquals => {
+      HLToken::SlashEquals => {
         let right = self.expression(self.lbp(&tok))?;
         Ok(HExpr::NotEq(Rc::new(left), Rc::new(right)))
       }
@@ -1771,6 +1774,35 @@ impl<Toks: Iterator<Item=(HLToken, HLTokenInfo)> + Clone> HParser<Toks> {
         let mut name = postfix_name.clone();
         name.replace_range(.. 1, "");
         Ok(HExpr::Postfix(name, Rc::new(left)))
+      }
+      HLToken::Bang => {
+        Ok(HExpr::Defined(Rc::new(left)))
+      }
+      HLToken::LParen => {
+        let mut args = Vec::with_capacity(1);
+        loop {
+          match self.current_token() {
+            HLToken::RParen => {
+              self.advance();
+              return Ok(HExpr::Atom(Rc::new(left), args));
+            }
+            HLToken::Comma => return Err(HError::Unexpected(HLToken::Comma)),
+            _ => {}
+          }
+          let right = self.expression(0)?;
+          args.push(right.into());
+          match self.current_token() {
+            HLToken::RParen => {
+              self.advance();
+              assert!(args.len() >= 2);
+              return Ok(HExpr::Atom(left.into(), args));
+            }
+            HLToken::Comma => {
+              self.advance();
+            }
+            t => return Err(HError::Expected(vec![HLToken::RParen, HLToken::Comma], t))
+          }
+        }
       }
       HLToken::LBrack => {
         match self.current_token() {

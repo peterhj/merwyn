@@ -22,11 +22,55 @@ fn test_lang_empty_2() {
 
 #[should_panic]
 #[test]
-fn test_lang_empty_3() {
+fn test_lang_empty_comment_doc() {
   let lexer = HLexer::new(
-"(*
+"-- | "
+  );
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
 
-*)"
+#[should_panic]
+#[test]
+fn test_lang_empty_comment_doc_2() {
+  let lexer = HLexer::new(
+"---| "
+  );
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[should_panic]
+#[test]
+fn test_lang_empty_comment_doc_3() {
+  let lexer = HLexer::new(
+"---  | "
+  );
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[should_panic]
+#[test]
+fn test_lang_empty_comment_eol() {
+  let lexer = HLexer::new(
+"-- "
+  );
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[should_panic]
+#[test]
+fn test_lang_empty_comment_multi() {
+  let lexer = HLexer::new(
+"(--
+
+--)"
   );
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
@@ -453,6 +497,22 @@ fn test_lang_let_for_if() {
 #[test]
 fn test_lang_match() {
   let lexer = HLexer::new(r"match x with | 1 => a | truth => b[1,a] | () => \c -> 2*c | _ => \y, z -> match y with | 1 => 2 | _ => 1");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_op_bang() {
+  let lexer = HLexer::new("x!");
+  let parser = HParser::new(lexer);
+  let htree = parser.parse().unwrap();
+  println!("{:?}", htree);
+}
+
+#[test]
+fn test_lang_op_bang_2() {
+  let lexer = HLexer::new("-x!");
   let parser = HParser::new(lexer);
   let htree = parser.parse().unwrap();
   println!("{:?}", htree);
