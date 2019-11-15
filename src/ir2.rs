@@ -10,7 +10,7 @@ use crate::coll::{HTreapMap};
 use crate::coll::{IHTreapMap};
 use crate::coll::{IHTreapSet};
 use crate::lang::{HExpr, HTypat};
-use crate::mach::{MAddr, MLamTerm, /*MUnsafeCTerm,*/ MValRef};
+use crate::mach::{MAddr, MLamTerm, /*MUnsafeCTerm,*/ MVal, MValRef};
 
 use std::borrow::{Borrow};
 use std::cell::{RefCell};
@@ -5456,8 +5456,28 @@ impl LBuilder {
         self._gen_exp(exp.lookup(target), env, tctx, tenv, work);
         work.a_defer.push_front(exp.label());
       }
-      &LTerm::MX(_) => {
-        // TODO
+      &LTerm::MX(ref inner) => {
+        let inner = exp.m_lookup(inner);
+        match &inner.term() {
+          &LMTerm::Deref(..) => unimplemented!(),
+          &LMTerm::Value(ref val) => {
+            let ty = match &**val {
+              &MVal::Quo(_) => Tyexp::Quo,
+              &MVal::Iota   => Tyexp::Iota,
+              &MVal::Bit(_) => Tyexp::Bit,
+              &MVal::Oct(_) => Tyexp::Oct,
+              &MVal::Int(_) => Tyexp::Int,
+              &MVal::Flp(_) => Tyexp::Flp,
+              &MVal::Bot    => panic!("TRACE: _gen_exp: impossible to type the bottom value (via staging)"),
+              _ => panic!("TRACE: _gen_exp: unimplemented type for m-value")
+            };
+            let con = TyCon::Eq_(ety.into(), ty.into()).into();
+            work.cons.push_front(con);
+          }
+          &LMTerm::Lambda(..) => {
+            // FIXME
+          }
+        }
       }
       //_ => unimplemented!(),
       t => {
@@ -6402,10 +6422,10 @@ impl LExprCell {
   }*/
 
   pub fn mjump<L: Borrow<LMLoc>>(&self, loc: L) -> LMExprCell {
-    self.mlookup(loc.borrow())
+    self.m_lookup(loc.borrow())
   }
 
-  pub fn mlookup(&self, loc: &LMLoc) -> LMExprCell {
+  pub fn m_lookup(&self, loc: &LMLoc) -> LMExprCell {
     let tree = RefCell::borrow(&self.tree.data);
     assert_eq!(loc.label, tree.mexps[loc.pos].label);
     LMExprCell{
