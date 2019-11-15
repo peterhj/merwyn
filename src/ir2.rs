@@ -4640,6 +4640,33 @@ enum Tyexp {
   VFlp,
 }
 
+impl Tyexp {
+  fn from_val_rec(val: &MVal) -> Result<Tyexp, ()> {
+    match val {
+      // TODO
+      &MVal::STup(ref elems) => {
+        let mut elems_ = Vec::with_capacity(elems.len());
+        for elem in elems.iter() {
+          elems_.push(Tyexp::from_val_rec(&**elem)?.into());
+        }
+        Ok(Tyexp::STup(elems_))
+      }
+      &MVal::Quo(_) => Ok(Tyexp::Quo),
+      &MVal::Iota   => Ok(Tyexp::Iota),
+      &MVal::Bit(_) => Ok(Tyexp::Bit),
+      &MVal::Oct(_) => Ok(Tyexp::Oct),
+      &MVal::Int(_) => Ok(Tyexp::Int),
+      &MVal::Flp(_) => Ok(Tyexp::Flp),
+      &MVal::Bot    => Err(()),
+      _ => Err(())
+    }
+  }
+
+  fn from_val(val: &MVal) -> Option<Tyexp> {
+    Tyexp::from_val_rec(val).ok()
+  }
+}
+
 //#[derive(Clone, Debug)]
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct TyexpRef(Rc<Tyexp>);
@@ -5461,18 +5488,10 @@ impl LBuilder {
         match &inner.term() {
           &LMTerm::Deref(..) => unimplemented!(),
           &LMTerm::Value(ref val) => {
-            let ty = match &**val {
-              &MVal::Quo(_) => Tyexp::Quo,
-              &MVal::Iota   => Tyexp::Iota,
-              &MVal::Bit(_) => Tyexp::Bit,
-              &MVal::Oct(_) => Tyexp::Oct,
-              &MVal::Int(_) => Tyexp::Int,
-              &MVal::Flp(_) => Tyexp::Flp,
-              &MVal::Bot    => panic!("TRACE: _gen_exp: impossible to type the bottom value (via staging)"),
-              _ => panic!("TRACE: _gen_exp: unimplemented type for m-value")
-            };
-            let con = TyCon::Eq_(ety.into(), ty.into()).into();
-            work.cons.push_front(con);
+            if let Some(ty) = Tyexp::from_val(&**val) {
+              let con = TyCon::Eq_(ety.into(), ty.into()).into();
+              work.cons.push_front(con);
+            }
           }
           &LMTerm::Lambda(..) => {
             // FIXME
