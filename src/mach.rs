@@ -22,9 +22,54 @@ pub type MEnvRef = MNamedEnvRef;
 pub type MAddr = MRcAddr;
 pub type MStore = MRcStore;
 
-pub type MValRef = Rc<MVal>;
-
 pub type MThunkRef = Rc<MThunk>;
+
+#[derive(Clone)]
+pub struct MValRef(Rc<MVal>);
+
+impl Deref for MValRef {
+  type Target = MVal;
+
+  fn deref(&self) -> &MVal {
+    &*self.0
+  }
+}
+
+impl From<MVal> for MValRef {
+  fn from(val: MVal) -> MValRef {
+    MValRef(Rc::new(val))
+  }
+}
+
+impl From<bool> for MValRef {
+  fn from(x: bool) -> MValRef {
+    MVal::Bit(x).into()
+  }
+}
+
+impl From<u8> for MValRef {
+  fn from(x: u8) -> MValRef {
+    MVal::Oct(x).into()
+  }
+}
+
+impl From<i64> for MValRef {
+  fn from(x: i64) -> MValRef {
+    MVal::Int(x.into()).into()
+  }
+}
+
+impl From<f32> for MValRef {
+  fn from(x: f32) -> MValRef {
+    MVal::Flp(x as f64).into()
+  }
+}
+
+impl From<f64> for MValRef {
+  fn from(x: f64) -> MValRef {
+    MVal::Flp(x).into()
+  }
+}
 
 #[derive(Clone)]
 pub enum MVal {
@@ -39,9 +84,17 @@ pub enum MVal {
   Oct(u8),
   Int(Checked<i64>),
   Flp(f64),
+  Bot,
 }
 
 impl MVal {
+  pub fn is_undef(&self) -> bool {
+    match self {
+      &MVal::Bot => true,
+      _ => false,
+    }
+  }
+
   pub fn as_quote(&self) -> MQuoteRef {
     match self {
       &MVal::Quo(ref quote) => quote.clone(),
@@ -413,11 +466,17 @@ pub struct MachineTuple {
 #[derive(Default)]
 pub struct MachineState {
   store:    MStore,
+  brk_sig:  bool,
 }
 
 impl MachineState {
+  fn _reset_sigs(&mut self) {
+    self.brk_sig = false;
+  }
+
   fn _reset(&mut self) -> MachineTuple {
     self.store.reset();
+    self._reset_sigs();
     MachineTuple{
       ctrl: MReg::Bot,
       env:  MEnvRef::default(),
@@ -549,7 +608,7 @@ impl MachineState {
             }
           }
           MKont::EImpI1(sel_idx, rest, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -569,7 +628,7 @@ impl MachineState {
             }
           }
           MKont::EImpV1(sel_var, rest, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -589,7 +648,7 @@ impl MachineState {
             }
           }
           MKont::EImpV(sel_vars, rest, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -610,7 +669,7 @@ impl MachineState {
             }
           }
           MKont::EConsIL(idx, value, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -630,7 +689,7 @@ impl MachineState {
             }
           }
           MKont::EConsVL(var, value, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -650,7 +709,7 @@ impl MachineState {
             }
           }
           MKont::EPConsIL(idx, var, value, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -671,7 +730,7 @@ impl MachineState {
             }
           }
           MKont::EPopI1(idx, var, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -694,7 +753,7 @@ impl MachineState {
             }
           }
           MKont::EPopI(rem_idxs, pop_idxs, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -722,7 +781,7 @@ impl MachineState {
             }
           }
           MKont::EPopV(vars, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -747,7 +806,7 @@ impl MachineState {
             }
           }
           MKont::ESymmVl(rhs, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -763,7 +822,7 @@ impl MachineState {
             }
           }
           MKont::ESymmVr(mut lhs, prev_env, prev_kont) => {
-            let val = match Rc::try_unwrap(val) {
+            let val = match Rc::try_unwrap(val.0) {
               Ok(val) => val,
               Err(v) => (*v).clone()
             };
@@ -783,7 +842,7 @@ impl MachineState {
           MKont::App(closure, mut arg_vals, mut arg_terms, prev_env, prev_kont) => {
             match closure {
               None => {
-                let val = match Rc::try_unwrap(val) {
+                let val = match Rc::try_unwrap(val.0) {
                   Ok(val) => val,
                   Err(v) => (*v).clone()
                 };
@@ -832,27 +891,57 @@ impl MachineState {
                     match closure.code {
                       MLamCode::Term(params, body) => {
                         assert_eq!(params.len(), arg_vals.len());
-                        let mut next_env = closure.env;
-                        for (param, arg_val) in params.into_iter().zip(arg_vals.into_iter()) {
-                          let thk = MThunk::new_bound().into();
-                          let thk_a = self.store.insert(thk);
-                          self.store.lock(&thk_a);
-                          self.store.update(&thk_a, arg_val);
-                          next_env.bind_var_mut(param, thk_a);
+                        let mut bot = false;
+                        for arg_val in arg_vals.iter() {
+                          if arg_val.is_undef() {
+                            bot = true;
+                            break;
+                          }
                         }
-                        MachineTuple{
-                          ctrl: MReg::Term(body),
-                          kont: MKont::Ret(prev_env, prev_kont).into(),
-                          env:  next_env,
+                        if bot {
+                          MachineTuple{
+                            ctrl: MReg::Val(MVal::Bot.into()),
+                            env:  prev_env,
+                            kont: prev_kont,
+                          }
+                        } else {
+                          let mut next_env = closure.env;
+                          for (param, arg_val) in params.into_iter().zip(arg_vals.into_iter()) {
+                            let thk = MThunk::new_bound().into();
+                            let thk_a = self.store.insert(thk);
+                            self.store.lock(&thk_a);
+                            self.store.update(&thk_a, arg_val);
+                            next_env.bind_var_mut(param, thk_a);
+                          }
+                          MachineTuple{
+                            ctrl: MReg::Term(body),
+                            kont: MKont::Ret(prev_env, prev_kont).into(),
+                            env:  next_env,
+                          }
                         }
                       }
                       MLamCode::MTerm(arity, mlamterm) => {
                         assert_eq!(arity, arg_vals.len());
-                        let ret_val = (mlamterm.fun)(arg_vals);
-                        MachineTuple{
-                          ctrl: MReg::Val(ret_val),
-                          env:  prev_env,
-                          kont: prev_kont,
+                        let mut bot = false;
+                        for arg_val in arg_vals.iter() {
+                          if arg_val.is_undef() {
+                            bot = true;
+                            break;
+                          }
+                        }
+                        if bot {
+                          MachineTuple{
+                            ctrl: MReg::Val(MVal::Bot.into()),
+                            env:  prev_env,
+                            kont: prev_kont,
+                          }
+                        } else {
+                          let ret_val = (mlamterm.fun)(arg_vals);
+                          MachineTuple{
+                            ctrl: MReg::Val(ret_val),
+                            env:  prev_env,
+                            kont: prev_kont,
+                          }
                         }
                       }
                     }
@@ -936,6 +1025,14 @@ impl MachineState {
               _ => {
                 panic!("machine: bug");
               }
+            }
+          }
+          LTerm::Break(rest) => {
+            self.brk_sig = true;
+            MachineTuple{
+              ctrl: MReg::Term(exp.jump(rest)),
+              env,
+              kont,
             }
           }
           /*LTerm::Export => {
@@ -1226,6 +1323,10 @@ impl MachineState {
             // TODO
             unimplemented!();
           }
+          LTerm::Def(inner) => {
+            // TODO
+            unimplemented!();
+          }
           LTerm::Quote(quote) => {
             let val = MVal::Quo(quote.into()).into();
             MachineTuple{
@@ -1301,6 +1402,13 @@ impl MachineState {
       }
       MReg::MTerm(mexp) => {
         match mexp.term() {
+          LMTerm::Value(val) => {
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env,
+              kont,
+            }
+          }
           LMTerm::Lambda(mlamdef, mlamterm) => {
             let closure = MClosure{
               env:  env.clone(),
@@ -1313,7 +1421,7 @@ impl MachineState {
               kont,
             }
           }
-          _ => unimplemented!(),
+          _ => panic!("machine: unimplemented m-term: <m-term>"),
         }
       }
       MReg::Bot => {

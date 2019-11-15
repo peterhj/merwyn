@@ -18,13 +18,17 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
     mk:     Rc::new(|/*root,*/ /*builder*/| {
       MLamTerm{
         fun:    Rc::new(|args| {
-          let y = match (&*args[0], &*args[1]) {
+          match (&*args[0], &*args[1]) {
             (&MVal::Flp(x0), &MVal::Flp(x1)) => {
-              x0 / x1
+              let y = x0 / x1;
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y.into()).into()
+              }
             }
             _ => panic!(),
-          };
-          MVal::Flp(y.into()).into()
+          }
         })
       }
     }),
@@ -113,13 +117,17 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
     mk:     Rc::new(|/*root,*/ /*builder*/| {
       MLamTerm{
         fun:    Rc::new(|args| {
-          let y = match (&*args[0], &*args[1]) {
+          match (&*args[0], &*args[1]) {
             (&MVal::Flp(x0), &MVal::Flp(x1)) => {
-              x0 * x1
+              let y = x0 * x1;
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y.into()).into()
+              }
             }
             _ => panic!(),
-          };
-          MVal::Flp(y.into()).into()
+          }
         })
       }
     }),
@@ -189,13 +197,17 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
     mk:     Rc::new(|/*root,*/ /*builder*/| {
       MLamTerm{
         fun:    Rc::new(|args| {
-          let y = match (&*args[0], &*args[1]) {
+          match (&*args[0], &*args[1]) {
             (&MVal::Flp(x0), &MVal::Flp(x1)) => {
-              x0 - x1
+              let y = x0 - x1;
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y.into()).into()
+              }
             }
             _ => panic!(),
-          };
-          MVal::Flp(y.into()).into()
+          }
         })
       }
     }),
@@ -261,13 +273,17 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
     mk:     Rc::new(|/*root,*/ /*builder*/| {
       MLamTerm{
         fun:    Rc::new(|args| {
-          let y = match &*args[0] {
+          match &*args[0] {
             &MVal::Flp(x) => {
-              -x
+              let y = -x;
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y.into()).into()
+              }
             }
             _ => panic!(),
-          };
-          MVal::Flp(y.into()).into()
+          }
         })
       }
     }),
@@ -363,13 +379,17 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
     mk:     Rc::new(|/*root,*/ /*builder*/| {
       MLamTerm{
         fun:    Rc::new(|args| {
-          let y = match (&*args[0], &*args[1]) {
+          match (&*args[0], &*args[1]) {
             (&MVal::Flp(x0), &MVal::Flp(x1)) => {
-              x0 + x1
+              let y = x0 + x1;
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y.into()).into()
+              }
             }
             _ => panic!(),
-          };
-          MVal::Flp(y.into()).into()
+          }
         })
       }
     }),

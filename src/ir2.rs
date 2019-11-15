@@ -10,7 +10,7 @@ use crate::coll::{HTreapMap};
 use crate::coll::{IHTreapMap};
 use crate::coll::{IHTreapSet};
 use crate::lang::{HExpr, HTypat};
-use crate::mach::{MAddr, MLamTerm, /*MUnsafeCTerm*/};
+use crate::mach::{MAddr, MLamTerm, /*MUnsafeCTerm,*/ MValRef};
 
 use std::borrow::{Borrow};
 use std::cell::{RefCell};
@@ -413,8 +413,9 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   SLet(LISPatRef, LSPatRef, E, E),
   Alt(LIdent, E),
   LetAlt(LIdent, LVar, LTyRef, E, E),
-  Var(LVar, E, E),
-  Antivar(LVar, E),
+  Bind(LVar, E, E),
+  SBind(LSPatRef, E, E),
+  Unbind(LVar, E),
   Fix(LVar, E),
   //SFix(Vec<LVar>, E),
   Match(E, Vec<(/*LIPatRef,*/ LPatRef, E)>),
@@ -423,6 +424,7 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   Concat(E, E),
   STuple(Vec<E>),
   UTuple(Vec<E>),
+  Def(E),
   Quote(LQuoteRef),
   IotaLit,
   BitLit(bool),
@@ -481,6 +483,7 @@ pub struct LXLambdaDef<Term> {
 #[derive(Clone)]
 pub enum LMTerm/*<E=LMLoc>*/ {
   Deref(MAddr),
+  Value(MValRef),
   Lambda(LMLambdaDef, MLamTerm),
   //UnsafeCLambda(LMUnsafeCLambdaDef, MUnsafeCLamTerm),
 }
@@ -529,6 +532,7 @@ pub struct LBuilder {
   id_to_name:   HTreapMap<LIdent, String>,
   var_to_bind:  IHTreapMap<LVar, LVarBinder>,
   adj_map:      IHTreapMap<(LEnvId, LVar), LVar>,
+  staged_vals:  HTreapMap<String, MValRef>,
 }
 
 impl Default for LBuilder {
@@ -545,6 +549,7 @@ impl Default for LBuilder {
       id_to_name:   HTreapMap::default(),
       var_to_bind:  IHTreapMap::default(),
       adj_map:      IHTreapMap::default(),
+      staged_vals:  HTreapMap::default(),
     }
   }
 }
@@ -684,6 +689,11 @@ impl LBuilder {
       }
       Some(adj_var) => adj_var.clone(),
     }
+  }
+
+  pub fn _stage_val<K: Borrow<str>, V: Into<MValRef>>(&mut self, key: K, val: V) {
+    // TODO
+    self.staged_vals.insert_mut(key.borrow().to_owned(), val.into());
   }
 
   pub fn compile(&mut self, htree: Rc<HExpr>) -> Result<LModule, ()> {
@@ -1244,6 +1254,10 @@ impl LBuilder {
         }
         root.append(self, &mut |_| LTerm::STuple(elems_.clone()))
       }
+      &HExpr::Defined(ref inner) => {
+        let inner = self._lower2_exp(root.clone(), ctx.clone(), inner.clone(), env, tenv);
+        root.append(self, &mut |_| LTerm::Def(inner.loc()))
+      }
       &HExpr::Quote(ref inner) => {
         match &**inner {
           &HExpr::Ident(ref name) => {
@@ -1329,6 +1343,14 @@ impl LBuilder {
       }
       &HExpr::LtEq(ref lhs, ref rhs) => {
         self._lower2_binop(root, ctx.clone(), "leq", lhs.clone(), rhs.clone(), env, tenv)
+      }
+      &HExpr::StagingIdent(ref name) => {
+        let val = match self.staged_vals.get(name) {
+          None => panic!("_lower2_exp: could not find staged value with name '{}'", name),
+          Some(v) => v.clone()
+        };
+        let mval = root.m_append(self, &mut |_| LMTerm::Value(val.clone()));
+        root.append(self, &mut |_| LTerm::MX(mval.loc()))
       }
       //_ => unimplemented!(),
       _ => panic!("_lower2_exp: unhandled hexp: {:?}", hexp),
@@ -1555,6 +1577,11 @@ impl LBuilder {
           elems_.push(elem_.loc());
         }
         let new_exp = exp.append(self, &mut |_| LTerm::STuple(elems_.clone()));
+        kont(self, new_exp)
+      }
+      &LTerm::Def(ref inner) => {
+        let inner = self._normalize_term(exp.lookup(inner));
+        let new_exp = exp.append(self, &mut |_| LTerm::Def(inner.loc()));
         kont(self, new_exp)
       }
       &LTerm::Quote(_) => {
@@ -1861,6 +1888,9 @@ impl LBuilder {
           self._ctx_exp(exp.lookup(elem), ctx.clone(), env, tenv);
         }
       }
+      &LTerm::Def(ref inner) => {
+        self._ctx_exp(exp.lookup(inner), ctx, env, tenv);
+      }
       &LTerm::Quote(_) => {}
       &LTerm::BitLit(_) => {}
       &LTerm::IntLit(_) => {}
@@ -2148,6 +2178,10 @@ impl LBuilder {
         }
         exp.append(self, &mut |_| LTerm::STuple(elems_.clone()))
       }
+      &LTerm::Def(ref inner) => {
+        let inner = self._resolve_ctx_exp(exp.lookup(inner), env, tenv);
+        exp.append(self, &mut |_| LTerm::Def(inner.loc()))
+      }
       &LTerm::Quote(_) => {
         exp
       }
@@ -2341,6 +2375,10 @@ impl LBuilder {
           elems_.push(elem.loc());
         }
         exp.append(self, &mut |_| LTerm::STuple(elems_.clone()))
+      }
+      &LTerm::Def(ref inner) => {
+        let inner = self._resolve_post_tctx_exp(exp.lookup(inner), env, tenv);
+        exp.append(self, &mut |_| LTerm::Def(inner.loc()))
       }
       &LTerm::Quote(_) => {
         exp
@@ -3148,6 +3186,10 @@ impl LBuilder {
           assert!(!incomplete);
           self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
         }
+      }
+      &LTerm::Def(ref inner) => {
+        // TODO
+        unimplemented!();
       }
       &LTerm::Quote(_) => {
         self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
@@ -4503,6 +4545,10 @@ impl LBuilder {
         ));
         new_exp
       }
+      &LTerm::Def(ref inner) => {
+        let inner = self._resolve_post_adj_exp(exp.lookup(inner), env, tenv);
+        exp.append(self, &mut |_| LTerm::Def(inner.loc()))
+      }
       &LTerm::Quote(_) => {
         exp
       }
@@ -4924,12 +4970,14 @@ impl TyEnv {
   }
 
   fn head(&mut self, query: LTyvar) -> LTyvar {
-    if !self.db.contains_key(&query) {
-      self.db.insert_mut(query.clone(), query.clone());
-      return query;
-    }
+    let mut next = match self.db.get(&query) {
+      None => {
+        self.db.insert_mut(query.clone(), query.clone());
+        return query;
+      }
+      Some(next) => next.clone(),
+    };
     let mut cursor = query;
-    let mut next = self.db.get(&cursor).unwrap().clone();
     while cursor != next {
       let next2 = match self.db.get(&next) {
         None => next.clone(),
@@ -4943,10 +4991,10 @@ impl TyEnv {
   }
 
   fn unify(&mut self, lv: LTyvar, rv: LTyvar) {
-    if lv == rv {
+    let lw = self.head(lv.clone());
+    if lv == rv.clone() {
       return;
     }
-    let lw = self.head(lv);
     let rw = self.head(rv);
     if lw == rw {
       return;
@@ -5362,6 +5410,11 @@ impl LBuilder {
           elem_tys.push(tenv.lookup_exp(elem).into());
         }
         let con = TyCon::Eq_(ety.into(), Tyexp::STup(elem_tys).into()).into();
+        work.cons.push_front(con);
+      }
+      &LTerm::Def(ref inner) => {
+        self._gen_exp(exp.lookup(inner), env, tctx.clone(), tenv, work);
+        let con = TyCon::Eq_(ety.into(), tenv.lookup_exp(inner).into()).into();
         work.cons.push_front(con);
       }
       &LTerm::Quote(_) => {
