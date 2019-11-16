@@ -184,6 +184,28 @@ impl MValUnpack<f64> for MVal {
   }
 }
 
+impl MValUnpack<(f64, f64)> for MVal {
+  fn try_unpack(self) -> Option<(f64, f64)> {
+    match self {
+      MVal::V2Flp(x) => Some((x.extract(0), x.extract(1))),
+      _ => None,
+    }
+  }
+}
+
+impl MValUnpack<[f64; 2]> for MVal {
+  fn try_unpack(self) -> Option<[f64; 2]> {
+    match self {
+      MVal::V2Flp(x) => {
+        let mut y = [0.0, 0.0];
+        x.write_to_slice_unaligned(&mut y);
+        Some(y)
+      }
+      _ => None,
+    }
+  }
+}
+
 #[derive(Clone, Debug)]
 pub enum MQuote {
   Ident(LIdent),

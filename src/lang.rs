@@ -112,9 +112,11 @@ lexer! {
   r#"/\."#      => HToken::SlashDot,
   r#"/="#       => HToken::SlashEquals,
   r#"/"#        => HToken::Slash,
-  r#"\(\|"#     => HToken::LParenBar,
+  //r#"\(\|"#     => HToken::LParenBar,
+  r#"\(\."#     => HToken::LParenDot,
   r#"\("#       => HToken::LParen,
-  r#"\|\)"#     => HToken::RParenBar,
+  //r#"\|\)"#     => HToken::RParenBar,
+  r#"\.\)"#     => HToken::RParenDot,
   r#"\)"#       => HToken::RParen,
   r#"\["#       => HToken::LBrack,
   r#"\]"#       => HToken::RBrack,
@@ -293,6 +295,8 @@ pub enum HToken {
   LDotParen,
   LParenBar,
   RParenBar,
+  LParenDot,
+  RParenDot,
   LParen,
   RParen,
   LQuoteBrack,
@@ -731,6 +735,7 @@ impl<Toks: Iterator<Item=(HToken, HTokenInfo)> + Clone> HParser<Toks> {
       &HToken::Dot => 800,
       //&HToken::LParenBar => _,
       &HToken::RParenBar => 0,
+      &HToken::RParenDot => 0,
       &HToken::LParen => 900,
       &HToken::RParen => 0,
       &HToken::LBrack => 900,
@@ -1498,10 +1503,12 @@ impl<Toks: Iterator<Item=(HToken, HTokenInfo)> + Clone> HParser<Toks> {
         };
         Ok(HExpr::Typat(HTypat::Fun(arg_typats, ret_typat).into()))
       }
-      HToken::LParenBar => {
+      //HToken::LParenBar => {
+      HToken::LParenDot => {
         let mut elems = Vec::new();
         match self.current_token() {
-          HToken::RParenBar => {
+          //HToken::RParenBar => {
+          HToken::RParenDot => {
             self.advance();
             return Ok(HExpr::UTuple(elems));
           }
@@ -1513,12 +1520,14 @@ impl<Toks: Iterator<Item=(HToken, HTokenInfo)> + Clone> HParser<Toks> {
                 HToken::Comma => {
                   self.advance();
                 }
-                HToken::RParenBar => {
+                //HToken::RParenBar => {
+                HToken::RParenDot => {
                   self.advance();
                   return Ok(HExpr::UTuple(elems));
                 }
                 //_ => panic!(),
-                t => return Err(HError::Expected(vec![HToken::Comma, HToken::RParenBar], t))
+                //t => return Err(HError::Expected(vec![HToken::Comma, HToken::RParenBar], t))
+                t => return Err(HError::Expected(vec![HToken::Comma, HToken::RParenDot], t))
               }
             }
           }

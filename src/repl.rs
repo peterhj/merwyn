@@ -434,7 +434,7 @@ impl ReplInterpreter {
   }
 
   fn write_help(&mut self) {
-    writeln!(&mut self.info_fd, "(** ").unwrap();
+    writeln!(&mut self.info_fd, "(| ").unwrap();
     //writeln!(&mut self.info_fd, "").unwrap();
     writeln!(&mut self.info_fd, "Usage: `merwyni [-v|-verbose] [<src.merwyn>]`").unwrap();
     writeln!(&mut self.info_fd, "").unwrap();
@@ -449,12 +449,12 @@ impl ReplInterpreter {
     writeln!(&mut self.info_fd, "").unwrap();
     writeln!(&mut self.info_fd, "Programming").unwrap();
     writeln!(&mut self.info_fd, "\t<expr>      \tEvaluate the expression <expr>").unwrap();
-    writeln!(&mut self.info_fd, "*)").unwrap();
+    writeln!(&mut self.info_fd, "|)").unwrap();
   }
 
   pub fn runloop(mut self) {
     writeln!(&mut self.info_fd,
-        "(** Merwyn | git:{}..{} | {}{} | :? for help *)",
+        "(| Merwyn | git:{}..{} | {}{} | :? for help |)",
         &GIT_COMMIT_HASH[ .. 7],
         if GIT_MODIFIED { "+mod" } else { "." },
         CpuInfo::cached().digest(),
@@ -470,10 +470,10 @@ impl ReplInterpreter {
           // FIXME
           self.mod_ctr += 1;
           assert!(self.mod_ctr != 0);
-          writeln!(&mut self.prmpt_fd, "(*:{}*) {}", self.mod_ctr, eval_buf).unwrap();
-          writeln!(&mut self.trace_fd, "# TODO: The repl is currently unplugged from the embedded").unwrap();
-          writeln!(&mut self.trace_fd, "# interpreter, so expression evaluation will not yet work.").unwrap();
-          writeln!(&mut self.trace_fd, "# But please feel free to look around (type :? for help).").unwrap();
+          writeln!(&mut self.prmpt_fd, "(--:{}--) {}", self.mod_ctr, eval_buf).unwrap();
+          writeln!(&mut self.trace_fd, "-- TODO: The repl is currently unplugged from the embedded").unwrap();
+          writeln!(&mut self.trace_fd, "-- interpreter, so expression evaluation will not yet work.").unwrap();
+          writeln!(&mut self.trace_fd, "-- But please feel free to look around (type :? for help).").unwrap();
           self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
         }
         Ok(ReplLine::Command(cmd_buf)) => {
@@ -483,13 +483,13 @@ impl ReplInterpreter {
               self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
             }
             "q" | "quit" => {
-              writeln!(&mut self.info_fd, "(* Goodbye. *)").unwrap();
+              writeln!(&mut self.info_fd, "(-- Goodbye. --)").unwrap();
               self.ctrl_tq.send(ReplCtrl::Halt).unwrap();
               break;
             }
             "hello" => {
               sleep(Duration::from_millis(450));
-              writeln!(&mut self.trace_fd, "(* Hello, world! *)").unwrap();
+              writeln!(&mut self.trace_fd, "(-- Hello, world! --)").unwrap();
               sleep(Duration::from_millis(300));
               self.ctrl_tq.send(ReplCtrl::IO(ReplIOMode::Prompt)).unwrap();
             }
