@@ -79,15 +79,33 @@ impl From<(f64, f64)> for MValRef {
   }
 }
 
+impl From<[f64; 2]> for MValRef {
+  fn from(x: [f64; 2]) -> MValRef {
+    MVal::V2Flp(x.into()).into()
+  }
+}
+
 impl From<(f64, f64, f64)> for MValRef {
   fn from(x: (f64, f64, f64)) -> MValRef {
     MVal::V3Flp([x.0, x.1, x.2, 0.].into()).into()
   }
 }
 
+impl From<[f64; 3]> for MValRef {
+  fn from(x: [f64; 3]) -> MValRef {
+    MVal::V3Flp([x[0], x[1], x[2], 0.0].into()).into()
+  }
+}
+
 impl From<(f64, f64, f64, f64)> for MValRef {
   fn from(x: (f64, f64, f64, f64)) -> MValRef {
     MVal::V4Flp([x.0, x.1, x.2, x.3].into()).into()
+  }
+}
+
+impl From<[f64; 4]> for MValRef {
+  fn from(x: [f64; 4]) -> MValRef {
+    MVal::V4Flp(x.into()).into()
   }
 }
 
@@ -187,7 +205,11 @@ impl MValUnpack<f64> for MVal {
 impl MValUnpack<(f64, f64)> for MVal {
   fn try_unpack(self) -> Option<(f64, f64)> {
     match self {
-      MVal::V2Flp(x) => Some((x.extract(0), x.extract(1))),
+      MVal::V2Flp(x) => {
+        let mut y = [0.0, 0.0];
+        x.write_to_slice_unaligned(&mut y);
+        Some((y[0], y[1]))
+      }
       _ => None,
     }
   }
@@ -198,6 +220,58 @@ impl MValUnpack<[f64; 2]> for MVal {
     match self {
       MVal::V2Flp(x) => {
         let mut y = [0.0, 0.0];
+        x.write_to_slice_unaligned(&mut y);
+        Some(y)
+      }
+      _ => None,
+    }
+  }
+}
+
+impl MValUnpack<(f64, f64, f64)> for MVal {
+  fn try_unpack(self) -> Option<(f64, f64, f64)> {
+    match self {
+      MVal::V3Flp(x) => {
+        let mut y = [0.0, 0.0, 0.0, 0.0];
+        x.write_to_slice_unaligned(&mut y);
+        Some((y[0], y[1], y[2]))
+      }
+      _ => None,
+    }
+  }
+}
+
+impl MValUnpack<[f64; 3]> for MVal {
+  fn try_unpack(self) -> Option<[f64; 3]> {
+    match self {
+      MVal::V3Flp(x) => {
+        let mut y = [0.0, 0.0, 0.0, 0.0];
+        x.write_to_slice_unaligned(&mut y);
+        Some([y[0], y[1], y[2]])
+      }
+      _ => None,
+    }
+  }
+}
+
+impl MValUnpack<(f64, f64, f64, f64)> for MVal {
+  fn try_unpack(self) -> Option<(f64, f64, f64, f64)> {
+    match self {
+      MVal::V4Flp(x) => {
+        let mut y = [0.0, 0.0, 0.0, 0.0];
+        x.write_to_slice_unaligned(&mut y);
+        Some((y[0], y[1], y[2], y[3]))
+      }
+      _ => None,
+    }
+  }
+}
+
+impl MValUnpack<[f64; 4]> for MVal {
+  fn try_unpack(self) -> Option<[f64; 4]> {
+    match self {
+      MVal::V4Flp(x) => {
+        let mut y = [0.0, 0.0, 0.0, 0.0];
         x.write_to_slice_unaligned(&mut y);
         Some(y)
       }
