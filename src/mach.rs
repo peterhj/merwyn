@@ -144,6 +144,10 @@ impl MVal {
   }
 }
 
+pub trait MValDeref<T> {
+  fn try_deref(&self) -> Option<&T>;
+}
+
 pub trait MValUnpack<T> {
   fn try_unpack(self) -> Option<T>;
 }
@@ -193,6 +197,15 @@ impl MValUnpack<i64> for MVal {
   }
 }
 
+impl MValDeref<f64> for MVal {
+  fn try_deref(&self) -> Option<&f64> {
+    match self {
+      &MVal::Flp(ref x) => Some(x),
+      _ => None,
+    }
+  }
+}
+
 impl MValUnpack<f64> for MVal {
   fn try_unpack(self) -> Option<f64> {
     match self {
@@ -202,9 +215,19 @@ impl MValUnpack<f64> for MVal {
   }
 }
 
+impl MValDeref<f64x2> for MVal {
+  fn try_deref(&self) -> Option<&f64x2> {
+    match self {
+      &MVal::V2Flp(ref x) => Some(x),
+      _ => None,
+    }
+  }
+}
+
 impl MValUnpack<(f64, f64)> for MVal {
   fn try_unpack(self) -> Option<(f64, f64)> {
     match self {
+      // TODO: tuple case.
       MVal::V2Flp(x) => {
         let mut y = [0.0, 0.0];
         x.write_to_slice_unaligned(&mut y);
@@ -231,6 +254,7 @@ impl MValUnpack<[f64; 2]> for MVal {
 impl MValUnpack<(f64, f64, f64)> for MVal {
   fn try_unpack(self) -> Option<(f64, f64, f64)> {
     match self {
+      // TODO: tuple case.
       MVal::V3Flp(x) => {
         let mut y = [0.0, 0.0, 0.0, 0.0];
         x.write_to_slice_unaligned(&mut y);
@@ -257,6 +281,7 @@ impl MValUnpack<[f64; 3]> for MVal {
 impl MValUnpack<(f64, f64, f64, f64)> for MVal {
   fn try_unpack(self) -> Option<(f64, f64, f64, f64)> {
     match self {
+      // TODO: tuple case.
       MVal::V4Flp(x) => {
         let mut y = [0.0, 0.0, 0.0, 0.0];
         x.write_to_slice_unaligned(&mut y);

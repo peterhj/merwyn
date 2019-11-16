@@ -5,6 +5,8 @@
 use crate::ir2::{LBuilder, LCtxRef, LExprCell, LLoc, LMLambdaDef, LMTerm, LModule, LTerm, LTy};
 use crate::mach::{MLamTerm, MVal};
 
+use packed_simd::{shuffle, f64x2, f64x4};
+
 use std::rc::{Rc};
 
 pub fn build_top_level(builder: &mut LBuilder, ctx: LCtxRef) -> LModule {
@@ -13,6 +15,520 @@ pub fn build_top_level(builder: &mut LBuilder, ctx: LCtxRef) -> LModule {
 
 pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LExprCell {
   // TODO
+  let sqrt_ident = builder.lookup_or_fresh_name("sqrt");
+  let sqrtv4f_def = LMLambdaDef{
+    ar:     1,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match &*args[0] {
+            &MVal::V4Flp(x0) => {
+              let y = x0.sqrt();
+              if !y.is_finite().all() {
+                MVal::Bot.into()
+              } else {
+                MVal::V4Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let sqrtv4f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      sqrtv4f_def.clone(),
+      (sqrtv4f_def.mk)()
+  ));
+  let sqrtv4f_mx = root.append(builder, &mut |_| LTerm::MX(
+      sqrtv4f_mlam.loc()
+  ));
+  let sqrtv4f_var = builder.fresh_var(sqrt_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      sqrt_ident.clone().into(),
+      sqrtv4f_var.clone(),
+      LTy::Fun(vec![LTy::V4Flp.into()], LTy::V4Flp.into()).into(),
+      sqrtv4f_mx.loc(),
+      root.loc()
+  ));
+  let sqrtv3f_def = LMLambdaDef{
+    ar:     1,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match &*args[0] {
+            &MVal::V3Flp(x0) => {
+              let y = x0.sqrt();
+              if !y.is_finite().all() {
+                MVal::Bot.into()
+              } else {
+                MVal::V3Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let sqrtv3f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      sqrtv3f_def.clone(),
+      (sqrtv3f_def.mk)()
+  ));
+  let sqrtv3f_mx = root.append(builder, &mut |_| LTerm::MX(
+      sqrtv3f_mlam.loc()
+  ));
+  let sqrtv3f_var = builder.fresh_var(sqrt_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      sqrt_ident.clone().into(),
+      sqrtv3f_var.clone(),
+      LTy::Fun(vec![LTy::V3Flp.into()], LTy::V3Flp.into()).into(),
+      sqrtv3f_mx.loc(),
+      root.loc()
+  ));
+  let sqrtv2f_def = LMLambdaDef{
+    ar:     1,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match &*args[0] {
+            &MVal::V2Flp(x0) => {
+              let y = x0.sqrt();
+              if !y.is_finite().all() {
+                MVal::Bot.into()
+              } else {
+                MVal::V2Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let sqrtv2f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      sqrtv2f_def.clone(),
+      (sqrtv2f_def.mk)()
+  ));
+  let sqrtv2f_mx = root.append(builder, &mut |_| LTerm::MX(
+      sqrtv2f_mlam.loc()
+  ));
+  let sqrtv2f_var = builder.fresh_var(sqrt_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      sqrt_ident.clone().into(),
+      sqrtv2f_var.clone(),
+      LTy::Fun(vec![LTy::V2Flp.into()], LTy::V2Flp.into()).into(),
+      sqrtv2f_mx.loc(),
+      root.loc()
+  ));
+  let sqrtf_def = LMLambdaDef{
+    ar:     1,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match &*args[0] {
+            &MVal::Flp(x0) => {
+              let y = x0.sqrt();
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let sqrtf_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      sqrtf_def.clone(),
+      (sqrtf_def.mk)()
+  ));
+  let sqrtf_mx = root.append(builder, &mut |_| LTerm::MX(
+      sqrtf_mlam.loc()
+  ));
+  let sqrtf_var = builder.fresh_var(sqrt_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      sqrt_ident.clone().into(),
+      sqrtf_var.clone(),
+      LTy::Fun(vec![LTy::Flp.into()], LTy::Flp.into()).into(),
+      sqrtf_mx.loc(),
+      root.loc()
+  ));
+  root = root.append(builder, &mut |_| LTerm::Alt(
+      sqrt_ident.clone().into(),
+      root.loc()
+  ));
+  let abs_ident = builder.lookup_or_fresh_name("abs");
+  let absv4f_def = LMLambdaDef{
+    ar:     1,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match &*args[0] {
+            &MVal::V4Flp(x0) => {
+              let y = x0.abs();
+              if !y.is_finite().all() {
+                MVal::Bot.into()
+              } else {
+                MVal::V4Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let absv4f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      absv4f_def.clone(),
+      (absv4f_def.mk)()
+  ));
+  let absv4f_mx = root.append(builder, &mut |_| LTerm::MX(
+      absv4f_mlam.loc()
+  ));
+  let absv4f_var = builder.fresh_var(abs_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      abs_ident.clone().into(),
+      absv4f_var.clone(),
+      LTy::Fun(vec![LTy::V4Flp.into()], LTy::V4Flp.into()).into(),
+      absv4f_mx.loc(),
+      root.loc()
+  ));
+  let absv3f_def = LMLambdaDef{
+    ar:     1,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match &*args[0] {
+            &MVal::V3Flp(x0) => {
+              let y = x0.abs();
+              if !y.is_finite().all() {
+                MVal::Bot.into()
+              } else {
+                MVal::V3Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let absv3f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      absv3f_def.clone(),
+      (absv3f_def.mk)()
+  ));
+  let absv3f_mx = root.append(builder, &mut |_| LTerm::MX(
+      absv3f_mlam.loc()
+  ));
+  let absv3f_var = builder.fresh_var(abs_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      abs_ident.clone().into(),
+      absv3f_var.clone(),
+      LTy::Fun(vec![LTy::V3Flp.into()], LTy::V3Flp.into()).into(),
+      absv3f_mx.loc(),
+      root.loc()
+  ));
+  let absv2f_def = LMLambdaDef{
+    ar:     1,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match &*args[0] {
+            &MVal::V2Flp(x0) => {
+              let y = x0.abs();
+              if !y.is_finite().all() {
+                MVal::Bot.into()
+              } else {
+                MVal::V2Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let absv2f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      absv2f_def.clone(),
+      (absv2f_def.mk)()
+  ));
+  let absv2f_mx = root.append(builder, &mut |_| LTerm::MX(
+      absv2f_mlam.loc()
+  ));
+  let absv2f_var = builder.fresh_var(abs_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      abs_ident.clone().into(),
+      absv2f_var.clone(),
+      LTy::Fun(vec![LTy::V2Flp.into()], LTy::V2Flp.into()).into(),
+      absv2f_mx.loc(),
+      root.loc()
+  ));
+  let absf_def = LMLambdaDef{
+    ar:     1,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match &*args[0] {
+            &MVal::Flp(x0) => {
+              let y = x0.abs();
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let absf_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      absf_def.clone(),
+      (absf_def.mk)()
+  ));
+  let absf_mx = root.append(builder, &mut |_| LTerm::MX(
+      absf_mlam.loc()
+  ));
+  let absf_var = builder.fresh_var(abs_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      abs_ident.clone().into(),
+      absf_var.clone(),
+      LTy::Fun(vec![LTy::Flp.into()], LTy::Flp.into()).into(),
+      absf_mx.loc(),
+      root.loc()
+  ));
+  root = root.append(builder, &mut |_| LTerm::Alt(
+      abs_ident.clone().into(),
+      root.loc()
+  ));
+  let cross_ident = builder.lookup_or_fresh_name("cross");
+  let crossv3f_def = LMLambdaDef{
+    ar:     2,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match (&*args[0], &*args[1]) {
+            (&MVal::V3Flp(x0), &MVal::V3Flp(x1)) => {
+              // TODO/check this: last lane should be zero-valued (invariant).
+              let u: f64x4 = shuffle!(x1, [1, 2, 0, 3]);
+              let v: f64x4 = shuffle!(x0, [1, 2, 0, 3]);
+              let w = x0 * u - x1 * v;
+              let y: f64x4 = shuffle!(w, [1, 2, 0, 3]);
+              if !y.is_finite().all() {
+                MVal::Bot.into()
+              } else {
+                MVal::V3Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let crossv3f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      crossv3f_def.clone(),
+      (crossv3f_def.mk)()
+  ));
+  let crossv3f_mx = root.append(builder, &mut |_| LTerm::MX(
+      crossv3f_mlam.loc()
+  ));
+  let crossv3f_var = builder.fresh_var(cross_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      cross_ident.clone().into(),
+      crossv3f_var.clone(),
+      LTy::Fun(vec![LTy::V3Flp.into(), LTy::V3Flp.into()], LTy::V3Flp.into()).into(),
+      crossv3f_mx.loc(),
+      root.loc()
+  ));
+  let crossv2f_def = LMLambdaDef{
+    ar:     2,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match (&*args[0], &*args[1]) {
+            (&MVal::V2Flp(x0), &MVal::V2Flp(x1)) => {
+              /*let mut u = [0.0, 0.0];
+              let mut v = [0.0, 0.0];
+              x0.write_to_slice_unaligned(&mut u);
+              x1.write_to_slice_unaligned(&mut v);
+              let y = u[0] * v[1] - u[1] * v[0];*/
+              let u: f64x2 = shuffle!(x1, [1, 0]);
+              let v: f64x2 = shuffle!(x0, [1, 0]);
+              let w = x0 * u - x1 * v;
+              let y: f64 = w.extract(0);
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let crossv2f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      crossv2f_def.clone(),
+      (crossv2f_def.mk)()
+  ));
+  let crossv2f_mx = root.append(builder, &mut |_| LTerm::MX(
+      crossv2f_mlam.loc()
+  ));
+  let crossv2f_var = builder.fresh_var(cross_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      cross_ident.clone().into(),
+      crossv2f_var.clone(),
+      LTy::Fun(vec![LTy::V2Flp.into(), LTy::V2Flp.into()], LTy::Flp.into()).into(),
+      crossv2f_mx.loc(),
+      root.loc()
+  ));
+  root = root.append(builder, &mut |_| LTerm::Alt(
+      cross_ident.clone().into(),
+      root.loc()
+  ));
+  let dot_ident = builder.lookup_or_fresh_name("dot");
+  let dotv4f_def = LMLambdaDef{
+    ar:     2,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match (&*args[0], &*args[1]) {
+            (&MVal::V4Flp(x0), &MVal::V4Flp(x1)) => {
+              let y = (x0 * x1).sum();
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let dotv4f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      dotv4f_def.clone(),
+      (dotv4f_def.mk)()
+  ));
+  let dotv4f_mx = root.append(builder, &mut |_| LTerm::MX(
+      dotv4f_mlam.loc()
+  ));
+  let dotv4f_var = builder.fresh_var(dot_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      dot_ident.clone().into(),
+      dotv4f_var.clone(),
+      LTy::Fun(vec![LTy::V4Flp.into(), LTy::V4Flp.into()], LTy::Flp.into()).into(),
+      dotv4f_mx.loc(),
+      root.loc()
+  ));
+  let dotv3f_def = LMLambdaDef{
+    ar:     2,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match (&*args[0], &*args[1]) {
+            (&MVal::V3Flp(x0), &MVal::V3Flp(x1)) => {
+              // TODO/check this: last lane should be zero-valued (invariant).
+              let y = (x0 * x1).sum();
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let dotv3f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      dotv3f_def.clone(),
+      (dotv3f_def.mk)()
+  ));
+  let dotv3f_mx = root.append(builder, &mut |_| LTerm::MX(
+      dotv3f_mlam.loc()
+  ));
+  let dotv3f_var = builder.fresh_var(dot_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      dot_ident.clone().into(),
+      dotv3f_var.clone(),
+      LTy::Fun(vec![LTy::V3Flp.into(), LTy::V3Flp.into()], LTy::Flp.into()).into(),
+      dotv3f_mx.loc(),
+      root.loc()
+  ));
+  let dotv2f_def = LMLambdaDef{
+    ar:     2,
+    mk:     Rc::new(|/*root,*/ /*builder*/| {
+      MLamTerm{
+        fun:    Rc::new(|args| {
+          match (&*args[0], &*args[1]) {
+            (&MVal::V2Flp(x0), &MVal::V2Flp(x1)) => {
+              let y = (x0 * x1).sum();
+              if !y.is_finite() {
+                MVal::Bot.into()
+              } else {
+                MVal::Flp(y).into()
+              }
+            }
+            _ => panic!(),
+          }
+        })
+      }
+    }),
+    ty:     None,
+    adj:    None,
+  };
+  let dotv2f_mlam = root.m_append(builder, &mut |_| LMTerm::Lambda(
+      dotv2f_def.clone(),
+      (dotv2f_def.mk)()
+  ));
+  let dotv2f_mx = root.append(builder, &mut |_| LTerm::MX(
+      dotv2f_mlam.loc()
+  ));
+  let dotv2f_var = builder.fresh_var(dot_ident.clone());
+  root = root.append(builder, &mut |_| LTerm::LetAlt(
+      dot_ident.clone().into(),
+      dotv2f_var.clone(),
+      LTy::Fun(vec![LTy::V2Flp.into(), LTy::V2Flp.into()], LTy::Flp.into()).into(),
+      dotv2f_mx.loc(),
+      root.loc()
+  ));
+  root = root.append(builder, &mut |_| LTerm::Alt(
+      dot_ident.clone().into(),
+      root.loc()
+  ));
   let div_ident = builder.lookup_or_fresh_name("div");
   let divv4f_def = LMLambdaDef{
     ar:     2,
@@ -22,10 +538,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match (&*args[0], &*args[1]) {
             (&MVal::V4Flp(x0), &MVal::V4Flp(x1)) => {
               let y = x0 / x1;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V4Flp(y.into()).into()
+                MVal::V4Flp(y).into()
               }
             }
             _ => panic!(),
@@ -121,10 +637,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match (&*args[0], &*args[1]) {
             (&MVal::V3Flp(x0), &MVal::V3Flp(x1)) => {
               let y = x0 / x1;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V3Flp(y.into()).into()
+                MVal::V3Flp(y).into()
               }
             }
             _ => panic!(),
@@ -220,10 +736,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match (&*args[0], &*args[1]) {
             (&MVal::V2Flp(x0), &MVal::V2Flp(x1)) => {
               let y = x0 / x1;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V2Flp(y.into()).into()
+                MVal::V2Flp(y).into()
               }
             }
             _ => panic!(),
@@ -322,7 +838,7 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
               if !y.is_finite() {
                 MVal::Bot.into()
               } else {
-                MVal::Flp(y.into()).into()
+                MVal::Flp(y).into()
               }
             }
             _ => panic!(),
@@ -423,10 +939,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match (&*args[0], &*args[1]) {
             (&MVal::V4Flp(x0), &MVal::V4Flp(x1)) => {
               let y = x0 * x1;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V4Flp(y.into()).into()
+                MVal::V4Flp(y).into()
               }
             }
             _ => panic!(),
@@ -503,10 +1019,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match (&*args[0], &*args[1]) {
             (&MVal::V3Flp(x0), &MVal::V3Flp(x1)) => {
               let y = x0 * x1;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V3Flp(y.into()).into()
+                MVal::V3Flp(y).into()
               }
             }
             _ => panic!(),
@@ -583,10 +1099,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match (&*args[0], &*args[1]) {
             (&MVal::V2Flp(x0), &MVal::V2Flp(x1)) => {
               let y = x0 * x1;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V2Flp(y.into()).into()
+                MVal::V2Flp(y).into()
               }
             }
             _ => panic!(),
@@ -666,7 +1182,7 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
               if !y.is_finite() {
                 MVal::Bot.into()
               } else {
-                MVal::Flp(y.into()).into()
+                MVal::Flp(y).into()
               }
             }
             _ => panic!(),
@@ -748,10 +1264,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match (&*args[0], &*args[1]) {
             (&MVal::V4Flp(x0), &MVal::V4Flp(x1)) => {
               let y = x0 - x1;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V4Flp(y.into()).into()
+                MVal::V4Flp(y).into()
               }
             }
             _ => panic!(),
@@ -823,10 +1339,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match (&*args[0], &*args[1]) {
             (&MVal::V3Flp(x0), &MVal::V3Flp(x1)) => {
               let y = x0 - x1;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V3Flp(y.into()).into()
+                MVal::V3Flp(y).into()
               }
             }
             _ => panic!(),
@@ -898,10 +1414,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match (&*args[0], &*args[1]) {
             (&MVal::V2Flp(x0), &MVal::V2Flp(x1)) => {
               let y = x0 - x1;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V2Flp(y.into()).into()
+                MVal::V2Flp(y).into()
               }
             }
             _ => panic!(),
@@ -976,7 +1492,7 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
               if !y.is_finite() {
                 MVal::Bot.into()
               } else {
-                MVal::Flp(y.into()).into()
+                MVal::Flp(y).into()
               }
             }
             _ => panic!(),
@@ -1053,10 +1569,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match &*args[0] {
             &MVal::V4Flp(x) => {
               let y = -x;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V4Flp(y.into()).into()
+                MVal::V4Flp(y).into()
               }
             }
             _ => panic!(),
@@ -1122,10 +1638,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match &*args[0] {
             &MVal::V3Flp(x) => {
               let y = -x;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V3Flp(y.into()).into()
+                MVal::V3Flp(y).into()
               }
             }
             _ => panic!(),
@@ -1191,10 +1707,10 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
           match &*args[0] {
             &MVal::V2Flp(x) => {
               let y = -x;
-              if !y.is_finite().any() {
+              if !y.is_finite().all() {
                 MVal::Bot.into()
               } else {
-                MVal::V2Flp(y.into()).into()
+                MVal::V2Flp(y).into()
               }
             }
             _ => panic!(),
@@ -1263,7 +1779,7 @@ pub fn _include_top_level_exp(mut root: LExprCell, builder: &mut LBuilder) -> LE
               if !y.is_finite() {
                 MVal::Bot.into()
               } else {
-                MVal::Flp(y.into()).into()
+                MVal::Flp(y).into()
               }
             }
             _ => panic!(),
