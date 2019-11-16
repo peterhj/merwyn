@@ -8,6 +8,8 @@ use crate::coll::{IHTreapMap, IHTreapSet};
 use crate::ir2::{LCodeRef, /*LEnvMask,*/ LExprCell, LMExprCell, LIdent, LPat, LPatRef, LQuote, LQuoteRef, LTerm, LTermRef, LMTerm, LMTermRef, LVar};
 use crate::num_util::{Checked, checked};
 
+use packed_simd::{f64x2, f64x4};
+
 use std::cell::{RefCell};
 use std::collections::{VecDeque};
 //use std::fmt::{Debug as FmtDebug, Error as FmtError, Formatter};
@@ -71,6 +73,24 @@ impl From<f64> for MValRef {
   }
 }
 
+impl From<(f64, f64)> for MValRef {
+  fn from(x: (f64, f64)) -> MValRef {
+    MVal::V2Flp([x.0, x.1].into()).into()
+  }
+}
+
+impl From<(f64, f64, f64)> for MValRef {
+  fn from(x: (f64, f64, f64)) -> MValRef {
+    MVal::V3Flp([x.0, x.1, x.2, 0.].into()).into()
+  }
+}
+
+impl From<(f64, f64, f64, f64)> for MValRef {
+  fn from(x: (f64, f64, f64, f64)) -> MValRef {
+    MVal::V4Flp([x.0, x.1, x.2, x.3].into()).into()
+  }
+}
+
 #[derive(Clone)]
 pub enum MVal {
   //Box(_),
@@ -84,6 +104,9 @@ pub enum MVal {
   Oct(u8),
   Int(Checked<i64>),
   Flp(f64),
+  V2Flp(f64x2),
+  V3Flp(f64x4),
+  V4Flp(f64x4),
   Bot,
 }
 

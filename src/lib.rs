@@ -9,6 +9,7 @@
 extern crate libc;
 #[cfg(all(feature = "xgpu", target_os = "macos"))] extern crate objrs;
 #[cfg(all(feature = "xgpu", target_os = "macos"))] extern crate objrs_frameworks_foundation;
+extern crate packed_simd;
 extern crate plex;
 extern crate rand_core;
 //extern crate rearray;

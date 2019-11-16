@@ -24,6 +24,7 @@ xgpu = ["kuda", "objrs", "objrs_frameworks_foundation"]
 [dependencies]
 libc = "^0.2"
 #num-traits = "^0.2"
+packed_simd = "~0.3.3"
 #plex = { git = "https://github.com/goffrie/plex", rev = "a4c1068fc31293b209677f6347aa51bbf73c1e53", default-features = false, features = ["lexer"] }
 #plex = { version = "~0.2.5", default-features = false, features = ["lexer"] }
 plex = { path = "third_party/plex" }

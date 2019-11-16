@@ -4615,7 +4615,10 @@ enum Tyredex {
   Oct,
   Int,
   Flp,
-  VFlp,
+  V2Flp,
+  V3Flp,
+  V4Flp,
+  //VFlp,
 }
 
 //#[derive(Clone, Debug)]
@@ -4637,7 +4640,10 @@ enum Tyexp {
   Oct,
   Int,
   Flp,
-  VFlp,
+  V2Flp,
+  V3Flp,
+  V4Flp,
+  //VFlp,
 }
 
 impl Tyexp {
@@ -4651,13 +4657,16 @@ impl Tyexp {
         }
         Ok(Tyexp::STup(elems_))
       }
-      &MVal::Quo(_) => Ok(Tyexp::Quo),
-      &MVal::Iota   => Ok(Tyexp::Iota),
-      &MVal::Bit(_) => Ok(Tyexp::Bit),
-      &MVal::Oct(_) => Ok(Tyexp::Oct),
-      &MVal::Int(_) => Ok(Tyexp::Int),
-      &MVal::Flp(_) => Ok(Tyexp::Flp),
-      &MVal::Bot    => Err(()),
+      &MVal::Quo(_)     => Ok(Tyexp::Quo),
+      &MVal::Iota       => Ok(Tyexp::Iota),
+      &MVal::Bit(_)     => Ok(Tyexp::Bit),
+      &MVal::Oct(_)     => Ok(Tyexp::Oct),
+      &MVal::Int(_)     => Ok(Tyexp::Int),
+      &MVal::Flp(_)     => Ok(Tyexp::Flp),
+      &MVal::V2Flp(_)   => Ok(Tyexp::V2Flp),
+      &MVal::V3Flp(_)   => Ok(Tyexp::V3Flp),
+      &MVal::V4Flp(_)   => Ok(Tyexp::V4Flp),
+      &MVal::Bot        => Err(()),
       _ => Err(())
     }
   }
@@ -4707,7 +4716,10 @@ pub enum LTy {
   Oct,
   Int,
   Flp,
-  VFlp,
+  V2Flp,
+  V3Flp,
+  V4Flp,
+  //VFlp,
 }
 
 //#[derive(Clone, Debug)]
