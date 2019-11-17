@@ -124,7 +124,7 @@ lexer! {
   r#"\}"#       => HToken::RCurly,
   r#"'\["#      => HToken::LQuoteBrack,
   r#"'"#        => HToken::Quote,
-  r#"\?_"#      => HToken::StagingPlace,
+  r#"\?[_]+"#   => HToken::StagingPlace,
   r#"\?"#       => HToken::Antiquote,
   r#"[_]+"#     => HToken::Place,
 
@@ -136,6 +136,9 @@ lexer! {
   r#"Oct"#      => HToken::OctTy,
   r#"Int"#      => HToken::IntTy,
   r#"Flp"#      => HToken::FlpTy,
+  r#"V2Flp"#    => HToken::V2FlpTy,
+  r#"V3Flp"#    => HToken::V3FlpTy,
+  r#"V4Flp"#    => HToken::V4FlpTy,
   //r#"Flp16"#    => HToken::Flp16Ty,
   //r#"Flp32"#    => HToken::Flp32Ty,
   //r#"Fmp"#      => HToken::FmpTy,
@@ -160,10 +163,10 @@ lexer! {
   r#"-[0-9]+"#                      => HToken::IntLit(text.parse().unwrap()),
   r#"[0-9]+"#                       => HToken::IntLit(text.parse().unwrap()),
 
-  r#"[a-zA-Z_][a-zA-Z0-9_]*[']*"#   => HToken::Ident(text.to_owned()),
-  r#"`[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HToken::InfixIdent(text.to_owned()),
-  r#"^[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HToken::PostfixIdent(text.to_owned()),
-  //r#"'[a-zA-Z_][a-zA-Z0-9_]*[']*"#  => HToken::TyvarIdent(text.to_owned()),
+  r#"[a-zA-Z_][a-zA-Z0-9_']*"#      => HToken::Ident(text.to_owned()),
+  r#"`[a-zA-Z_][a-zA-Z0-9_']*"#     => HToken::InfixIdent(text.to_owned()),
+  r#"^[a-zA-Z_][a-zA-Z0-9_']*"#     => HToken::PostfixIdent(text.to_owned()),
+  //r#"'[a-zA-Z_][a-zA-Z0-9_']*"#     => HToken::TyvarIdent(text.to_owned()),
   r#"\?[a-zA-Z_][a-zA-Z0-9_]*"#     => HToken::StagingIdent(text.to_owned()),
   r#"\?[0-9]+"#                     => HToken::StagingIndex(text.to_owned()),
   //r#"\~[A-Za-z0-9/\+]+[=]*"#        => HToken::CrypticIdent(text.to_owned()),
@@ -318,6 +321,9 @@ pub enum HToken {
   OctTy,
   IntTy,
   FlpTy,
+  V2FlpTy,
+  V3FlpTy,
+  V4FlpTy,
   Iota,
   Tee,
   Bot,
@@ -460,13 +466,17 @@ pub enum HTypat {
   //Top,
   //Place,
   //Tyvar(String),
-  Fun(Vec<Rc<HTypat>>, Rc<HTypat>),
   Quo,
+  Fun(Vec<Rc<HTypat>>, Rc<HTypat>),
+  STup(Vec<Rc<HTypat>>),
   Iota,
   Bit,
   Oct,
   Int,
   Flp,
+  V2Flp,
+  V3Flp,
+  V4Flp,
   Ident(String),
 }
 
@@ -479,6 +489,9 @@ impl From<HToken> for HTypat {
       HToken::OctTy => HTypat::Oct,
       HToken::IntTy => HTypat::Int,
       HToken::FlpTy => HTypat::Flp,
+      HToken::V2FlpTy => HTypat::V2Flp,
+      HToken::V3FlpTy => HTypat::V3Flp,
+      HToken::V4FlpTy => HTypat::V4Flp,
       HToken::Ident(name) => HTypat::Ident(name),
       _ => panic!(),
     }
@@ -503,6 +516,7 @@ pub enum HExpr {
   Atom(Rc<HExpr>, Vec<Rc<HExpr>>),
   UTuple(Vec<Rc<HExpr>>),
   STuple(Vec<Rc<HExpr>>),
+  VTuple(Vec<Rc<HExpr>>),
   //ETuple(Vec<Rc<HExpr>>),
   ETuple(Vec<String>),
   PartialD(Rc<HExpr>),
@@ -1403,6 +1417,7 @@ impl<Toks: Iterator<Item=(HToken, HTokenInfo)> + Clone> HParser<Toks> {
         Ok(HExpr::Neg(Rc::new(right)))
       }
       HToken::LBrack => {
+        // FIXME: this can be significantly cleaned up.
         let mut arg_typats = Vec::new();
         loop {
           let arg_tok = self.current_token();
@@ -1429,6 +1444,9 @@ impl<Toks: Iterator<Item=(HToken, HTokenInfo)> + Clone> HParser<Toks> {
             &HToken::OctTy |
             &HToken::IntTy |
             &HToken::FlpTy |
+            &HToken::V2FlpTy |
+            &HToken::V3FlpTy |
+            &HToken::V4FlpTy |
             &HToken::Ident(_) => {
               self.advance();
               arg_typats.push(HTypat::from(arg_tok).into());
@@ -1454,6 +1472,9 @@ impl<Toks: Iterator<Item=(HToken, HTokenInfo)> + Clone> HParser<Toks> {
                 HToken::OctTy,
                 HToken::IntTy,
                 HToken::FlpTy,
+                HToken::V2FlpTy,
+                HToken::V3FlpTy,
+                HToken::V4FlpTy,
                 HToken::Ident("<identifier>".into()),
                 //HToken::TyvarIdent("<type-variable>".into()),
             ], tok))
@@ -1484,6 +1505,9 @@ impl<Toks: Iterator<Item=(HToken, HTokenInfo)> + Clone> HParser<Toks> {
           &HToken::OctTy |
           &HToken::IntTy |
           &HToken::FlpTy |
+          &HToken::V2FlpTy |
+          &HToken::V3FlpTy |
+          &HToken::V4FlpTy |
           &HToken::Ident(_) => {
             self.advance();
             HTypat::from(ret_tok).into()
@@ -1497,6 +1521,9 @@ impl<Toks: Iterator<Item=(HToken, HTokenInfo)> + Clone> HParser<Toks> {
               HToken::OctTy,
               HToken::IntTy,
               HToken::FlpTy,
+              HToken::V2FlpTy,
+              HToken::V3FlpTy,
+              HToken::V4FlpTy,
               HToken::Ident("<identifier>".into()),
               //HToken::TyvarIdent("<type-variable>".into()),
           ], tok))
@@ -1605,7 +1632,10 @@ impl<Toks: Iterator<Item=(HToken, HTokenInfo)> + Clone> HParser<Toks> {
       HToken::BitTy |
       HToken::OctTy |
       HToken::IntTy |
-      HToken::FlpTy => {
+      HToken::FlpTy |
+      HToken::V2FlpTy |
+      HToken::V3FlpTy |
+      HToken::V4FlpTy => {
         Ok(HExpr::Typat(HTypat::from(tok).into()))
       }
       HToken::Iota => {

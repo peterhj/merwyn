@@ -4,6 +4,7 @@
 
 #![feature(non_ascii_idents)]
 //#![feature(proc_macro_hygiene)]
+#![feature(specialization)]
 
 #[cfg(all(feature = "xgpu", target_os = "linux"))] extern crate kuda;
 extern crate libc;

@@ -215,6 +215,44 @@ impl MValUnpack<f64> for MVal {
   }
 }
 
+impl<T1, T2> MValUnpack<(T1, T2)> for MVal
+where MVal: MValUnpack<T1>
+          + MValUnpack<T2>
+{
+  default fn try_unpack(self) -> Option<(T1, T2)> {
+    match self {
+      // FIXME: cases.
+      MVal::STup(elems) => {
+        if elems.len() != 2 {
+          return None;
+        }
+        Some(((*elems[0]).clone().try_unpack()?,
+              (*elems[1]).clone().try_unpack()?))
+      }
+      _ => None,
+    }
+  }
+}
+
+impl<T1, T2> MValUnpack<(Option<T1>, Option<T2>)> for MVal
+where MVal: MValUnpack<T1>
+          + MValUnpack<T2>
+{
+  fn try_unpack(self) -> Option<(Option<T1>, Option<T2>)> {
+    match self {
+      // FIXME: cases.
+      MVal::STup(elems) => {
+        if elems.len() != 2 {
+          return None;
+        }
+        Some(((*elems[0]).clone().try_unpack(),
+              (*elems[1]).clone().try_unpack()))
+      }
+      _ => None,
+    }
+  }
+}
+
 impl MValDeref<f64x2> for MVal {
   fn try_deref(&self) -> Option<&f64x2> {
     match self {
@@ -406,6 +444,7 @@ pub enum MKont<E=LExprCell> {
   Ret(MEnvRef, MKontRef),
   Knt(E, MEnvRef, MKontRef),
   Thk(MAddr, MEnvRef, MKontRef),
+  Def(MEnvRef, MKontRef),
   //EImp(LEnvMask, E, MKontRef),
   //EApp(Vec<(usize, LVar)>, E, MKontRef),
   //ERet(LEnvMask, Vec<(usize, LVar)>, MEnvRef, MKontRef),
@@ -745,6 +784,18 @@ impl MachineState {
             let val: MValRef = val.into();
             self.store.lock(&thk_a);
             self.store.update(&thk_a, val.clone());
+            MachineTuple{
+              ctrl: MReg::Val(val),
+              env:  prev_env,
+              kont: prev_kont,
+            }
+          }
+          MKont::Def(prev_env, prev_kont) => {
+            let val = if val.is_undef() {
+              MVal::Bit(false).into()
+            } else {
+              MVal::Bit(true).into()
+            };
             MachineTuple{
               ctrl: MReg::Val(val),
               env:  prev_env,
@@ -1469,7 +1520,12 @@ impl MachineState {
           }
           LTerm::Def(inner) => {
             // TODO
-            unimplemented!();
+            let inner = exp.jump(inner);
+            MachineTuple{
+              ctrl: MReg::Term(inner),
+              kont: MKont::Def(env.clone(), kont.clone()).into(),
+              env,
+            }
           }
           LTerm::Quote(quote) => {
             let val = MVal::Quo(quote.into()).into();

@@ -441,6 +441,7 @@ pub enum LTerm<E=LLoc, ME=LMLoc> {
   ProjectIdent(E, LIdent),
   //ProjectIdents(E, Vec<LIdent>),
   ProjectVar(E, LVar),
+  StagingVar(LIdent, LVar),
   MX(ME),
   Bot,
 }
@@ -866,13 +867,23 @@ impl LBuilder {
         let ret_ = self._lower_typat_rec(ret.clone())?;
         Ok(LTy::Fun(params_, ret_).into())
       }
+      &HTypat::STup(ref elems) => {
+        let mut elems_ = Vec::with_capacity(elems.len());
+        for e in elems.iter() {
+          elems_.push(self._lower_typat_rec(e.clone())?);
+        }
+        Ok(LTy::STup(elems_).into())
+      }
       &HTypat::Quo => Ok(LTy::Quo.into()),
       &HTypat::Iota => Ok(LTy::Iota.into()),
       &HTypat::Bit => Ok(LTy::Bit.into()),
       &HTypat::Oct => Ok(LTy::Oct.into()),
       &HTypat::Int => Ok(LTy::Int.into()),
       &HTypat::Flp => Ok(LTy::Flp.into()),
-      _ => unimplemented!(),
+      &HTypat::V2Flp => Ok(LTy::V2Flp.into()),
+      &HTypat::V3Flp => Ok(LTy::V3Flp.into()),
+      &HTypat::V4Flp => Ok(LTy::V4Flp.into()),
+      t => panic!("bug: unimplemented type pattern: {:?}", t),
     }
   }
 
@@ -1629,6 +1640,9 @@ impl LBuilder {
           kont(this, new_exp)
         })
       }
+      &LTerm::StagingVar(..) => {
+        kont(self, exp)
+      }
       &LTerm::MX(_) => {
         kont(self, exp)
       }
@@ -1656,14 +1670,15 @@ impl LBuilder {
   fn _normalize_name(&mut self, exp: LExprCell, kont: &mut dyn FnMut(&mut Self, LExprCell) -> LExprCell) -> LExprCell {
     self._normalize_kont(exp, &mut |this, exp| {
       match &exp.term() {
+        // TODO: cases.
         &LTerm::BitLit(_) |
         &LTerm::IntLit(_) |
         &LTerm::FlpLit(_) |
         &LTerm::LookupIdent(_) |
-        &LTerm::LookupVar(_) => {
+        &LTerm::LookupVar(_) |
+        &LTerm::StagingVar(..) => {
           kont(this, exp)
         }
-        // TODO: cases.
         _ => {
           let new_var = this.fresh_anon_var();
           let new_var_e1 = exp.append(this, &mut |this| {
@@ -1931,6 +1946,7 @@ impl LBuilder {
       &LTerm::ProjectIdent(ref target, _) => {
         self._ctx_exp(exp.lookup(target), ctx, env, tenv);
       }
+      &LTerm::StagingVar(..) => {}
       &LTerm::MX(_) => {}
       //_ => unimplemented!(),
       t => {
@@ -2263,6 +2279,9 @@ impl LBuilder {
             ident.clone()
         ))
       }
+      &LTerm::StagingVar(..) => {
+        exp
+      }
       &LTerm::MX(_) => {
         exp
       }
@@ -2506,6 +2525,9 @@ impl LBuilder {
             var.clone()
         ))
       }
+      &LTerm::StagingVar(..) => {
+        exp
+      }
       &LTerm::MX(_) => {
         exp
       }
@@ -2719,6 +2741,9 @@ impl LBuilder {
             target.loc(),
             var.clone()
         ))
+      }
+      &LTerm::StagingVar(..) => {
+        exp
       }
       &LTerm::MX(_) => {
         exp
@@ -3604,6 +3629,9 @@ impl LBuilder {
         } else {
           self._register_adj(&exp, work, ResolveAdj::Bridge(exp.clone(), true))
         }
+      }
+      &LTerm::StagingVar(..) => {
+        self._register_adj(&exp, work, ResolveAdj::Primal(exp.clone()))
       }
       &LTerm::MX(_) => {
         // TODO
@@ -4859,6 +4887,9 @@ impl LBuilder {
         ));
         new_exp
       }
+      &LTerm::StagingVar(..) => {
+        exp
+      }
       &LTerm::MX(_) => {
         exp
       }
@@ -5839,6 +5870,9 @@ impl LBuilder {
             }*/
           }
         }
+      }
+      &LTerm::StagingVar(..) => {
+        // TODO
       }
       //_ => unimplemented!(),
       t => {
@@ -7790,9 +7824,15 @@ impl PrintBox {
         }
         Ok(())
       }
+      &LTerm::StagingVar(ref ident, ref var) => {
+        let ident_s = builder.rlookup_name(&ident);
+        write!(&mut buffer, "?{}${}", ident_s, var.0)?;
+        writer.write_all(&buffer.into_inner())?;
+        Ok(())
+      }
       &LTerm::MX(_) => {
         // TODO
-        write!(&mut buffer, "<MX>")?;
+        write!(&mut buffer, "<mx>")?;
         writer.write_all(&buffer.into_inner())?;
         Ok(())
       }
