@@ -29,6 +29,12 @@ pub type MThunkRef = Rc<MThunk>;
 #[derive(Clone)]
 pub struct MValRef(Rc<MVal>);
 
+impl From<MVal> for MValRef {
+  fn from(val: MVal) -> MValRef {
+    MValRef(Rc::new(val))
+  }
+}
+
 impl Deref for MValRef {
   type Target = MVal;
 
@@ -37,10 +43,48 @@ impl Deref for MValRef {
   }
 }
 
-impl From<MVal> for MValRef {
-  fn from(val: MVal) -> MValRef {
-    MValRef(Rc::new(val))
+#[derive(Clone)]
+pub enum MVal {
+  //Box_(_),
+  Quo(MQuoteRef),
+  Env(MEnvRef),
+  Clo(MClosure),
+  STup(Vec<MValRef>),
+  UTup(Vec<MValRef>),
+  Iota,
+  Bit(bool),
+  Oct(u8),
+  Int(Checked<i64>),
+  Flp(f64),
+  V2Flp(f64x2),
+  V3Flp(f64x4),
+  V4Flp(f64x4),
+  Truth(bool),
+  Bot,
+}
+
+impl MVal {
+  pub fn is_undef(&self) -> bool {
+    match self {
+      &MVal::Bot => true,
+      _ => false,
+    }
   }
+
+  pub fn as_quote(&self) -> MQuoteRef {
+    match self {
+      &MVal::Quo(ref quote) => quote.clone(),
+      _ => panic!("machine: runtime error: MVal: expected quote"),
+    }
+  }
+}
+
+pub trait MValDeref<T> {
+  fn try_deref(&self) -> Option<&T>;
+}
+
+pub trait MValUnpack<T> {
+  fn try_unpack(self) -> Option<T>;
 }
 
 impl From<bool> for MValRef {
@@ -109,49 +153,6 @@ impl From<[f64; 4]> for MValRef {
   }
 }
 
-#[derive(Clone)]
-pub enum MVal {
-  //Box(_),
-  Quo(MQuoteRef),
-  Env(MEnvRef),
-  Clo(MClosure),
-  STup(Vec<MValRef>),
-  UTup(Vec<MValRef>),
-  Iota,
-  Bit(bool),
-  Oct(u8),
-  Int(Checked<i64>),
-  Flp(f64),
-  V2Flp(f64x2),
-  V3Flp(f64x4),
-  V4Flp(f64x4),
-  Bot,
-}
-
-impl MVal {
-  pub fn is_undef(&self) -> bool {
-    match self {
-      &MVal::Bot => true,
-      _ => false,
-    }
-  }
-
-  pub fn as_quote(&self) -> MQuoteRef {
-    match self {
-      &MVal::Quo(ref quote) => quote.clone(),
-      _ => panic!("machine: runtime error: MVal: expected quote"),
-    }
-  }
-}
-
-pub trait MValDeref<T> {
-  fn try_deref(&self) -> Option<&T>;
-}
-
-pub trait MValUnpack<T> {
-  fn try_unpack(self) -> Option<T>;
-}
-
 impl MValUnpack<()> for MVal {
   fn try_unpack(self) -> Option<()> {
     match self {
@@ -174,6 +175,7 @@ impl MValUnpack<bool> for MVal {
   fn try_unpack(self) -> Option<bool> {
     match self {
       MVal::Bit(x) => Some(x),
+      MVal::Truth(x) => Some(x),
       _ => None,
     }
   }
@@ -265,7 +267,14 @@ impl MValDeref<f64x2> for MVal {
 impl MValUnpack<(f64, f64)> for MVal {
   fn try_unpack(self) -> Option<(f64, f64)> {
     match self {
-      // TODO: tuple case.
+      // TODO: cases.
+      MVal::STup(elems) => {
+        if elems.len() != 2 {
+          return None;
+        }
+        Some(((*elems[0]).clone().try_unpack()?,
+              (*elems[1]).clone().try_unpack()?))
+      }
       MVal::V2Flp(x) => {
         let mut y = [0.0, 0.0];
         x.write_to_slice_unaligned(&mut y);
@@ -292,7 +301,15 @@ impl MValUnpack<[f64; 2]> for MVal {
 impl MValUnpack<(f64, f64, f64)> for MVal {
   fn try_unpack(self) -> Option<(f64, f64, f64)> {
     match self {
-      // TODO: tuple case.
+      // TODO: cases.
+      MVal::STup(elems) => {
+        if elems.len() != 3 {
+          return None;
+        }
+        Some(((*elems[0]).clone().try_unpack()?,
+              (*elems[1]).clone().try_unpack()?,
+              (*elems[2]).clone().try_unpack()?))
+      }
       MVal::V3Flp(x) => {
         let mut y = [0.0, 0.0, 0.0, 0.0];
         x.write_to_slice_unaligned(&mut y);
@@ -319,7 +336,16 @@ impl MValUnpack<[f64; 3]> for MVal {
 impl MValUnpack<(f64, f64, f64, f64)> for MVal {
   fn try_unpack(self) -> Option<(f64, f64, f64, f64)> {
     match self {
-      // TODO: tuple case.
+      // TODO: cases.
+      MVal::STup(elems) => {
+        if elems.len() != 4 {
+          return None;
+        }
+        Some(((*elems[0]).clone().try_unpack()?,
+              (*elems[1]).clone().try_unpack()?,
+              (*elems[2]).clone().try_unpack()?,
+              (*elems[3]).clone().try_unpack()?))
+      }
       MVal::V4Flp(x) => {
         let mut y = [0.0, 0.0, 0.0, 0.0];
         x.write_to_slice_unaligned(&mut y);
@@ -792,9 +818,9 @@ impl MachineState {
           }
           MKont::Def(prev_env, prev_kont) => {
             let val = if val.is_undef() {
-              MVal::Bit(false).into()
+              MVal::Truth(false).into()
             } else {
-              MVal::Bit(true).into()
+              MVal::Truth(true).into()
             };
             MachineTuple{
               ctrl: MReg::Val(val),

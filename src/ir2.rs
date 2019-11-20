@@ -43,7 +43,7 @@ pub struct LVar(u64);
 pub struct LEnvId(u64);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct LTyId(u64);
+pub struct LMonoTy(u64);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LTyvar(u64);
@@ -534,12 +534,13 @@ pub struct LBuilder {
   label_ctr:    u64,
   mlabel_ctr:   u64,
   ident_ctr:    u64,
-  def_ctr:      u64,
+  var_ctr:      u64,
   env_ctr:      u64,
-  ty_ctr:       u64,
+  monoty_ctr:   u64,
   //tyvar_ctr:    u64,
   name_to_id:   HTreapMap<String, LIdent>,
   id_to_name:   HTreapMap<LIdent, String>,
+  monoty_to_id: HTreapMap<LMonoTy, LIdent>,
   var_to_bind:  IHTreapMap<LVar, LVarBinder>,
   adj_map:      IHTreapMap<(LEnvId, LVar), LVar>,
   staged_vals:  HTreapMap<String, MValRef>,
@@ -551,12 +552,13 @@ impl Default for LBuilder {
       label_ctr:    0,
       mlabel_ctr:   0,
       ident_ctr:    0,
-      def_ctr:      0,
+      var_ctr:      0,
       // NB: env id starts counting at 2.
       env_ctr:      1,
-      ty_ctr:       0,
+      monoty_ctr:   0,
       name_to_id:   HTreapMap::default(),
       id_to_name:   HTreapMap::default(),
+      monoty_to_id: HTreapMap::default(),
       var_to_bind:  IHTreapMap::default(),
       adj_map:      IHTreapMap::default(),
       staged_vals:  HTreapMap::default(),
@@ -608,18 +610,18 @@ impl LBuilder {
   }
 
   pub fn fresh_anon_var(&mut self) -> LVar {
-    self.def_ctr += 1;
-    assert!(self.def_ctr != 0);
-    let new_var = LVar(self.def_ctr);
+    self.var_ctr += 1;
+    assert!(self.var_ctr != 0);
+    let new_var = LVar(self.var_ctr);
     assert!(!self.var_to_bind.contains_key(&new_var));
     self.var_to_bind.insert_mut(new_var.clone(), anon());
     new_var
   }
 
   pub fn fresh_var(&mut self, ident: LIdent) -> LVar {
-    self.def_ctr += 1;
-    assert!(self.def_ctr != 0);
-    let new_var = LVar(self.def_ctr);
+    self.var_ctr += 1;
+    assert!(self.var_ctr != 0);
+    let new_var = LVar(self.var_ctr);
     assert!(!self.var_to_bind.contains_key(&new_var));
     self.var_to_bind.insert_mut(new_var.clone(), LVarBinder::Ident(ident));
     new_var
@@ -639,10 +641,19 @@ impl LBuilder {
     LEnvId(self.env_ctr)
   }
 
-  pub fn fresh_ty_id(&mut self) -> LTyId {
-    self.ty_ctr += 1;
-    assert!(self.ty_ctr != 0);
-    LTyId(self.ty_ctr)
+  pub fn fresh_anon_mono_ty(&mut self) -> LMonoTy {
+    self.monoty_ctr += 1;
+    assert!(self.monoty_ctr != 0);
+    LMonoTy(self.monoty_ctr)
+  }
+
+  pub fn fresh_mono_ty(&mut self, ident: LIdent) -> LMonoTy {
+    self.monoty_ctr += 1;
+    assert!(self.monoty_ctr != 0);
+    let new_ty = LMonoTy(self.monoty_ctr);
+    assert!(!self.monoty_to_id.contains_key(&new_ty));
+    self.monoty_to_id.insert(new_ty.clone(), ident.clone());
+    new_ty
   }
 
   /*pub fn fresh_tvar(&mut self) -> LTyvar {
@@ -4919,6 +4930,7 @@ enum Tyredex {
   V3Flp,
   V4Flp,
   //VFlp,
+  Truth,
 }
 
 //#[derive(Clone, Debug)]
@@ -4944,36 +4956,38 @@ enum Tyexp {
   V3Flp,
   V4Flp,
   //VFlp,
+  Truth,
 }
 
 impl Tyexp {
-  fn from_val_rec(val: &MVal) -> Result<Tyexp, ()> {
+  fn from_val(val: &MVal) -> Option<Tyexp> {
     match val {
-      // TODO
+      // TODO: cases.
       &MVal::STup(ref elems) => {
         let mut elems_ = Vec::with_capacity(elems.len());
         for elem in elems.iter() {
-          elems_.push(Tyexp::from_val_rec(&**elem)?.into());
+          elems_.push(Tyexp::from_val(&**elem)?.into());
         }
-        Ok(Tyexp::STup(elems_))
+        Some(Tyexp::STup(elems_))
       }
-      &MVal::Quo(_)     => Ok(Tyexp::Quo),
-      &MVal::Iota       => Ok(Tyexp::Iota),
-      &MVal::Bit(_)     => Ok(Tyexp::Bit),
-      &MVal::Oct(_)     => Ok(Tyexp::Oct),
-      &MVal::Int(_)     => Ok(Tyexp::Int),
-      &MVal::Flp(_)     => Ok(Tyexp::Flp),
-      &MVal::V2Flp(_)   => Ok(Tyexp::V2Flp),
-      &MVal::V3Flp(_)   => Ok(Tyexp::V3Flp),
-      &MVal::V4Flp(_)   => Ok(Tyexp::V4Flp),
-      &MVal::Bot        => Err(()),
-      _ => Err(())
+      &MVal::Quo(_)     => Some(Tyexp::Quo),
+      &MVal::Iota       => Some(Tyexp::Iota),
+      &MVal::Bit(_)     => Some(Tyexp::Bit),
+      &MVal::Oct(_)     => Some(Tyexp::Oct),
+      &MVal::Int(_)     => Some(Tyexp::Int),
+      &MVal::Flp(_)     => Some(Tyexp::Flp),
+      &MVal::V2Flp(_)   => Some(Tyexp::V2Flp),
+      &MVal::V3Flp(_)   => Some(Tyexp::V3Flp),
+      &MVal::V4Flp(_)   => Some(Tyexp::V4Flp),
+      &MVal::Truth(_)   => Some(Tyexp::Truth),
+      &MVal::Bot        => None,
+      _ => None
     }
   }
 
-  fn from_val(val: &MVal) -> Option<Tyexp> {
+  /*fn from_val(val: &MVal) -> Option<Tyexp> {
     Tyexp::from_val_rec(val).ok()
-  }
+  }*/
 }
 
 //#[derive(Clone, Debug)]
@@ -5020,6 +5034,7 @@ pub enum LTy {
   V3Flp,
   V4Flp,
   //VFlp,
+  Truth,
 }
 
 //#[derive(Clone, Debug)]
@@ -5027,9 +5042,9 @@ pub enum LTy {
 pub struct LTyRef(Rc<LTy>);
 
 impl LTyRef {
-  pub fn new(e: LTy) -> LTyRef {
+  /*pub fn new(e: LTy) -> LTyRef {
     LTyRef(Rc::new(e))
-  }
+  }*/
 
   fn to_texp(&self) -> TyexpRef {
     match &*self.0 {
@@ -5048,14 +5063,15 @@ impl LTyRef {
       &LTy::STup(ref elems) => {
         Tyexp::STup(elems.iter().map(|e| e.to_texp()).collect()).into()
       }
-      &LTy::Iota => Tyexp::Iota.into(),
-      &LTy::Bit => Tyexp::Bit.into(),
-      &LTy::Oct => Tyexp::Oct.into(),
-      &LTy::Int => Tyexp::Int.into(),
-      &LTy::Flp => Tyexp::Flp.into(),
-      &LTy::V2Flp => Tyexp::V2Flp.into(),
-      &LTy::V3Flp => Tyexp::V3Flp.into(),
-      &LTy::V4Flp => Tyexp::V4Flp.into(),
+      &LTy::Iota    => Tyexp::Iota.into(),
+      &LTy::Bit     => Tyexp::Bit.into(),
+      &LTy::Oct     => Tyexp::Oct.into(),
+      &LTy::Int     => Tyexp::Int.into(),
+      &LTy::Flp     => Tyexp::Flp.into(),
+      &LTy::V2Flp   => Tyexp::V2Flp.into(),
+      &LTy::V3Flp   => Tyexp::V3Flp.into(),
+      &LTy::V4Flp   => Tyexp::V4Flp.into(),
+      &LTy::Truth   => Tyexp::Truth.into(),
       _ => unimplemented!(),
     }
   }
@@ -7828,6 +7844,21 @@ impl PrintBox {
         let ident_s = builder.rlookup_name(&ident);
         write!(&mut buffer, "?{}${}", ident_s, var.0)?;
         writer.write_all(&buffer.into_inner())?;
+        Ok(())
+      }
+      &LTerm::Def(ref inner) => {
+        write!(buffer, "(")?;
+        let mut inner_box = PrintBox{
+          left_indent:  self.left_indent,
+          line_nr:      1,
+        };
+        inner_box._debug_print_exp(builder, exp.lookup(inner), &mut buffer)?;
+        if inner_box.line_nr > 1 {
+          unimplemented!();
+        } else {
+          write!(buffer, ")!")?;
+          writer.write_all(&buffer.into_inner())?;
+        }
         Ok(())
       }
       &LTerm::MX(_) => {

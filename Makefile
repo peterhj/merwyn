@@ -6,13 +6,14 @@ else
 endif
 
 CARGO_FLAGS ?=
+RUSTFLAGS ?= "-C target-cpu=native"
 
 # TODO: Currently we are using some unstable features (plex requires some,
 # while we also utilize 'non_ascii_idents'), so build with nightly.
 #CARGO := cargo
 #RUSTC := rustc
-CARGO := cargo +nightly
-RUSTC := rustc +nightly
+CARGO := RUSTFLAGS=$(RUSTFLAGS) cargo +nightly
+RUSTC := RUSTFLAGS=$(RUSTFLAGS) rustc +nightly
 
 .PHONY: all clean docs rfcs pre versions debuglib lib debugtools tools test test-lang test-ir2 test-mach test-rngs test-ty2
 
