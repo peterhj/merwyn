@@ -5341,7 +5341,9 @@ impl TyEnv {
         None => next.clone(),
         Some(next2) => next2.clone(),
       };
-      self.db.insert_mut(next.clone(), next2.clone());
+      if next != next2 {
+        self.db.insert_mut(cursor.clone(), next2.clone());
+      }
       cursor = next;
       next = next2;
     }
